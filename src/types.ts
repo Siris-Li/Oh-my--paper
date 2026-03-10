@@ -82,6 +82,7 @@ export interface AssetResource {
   path: string;
   absolutePath: string;
   resourceUrl?: string;
+  data?: Uint8Array | number[];
   mimeType: string;
   size?: number;
 }

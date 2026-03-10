@@ -25,6 +25,13 @@ function isTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+function normalizeBinary(data?: Uint8Array | number[] | null) {
+  if (!data) {
+    return undefined;
+  }
+  return data instanceof Uint8Array ? data : Uint8Array.from(data);
+}
+
 async function runOrMock<T>(command: string, args: Record<string, unknown>, fallback: () => Promise<T>) {
   if (isTauriRuntime()) {
     return invoke<T>(command, args);
@@ -33,11 +40,25 @@ async function runOrMock<T>(command: string, args: Record<string, unknown>, fall
 }
 
 function resolveAssetResource(asset: AssetResource): AssetResource {
+  const data = normalizeBinary(asset.data);
+
   if (asset.resourceUrl) {
-    return asset;
+    return {
+      ...asset,
+      data,
+    };
   }
+
+  if (data) {
+    return {
+      ...asset,
+      data,
+    };
+  }
+
   return {
     ...asset,
+    data,
     resourceUrl: isTauriRuntime() ? convertFileSrc(asset.absolutePath) : asset.absolutePath,
   };
 }

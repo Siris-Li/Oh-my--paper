@@ -65,6 +65,22 @@ function sanitizeOpenTabs(snapshot: WorkspaceSnapshot, openTabs: string[], activ
   return nextTabs;
 }
 
+function normalizeProjectPath(path: string) {
+  return path.replaceAll("\\", "/");
+}
+
+function toProjectRelativePath(rootPath: string, filePath?: string) {
+  if (!rootPath || !filePath) {
+    return "";
+  }
+
+  const normalizedRoot = normalizeProjectPath(rootPath).replace(/\/$/, "");
+  const normalizedFile = normalizeProjectPath(filePath);
+  const prefix = `${normalizedRoot}/`;
+
+  return normalizedFile.startsWith(prefix) ? normalizedFile.slice(prefix.length) : "";
+}
+
 function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [bootstrapError, setBootstrapError] = useState("");
@@ -114,6 +130,11 @@ function App() {
     () => findActiveHeading(outlineHeadings, activeFilePath, cursorLine)?.id,
     [activeFilePath, cursorLine, outlineHeadings],
   );
+  const compilePreviewPath = useMemo(
+    () => toProjectRelativePath(snapshot?.projectConfig.rootPath ?? "", snapshot?.compileResult.pdfPath),
+    [snapshot?.compileResult.pdfPath, snapshot?.projectConfig.rootPath],
+  );
+  const compilePreviewAsset = compilePreviewPath ? assetCache[compilePreviewPath] : undefined;
 
   const loadTextFile = useEffectEvent(async (path: string) => {
     if (!path) {
@@ -140,9 +161,14 @@ function App() {
       return assetCache[path] ?? null;
     }
 
-    const asset = await desktop.readAsset(path);
-    setAssetCache((current) => ({ ...current, [path]: asset }));
-    return asset;
+    try {
+      const asset = await desktop.readAsset(path);
+      setAssetCache((current) => ({ ...current, [path]: asset }));
+      return asset;
+    } catch (error) {
+      console.warn("failed to load asset", path, error);
+      return null;
+    }
   });
 
   const applySnapshot = useEffectEvent((
@@ -257,6 +283,13 @@ function App() {
   }, [assetCache, loadAsset, previewSelection]);
 
   useEffect(() => {
+    if (previewSelection.kind !== "compile" || !compilePreviewPath || assetCache[compilePreviewPath]) {
+      return;
+    }
+    void loadAsset(compilePreviewPath);
+  }, [assetCache, compilePreviewPath, loadAsset, previewSelection.kind]);
+
+  useEffect(() => {
     if (!snapshot?.projectConfig.rootPath) {
       setOutlineHeadings([]);
       setOutlineTree([]);
@@ -334,6 +367,11 @@ function App() {
 
 
   const runCompile = useEffectEvent(async (filePath: string) => {
+    const previousCompilePath = toProjectRelativePath(
+      snapshot?.projectConfig.rootPath ?? "",
+      snapshot?.compileResult.pdfPath,
+    );
+
     setSnapshot((current) =>
       current
         ? {
@@ -351,6 +389,21 @@ function App() {
     );
 
     const compileResult = await desktop.compileProject(filePath);
+    const nextCompilePath = toProjectRelativePath(snapshot?.projectConfig.rootPath ?? "", compileResult.pdfPath);
+
+    if (previousCompilePath || nextCompilePath) {
+      setAssetCache((current) => {
+        const next = { ...current };
+        if (previousCompilePath) {
+          delete next[previousCompilePath];
+        }
+        if (nextCompilePath) {
+          delete next[nextCompilePath];
+        }
+        return next;
+      });
+    }
+
     setSnapshot((current) =>
       current
         ? {
@@ -651,7 +704,7 @@ function App() {
     setDirtyPaths((current) => current.filter((path) => path !== result.filePath));
   }
 
-  async function handlePageJump(page: number) {
+  const handlePageJump = useEffectEvent(async (page: number) => {
     setHighlightedPage(page);
     if (previewSelection.kind !== "compile" || snapshot?.compileResult.status !== "success") {
       return;
@@ -662,7 +715,7 @@ function App() {
     } catch (error) {
       console.warn("reverse sync failed", error);
     }
-  }
+  });
 
   async function handleAddProvider(provider: ProviderConfig) {
     await desktop.addProvider(provider);
@@ -830,7 +883,7 @@ function App() {
           description: "资源不存在。",
         };
       }
-      if (!asset?.resourceUrl) {
+      if (!asset || (node.fileType === "pdf" ? !asset.data : !asset.resourceUrl)) {
         return {
           kind: "unsupported",
           title: node.name,
@@ -841,7 +894,9 @@ function App() {
         return {
           kind: "pdf",
           title: node.name,
+          fileData: asset.data instanceof Uint8Array ? asset.data : undefined,
           fileUrl: asset.resourceUrl,
+          isLoading: false,
           highlightedPage,
           onPageJump: (page) => setHighlightedPage(page),
         };
@@ -850,7 +905,7 @@ function App() {
         return {
           kind: "image",
           title: node.name,
-          fileUrl: asset.resourceUrl,
+          fileUrl: asset.resourceUrl ?? "",
         };
       }
       return {
@@ -871,13 +926,13 @@ function App() {
     return {
       kind: "compile",
       compileResult: snapshot.compileResult,
-      fileUrl: snapshot.compileResult.pdfData
-        ? undefined
-        : desktop.resolveResourceUrl(snapshot.compileResult.pdfPath),
+      fileData: compilePreviewAsset?.data instanceof Uint8Array ? compilePreviewAsset.data : undefined,
+      fileUrl: undefined,
+      isLoading: Boolean(compilePreviewPath) && !compilePreviewAsset,
       highlightedPage,
       onPageJump: handlePageJump,
     };
-  }, [assetCache, handlePageJump, highlightedPage, previewSelection, snapshot]);
+  }, [assetCache, compilePreviewAsset, compilePreviewPath, handlePageJump, highlightedPage, previewSelection, snapshot]);
 
   const outlineNode = useMemo(() => {
     if (outlineLoading) {

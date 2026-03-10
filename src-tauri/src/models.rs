@@ -141,6 +141,7 @@ pub struct AssetResource {
     pub path: String,
     pub absolute_path: String,
     pub resource_url: Option<String>,
+    pub data: Option<Vec<u8>>,
     pub mime_type: String,
     pub size: Option<u64>,
 }

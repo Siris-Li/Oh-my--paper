@@ -1,23 +1,29 @@
 import { pdfjs, Document, Page } from "react-pdf";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { CompileResult } from "../types";
 
 import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
+const PAGE_WINDOW_RADIUS = 2;
+
 export type PreviewPaneState =
   | {
       kind: "compile";
       compileResult: CompileResult;
+      fileData?: Uint8Array;
       fileUrl?: string;
+      isLoading?: boolean;
       highlightedPage: number;
       onPageJump: (page: number) => void;
     }
   | {
       kind: "pdf";
       title: string;
-      fileUrl: string;
+      fileData?: Uint8Array;
+      fileUrl?: string;
+      isLoading?: boolean;
       highlightedPage: number;
       onPageJump: (page: number) => void;
     }
@@ -34,16 +40,32 @@ export type PreviewPaneState =
 
 function PdfPreview({
   file,
+  isLoading,
   highlightedPage,
   onPageJump,
   statusLabel,
 }: {
   file?: { data: Uint8Array } | string;
+  isLoading?: boolean;
   highlightedPage: number;
   onPageJump: (page: number) => void;
   statusLabel: string;
 }) {
   const [pageCount, setPageCount] = useState(0);
+
+  useEffect(() => {
+    setPageCount(0);
+  }, [file]);
+
+  const pagesToRender = useMemo(() => {
+    if (pageCount <= 0) {
+      return [Math.max(highlightedPage, 1)];
+    }
+
+    const start = Math.max(1, highlightedPage - PAGE_WINDOW_RADIUS);
+    const end = Math.min(pageCount, highlightedPage + PAGE_WINDOW_RADIUS);
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  }, [highlightedPage, pageCount]);
 
   return (
     <>
@@ -52,6 +74,7 @@ function PdfPreview({
         <div style={{ display: "flex", gap: "12px", color: "var(--text-secondary)" }}>
           <span>{statusLabel}</span>
           <span>{pageCount ? `共 ${pageCount} 页` : "暂无页面"}</span>
+          {pageCount > pagesToRender.length ? <span>仅渲染当前页附近</span> : null}
         </div>
       </div>
 
@@ -87,8 +110,7 @@ function PdfPreview({
             loading={<div className="pdf-placeholder">正在加载 PDF 文件...</div>}
             error={<div className="pdf-placeholder">无法加载预览文档</div>}
           >
-            {Array.from({ length: pageCount || 1 }, (_, index) => {
-              const page = index + 1;
+            {pagesToRender.map((page) => {
               return (
                 <div key={page} className={`pdf-page-frame ${highlightedPage === page ? "is-highlighted" : ""}`}>
                   <button className="pdf-page-hitbox" onClick={() => onPageJump(page)} type="button">
@@ -99,7 +121,7 @@ function PdfPreview({
             })}
           </Document>
         ) : (
-          <div className="pdf-placeholder">暂无可预览的 PDF</div>
+          <div className="pdf-placeholder">{isLoading ? "正在加载 PDF 文件..." : "暂无可预览的 PDF"}</div>
         )}
       </div>
     </>
@@ -107,8 +129,9 @@ function PdfPreview({
 }
 
 export function PdfPane({ preview }: { preview: PreviewPaneState }) {
-  const compilePdfData = preview.kind === "compile" ? preview.compileResult.pdfData : undefined;
+  const compilePdfData = preview.kind === "compile" ? preview.fileData ?? preview.compileResult.pdfData : undefined;
   const compileFileUrl = preview.kind === "compile" ? preview.fileUrl : undefined;
+  const directPdfData = preview.kind === "pdf" ? preview.fileData : undefined;
   const directPdfUrl = preview.kind === "pdf" ? preview.fileUrl : undefined;
 
   const compilePdfFile = useMemo(() => {
@@ -118,7 +141,14 @@ export function PdfPane({ preview }: { preview: PreviewPaneState }) {
     return { data: compilePdfData };
   }, [compileFileUrl, compilePdfData]);
 
-  const pdfFile = preview.kind === "compile" ? compilePdfFile : directPdfUrl;
+  const directPdfFile = useMemo(() => {
+    if (!directPdfData) {
+      return directPdfUrl;
+    }
+    return { data: directPdfData };
+  }, [directPdfData, directPdfUrl]);
+
+  const pdfFile = preview.kind === "compile" ? compilePdfFile : directPdfFile;
 
   if (preview.kind === "image") {
     return (
@@ -156,6 +186,7 @@ export function PdfPane({ preview }: { preview: PreviewPaneState }) {
     return (
       <PdfPreview
         file={pdfFile}
+        isLoading={preview.isLoading}
         highlightedPage={preview.highlightedPage}
         onPageJump={preview.onPageJump}
         statusLabel={preview.title}
@@ -173,6 +204,7 @@ export function PdfPane({ preview }: { preview: PreviewPaneState }) {
   return (
     <PdfPreview
       file={pdfFile}
+      isLoading={preview.isLoading}
       highlightedPage={preview.highlightedPage}
       onPageJump={preview.onPageJump}
       statusLabel={statusLabel}
