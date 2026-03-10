@@ -50,11 +50,12 @@ function TreeNode({
 export function ProjectTree({ nodes, activeFile, onOpenFile }: ProjectTreeProps) {
   return (
     <div className="panel project-tree">
-      <div className="panel-header">
+      <div className="panel-header panel-header-tight">
         <div>
           <p className="eyebrow">Project</p>
           <h2>Workspace Files</h2>
         </div>
+        <div className="panel-caption">{nodes.length} roots</div>
       </div>
       <div className="tree-list">
         {nodes.map((node) => (

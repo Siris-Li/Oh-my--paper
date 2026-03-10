@@ -31,7 +31,10 @@ export function EditorPane({
           <p className="eyebrow">Source</p>
           <h2>{file.path}</h2>
         </div>
-        <div className="subtle-tag">{file.language}</div>
+        <div className="header-meta-cluster">
+          <div className="subtle-tag">{file.language}</div>
+          <div className="panel-caption">{file.content.split("\n").length} lines</div>
+        </div>
       </div>
       <div className="editor-tabs">
         {openTabs.map((tab) => (

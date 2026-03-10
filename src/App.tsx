@@ -43,6 +43,11 @@ function App() {
     return snapshot.files.find((file) => file.path === activeFilePath) ?? snapshot.files[0] ?? null;
   }, [activeFilePath, snapshot]);
 
+  const activeProfile = useMemo(
+    () => snapshot?.profiles.find((profile) => profile.id === activeProfileId) ?? null,
+    [activeProfileId, snapshot?.profiles],
+  );
+
   const deferredActiveFile = useDeferredValue(activeFile);
 
   useEffect(() => {
@@ -240,31 +245,48 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand-block">
-          <p className="eyebrow">ViewerLeaf</p>
-          <h1>Local-first paper workbench</h1>
-          <span>{snapshot.projectConfig.rootPath}</span>
+        <div className="topbar-main">
+          <div className="brand-block">
+            <p className="eyebrow">ViewerLeaf</p>
+            <h1>Local-first paper workbench</h1>
+            <span>{snapshot.projectConfig.rootPath}</span>
+          </div>
+          <div className="topbar-actions">
+            <div className="metric-card">
+              <span className="metric-label">Compile</span>
+              <strong>{snapshot.compileResult.status}</strong>
+            </div>
+            <div className="metric-card">
+              <span className="metric-label">Engine</span>
+              <strong>{snapshot.projectConfig.engine}</strong>
+            </div>
+            <div className="metric-card">
+              <span className="metric-label">Diagnostics</span>
+              <strong>{snapshot.compileResult.diagnostics.length}</strong>
+            </div>
+            <button className="primary-button topbar-run" onClick={handleRunAgent} type="button">
+              Run {activeProfile?.label ?? "profile"}
+            </button>
+          </div>
         </div>
         <div className="toolbar-block">
-          <button className="profile-switcher" onClick={() => setActiveProfileId("outline")} type="button">
-            Outline
-          </button>
-          <button className="profile-switcher" onClick={() => setActiveProfileId("draft")} type="button">
-            Draft
-          </button>
-          <button className="profile-switcher" onClick={() => setActiveProfileId("polish")} type="button">
-            Polish
-          </button>
-          <button className="profile-switcher" onClick={() => setActiveProfileId("de_ai")} type="button">
-            De-AI
-          </button>
-          <button className="profile-switcher" onClick={() => setActiveProfileId("review")} type="button">
-            Review
-          </button>
+          <div className="profile-strip" role="tablist" aria-label="Agent profiles">
+            {snapshot.profiles.map((profile) => (
+              <button
+                key={profile.id}
+                className={`profile-switcher ${activeProfileId === profile.id ? "is-active" : ""}`}
+                onClick={() => setActiveProfileId(profile.id)}
+                type="button"
+              >
+                <span>{profile.label}</span>
+                <small>{profile.stage}</small>
+              </button>
+            ))}
+          </div>
           <div className="status-card">
-            <strong>{snapshot.compileResult.status}</strong>
+            <strong>{activeFilePath}</strong>
             <span>
-              {snapshot.projectConfig.engine} · {snapshot.projectConfig.bibTool}
+              {snapshot.projectConfig.mainTex} · {snapshot.projectConfig.bibTool} · page {highlightedPage}
             </span>
           </div>
         </div>
@@ -293,6 +315,7 @@ function App() {
         messages={messages}
         profiles={snapshot.profiles}
         activeProfileId={activeProfileId}
+        onSelectProfile={(profileId) => setActiveProfileId(profileId as AgentProfileId)}
         onRunAgent={handleRunAgent}
         pendingPatchSummary={pendingPatch?.summary}
         onApplyPatch={handleApplyPatch}

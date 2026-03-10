@@ -16,6 +16,7 @@ interface BottomDockProps {
   messages: AgentMessage[];
   profiles: AgentProfile[];
   activeProfileId: string;
+  onSelectProfile: (profileId: string) => void;
   onRunAgent: () => void;
   pendingPatchSummary?: string;
   onApplyPatch: () => void;
@@ -49,6 +50,7 @@ export function BottomDock({
   messages,
   profiles,
   activeProfileId,
+  onSelectProfile,
   onRunAgent,
   pendingPatchSummary,
   onApplyPatch,
@@ -89,13 +91,18 @@ export function BottomDock({
               <p className="eyebrow">Profiles</p>
               <div className="profile-grid">
                 {profiles.map((profile) => (
-                  <div key={profile.id} className={clsx("profile-card", activeProfileId === profile.id && "is-active")}>
+                  <button
+                    key={profile.id}
+                    className={clsx("profile-card interactive-card", activeProfileId === profile.id && "is-active")}
+                    onClick={() => onSelectProfile(profile.id)}
+                    type="button"
+                  >
                     <strong>{profile.label}</strong>
                     <span>{profile.summary}</span>
                     <small>
                       {profile.model} · {profile.skillIds.join(", ")}
                     </small>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
