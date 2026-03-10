@@ -1,45 +1,145 @@
 # ViewerLeaf
 
-ViewerLeaf is a macOS-first desktop workbench for academic writing with LaTeX.
+<p align="center">
+  <img src="./icons/icon.png" alt="ViewerLeaf logo" width="160" height="160" />
+</p>
 
-## Current state
+English | [中文](#中文)
 
-- React + TypeScript desktop shell with:
-  - project tree
-  - CodeMirror source editor
-  - pdf.js-backed PDF preview
-  - compile log dock
-  - agent profile dock
-  - figure workspace with manual banana generation flow
-- Tauri/Rust command surface for:
-  - project open/save
-  - compile
-  - SyncTeX forward/reverse search
-  - provider and skill metadata
-  - figure and asset registration
-  - Node sidecar agent calls
-- Node sidecar skeleton for:
-  - academic agent runs
-  - figure brief refinement
-  - banana generation payloads
+## English
 
-## Prerequisites
+ViewerLeaf is a macOS-first desktop workbench for academic writing with LaTeX, PDF preview, SyncTeX navigation, and local-first agent workflows.
+
+### Features
+
+- Project tree for LaTeX workspaces
+- CodeMirror editor for source files
+- PDF preview powered by `pdf.js`
+- Compile log and diagnostics dock
+- Agent profile workflow for writing tasks
+- Figure workspace for asset generation and insertion
+- Tauri + Rust desktop backend for project, compile, and sync commands
+
+### Prerequisites
 
 - Node.js 20+
 - Rust toolchain with Cargo
 - `latexmk`
 - `synctex`
 
-## Local development
+### Local Development
+
+```bash
+npm install
+npm run tauri dev
+```
+
+If you only want the frontend shell in a browser:
 
 ```bash
 npm install
 npm run dev
 ```
 
-If you have the Rust toolchain available, add the Tauri CLI workflow on top of the Vite frontend.
+### Build
 
-## Notes
+```bash
+npm run tauri build
+```
+
+### macOS Install Note
+
+GitHub Actions builds are currently unsigned and not notarized. On macOS, downloading the app from GitHub may trigger a warning such as "is damaged" or prevent the app from opening.
+
+To remove the quarantine flag locally:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/ViewerLeaf.app
+```
+
+If you are opening a downloaded DMG first, you can also remove quarantine from the DMG:
+
+```bash
+xattr -dr com.apple.quarantine /path/to/ViewerLeaf_0.1.0_aarch64.dmg
+```
+
+You may also need to open the app once from `System Settings -> Privacy & Security`.
+
+### Notes
 
 - The browser runtime uses a mock backend so the UI can be exercised without Tauri.
-- The Tauri layer expects a local LaTeX environment and a Node runtime for the sidecar.
+- The packaged desktop app expects a local LaTeX toolchain for compile and SyncTeX features.
+- Unsigned macOS builds are suitable for personal/testing distribution, not polished end-user release distribution.
+
+### License
+
+This project is licensed under the MIT License. See [LICENSE](./LICENSE).
+
+## 中文
+
+ViewerLeaf 是一个面向 macOS 的本地优先学术写作工作台，集成了 LaTeX 编辑、PDF 预览、SyncTeX 跳转和 AI 工作流。
+
+### 功能
+
+- LaTeX 项目文件树
+- 基于 CodeMirror 的源码编辑器
+- 基于 `pdf.js` 的 PDF 预览
+- 编译日志与诊断面板
+- 面向写作任务的 Agent 配置流程
+- 图片生成与插入工作区
+- 基于 Tauri + Rust 的桌面端项目、编译与同步能力
+
+### 环境要求
+
+- Node.js 20+
+- Rust toolchain 与 Cargo
+- `latexmk`
+- `synctex`
+
+### 本地开发
+
+```bash
+npm install
+npm run tauri dev
+```
+
+如果你只想在浏览器里启动前端界面：
+
+```bash
+npm install
+npm run dev
+```
+
+### 构建
+
+```bash
+npm run tauri build
+```
+
+### macOS 安装说明
+
+当前 GitHub Actions 构建产物还没有做 Apple 签名和公证。在 macOS 上直接从 GitHub 下载时，系统可能提示“已损坏”或阻止应用打开。
+
+可以在本地移除 quarantine 标记：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/ViewerLeaf.app
+```
+
+如果你是先下载 `.dmg` 再安装，也可以先对 DMG 执行：
+
+```bash
+xattr -dr com.apple.quarantine /path/to/ViewerLeaf_0.1.0_aarch64.dmg
+```
+
+必要时还可以到“系统设置 -> 隐私与安全性”中手动允许打开一次。
+
+### 说明
+
+- 浏览器运行模式使用 mock backend，因此不依赖 Tauri 也可以体验界面。
+- 打包后的桌面应用依赖本地 LaTeX 工具链来完成编译与 SyncTeX 功能。
+- 未签名的 macOS 构建更适合个人测试分发，不适合作为正式面向普通用户的安装包。
+
+### 许可证
+
+本项目采用 MIT 许可证，见 [LICENSE](./LICENSE)。
