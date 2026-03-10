@@ -4,7 +4,7 @@ export type CompileStatus = "idle" | "running" | "success" | "failed" | "cancele
 export type AgentProfileId = "outline" | "draft" | "polish" | "de_ai" | "review";
 export type FigureBriefStatus = "draft" | "ready" | "generated";
 export type AssetKind = "figure";
-export type DrawerTab = "ai" | "logs" | "figures" | "skills" | "providers";
+export type DrawerTab = "explorer" | "ai" | "logs" | "figures" | "skills" | "providers";
 
 export interface ProjectConfig {
   rootPath: string;

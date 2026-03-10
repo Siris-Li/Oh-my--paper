@@ -17,57 +17,38 @@ const latexLanguage = StreamLanguage.define(stex);
 
 export function EditorPane({
   file,
-  openTabs,
   onChange,
   onCursorChange,
-  onSelectTab,
 }: EditorPaneProps) {
   const extensions = useMemo(() => [latexLanguage], []);
 
   return (
-    <div className="panel editor-pane">
-      <div className="panel-header editor-header">
-        <div>
-          <p className="eyebrow">Source</p>
-          <h2>{file.path}</h2>
-        </div>
-        <div className="header-meta-cluster">
-          <div className="subtle-tag">{file.language}</div>
-          <div className="panel-caption">{file.content.split("\n").length} lines</div>
-        </div>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "6px 16px", borderBottom: "1px solid var(--border-light)", fontSize: "12px", color: "var(--text-secondary)", display: "flex", justifyContent: "space-between", background: "var(--bg-app)" }}>
+        <span>源码路径: {file.path}</span>
+        <span>{file.language} · 共 {file.content.split("\n").length} 行</span>
       </div>
-      <div className="editor-tabs">
-        {openTabs.map((tab) => (
-          <button
-            key={tab}
-            className={`editor-tab ${tab === file.path ? "is-active" : ""}`}
-            onClick={() => onSelectTab(tab)}
-            type="button"
-          >
-            {tab.split("/").at(-1)}
-          </button>
-        ))}
+      <div style={{ flex: 1, overflow: "hidden" }}>
+        <CodeMirror
+          value={file.content}
+          height="100%"
+          basicSetup={{
+            lineNumbers: true,
+            highlightActiveLine: true,
+            foldGutter: false,
+          }}
+          extensions={extensions}
+          onChange={onChange}
+          onUpdate={(update) => {
+            if (update.selectionSet || update.docChanged) {
+              const main = update.state.selection.main;
+              const line = update.state.doc.lineAt(main.head).number;
+              const selectedText = update.state.sliceDoc(main.from, main.to);
+              onCursorChange(line, selectedText);
+            }
+          }}
+        />
       </div>
-      <CodeMirror
-        value={file.content}
-        minHeight="100%"
-        className="editor-surface"
-        basicSetup={{
-          lineNumbers: true,
-          highlightActiveLine: true,
-          foldGutter: false,
-        }}
-        extensions={extensions}
-        onChange={onChange}
-        onUpdate={(update) => {
-          if (update.selectionSet || update.docChanged) {
-            const main = update.state.selection.main;
-            const line = update.state.doc.lineAt(main.head).number;
-            const selectedText = update.state.sliceDoc(main.from, main.to);
-            onCursorChange(line, selectedText);
-          }
-        }}
-      />
     </div>
   );
 }

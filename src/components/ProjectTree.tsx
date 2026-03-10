@@ -17,14 +17,14 @@ function TreeNode({
   depth: number;
   onOpenFile: (path: string) => void;
 }) {
-  const paddingLeft = 16 + depth * 14;
+  const paddingLeft = 8 + depth * 12;
   const isActive = node.path === activeFile;
 
   if (node.kind === "directory") {
     return (
       <>
-        <div className="tree-row tree-dir" style={{ paddingLeft }}>
-          <span className="tree-icon">▸</span>
+        <div className="list-item" style={{ paddingLeft }}>
+          <span className="list-item-icon">▾</span>
           <span>{node.name}</span>
         </div>
         {node.children?.map((child) => (
@@ -35,33 +35,23 @@ function TreeNode({
   }
 
   return (
-    <button
-      className={`tree-row tree-file ${isActive ? "is-active" : ""}`}
+    <div
+      className={`list-item ${isActive ? "is-active" : ""}`}
       style={{ paddingLeft }}
       onClick={() => onOpenFile(node.path)}
-      type="button"
     >
-      <span className="tree-icon">{node.kind === "asset" ? "◫" : "∙"}</span>
+      <span className="list-item-icon">{node.kind === "asset" ? "🖼" : "📄"}</span>
       <span>{node.name}</span>
-    </button>
+    </div>
   );
 }
 
 export function ProjectTree({ nodes, activeFile, onOpenFile }: ProjectTreeProps) {
   return (
-    <div className="panel project-tree">
-      <div className="panel-header panel-header-tight">
-        <div>
-          <p className="eyebrow">Project</p>
-          <h2>Workspace Files</h2>
-        </div>
-        <div className="panel-caption">{nodes.length} roots</div>
-      </div>
-      <div className="tree-list">
-        {nodes.map((node) => (
-          <TreeNode key={node.id} node={node} activeFile={activeFile} depth={0} onOpenFile={onOpenFile} />
-        ))}
-      </div>
+    <div style={{ padding: "0 8px" }}>
+      {nodes.map((node) => (
+        <TreeNode key={node.id} node={node} activeFile={activeFile} depth={0} onOpenFile={onOpenFile} />
+      ))}
     </div>
   );
 }

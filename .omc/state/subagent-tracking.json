@@ -33,10 +33,17 @@
       "started_at": "2026-03-10T06:22:39.642Z",
       "parent_mode": "none",
       "status": "running"
+    },
+    {
+      "agent_id": "a20a3d9b5d60a01f5",
+      "agent_type": "Plan",
+      "started_at": "2026-03-10T06:58:21.864Z",
+      "parent_mode": "none",
+      "status": "running"
     }
   ],
-  "total_spawned": 4,
+  "total_spawned": 5,
   "total_completed": 3,
   "total_failed": 0,
-  "last_updated": "2026-03-10T06:22:39.647Z"
+  "last_updated": "2026-03-10T06:58:21.864Z"
 }

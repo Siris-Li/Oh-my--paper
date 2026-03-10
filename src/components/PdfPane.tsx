@@ -22,36 +22,37 @@ export function PdfPane({ compileResult, highlightedPage, onPageJump }: PdfPaneP
   }, [compileResult.pdfData]);
 
   return (
-    <div className="panel pdf-pane">
-      <div className="panel-header pdf-header">
-        <div>
-          <p className="eyebrow">Preview</p>
-          <h2>Compiled PDF</h2>
-        </div>
-        <div className="pdf-meta">
-          <span>{compileResult.status}</span>
-          <span>{pageCount ? `${pageCount} pages` : "No pages yet"}</span>
+    <>
+      <div className="preview-header">
+        <span style={{ fontWeight: 500 }}>PDF 预览</span>
+        <div style={{ display: "flex", gap: "12px", color: "var(--text-secondary)" }}>
+          <span>{compileResult.status === "success" ? "编译成功" : compileResult.status === "failed" ? "编译失败" : compileResult.status}</span>
+          <span>{pageCount ? `共 ${pageCount} 页` : "暂无页面"}</span>
         </div>
       </div>
-      <div className="pdf-toolbar">
-        {Array.from({ length: Math.max(pageCount, 2) }, (_, index) => (
-          <button
-            key={`jump-${index + 1}`}
-            className={`page-chip ${highlightedPage === index + 1 ? "is-active" : ""}`}
-            onClick={() => onPageJump(index + 1)}
-            type="button"
-          >
-            {index + 1}
-          </button>
-        ))}
-      </div>
-      <div className="pdf-scroll">
+
+      {pageCount > 0 && (
+        <div style={{ padding: "8px 16px", borderBottom: "1px solid var(--border-light)", display: "flex", gap: "6px", overflowX: "auto", background: "var(--bg-sidebar)" }}>
+          {Array.from({ length: Math.max(pageCount, 1) }, (_, index) => (
+            <button
+              key={`jump-${index + 1}`}
+              className={highlightedPage === index + 1 ? "btn-primary" : "btn-secondary"}
+              style={{ padding: "4px 10px", borderRadius: "4px", fontSize: "11px", minWidth: "32px" }}
+              onClick={() => onPageJump(index + 1)}
+            >
+              {index + 1}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="preview-content">
         {file ? (
           <Document
             file={file}
             onLoadSuccess={({ numPages }) => setPageCount(numPages)}
-            loading={<div className="pdf-placeholder">Rendering preview…</div>}
-            error={<div className="pdf-placeholder">Unable to load preview PDF.</div>}
+            loading={<div className="pdf-placeholder">正在加载 PDF 文件...</div>}
+            error={<div className="pdf-placeholder">无法加载预览文档</div>}
           >
             {Array.from({ length: pageCount || 1 }, (_, index) => {
               const page = index + 1;
@@ -65,9 +66,9 @@ export function PdfPane({ compileResult, highlightedPage, onPageJump }: PdfPaneP
             })}
           </Document>
         ) : (
-          <div className="pdf-placeholder">Compile the project to populate the PDF preview.</div>
+          <div className="pdf-placeholder">编译项目以查看 PDF 预览</div>
         )}
       </div>
-    </div>
+    </>
   );
 }
