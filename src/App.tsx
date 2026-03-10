@@ -1,0 +1,324 @@
+import {
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useState,
+} from "react";
+
+import { BottomDock } from "./components/BottomDock";
+import { EditorPane } from "./components/EditorPane";
+import { PdfPane } from "./components/PdfPane";
+import { ProjectTree } from "./components/ProjectTree";
+import { desktop } from "./lib/desktop";
+import type {
+  AgentMessage,
+  AgentProfileId,
+  DrawerTab,
+  FigureBriefDraft,
+  GeneratedAsset,
+  ProjectFile,
+  WorkspaceSnapshot,
+} from "./types";
+
+function App() {
+  const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [activeFilePath, setActiveFilePath] = useState("");
+  const [highlightedPage, setHighlightedPage] = useState(1);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("ai");
+  const [cursorLine, setCursorLine] = useState(1);
+  const [selectedText, setSelectedText] = useState("");
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<AgentProfileId>("outline");
+  const [pendingPatch, setPendingPatch] = useState<{ filePath: string; content: string; summary: string } | null>(null);
+  const [selectedBrief, setSelectedBrief] = useState<FigureBriefDraft | null>(null);
+  const [selectedAsset, setSelectedAsset] = useState<GeneratedAsset | null>(null);
+
+  const activeFile = useMemo<ProjectFile | null>(() => {
+    if (!snapshot) {
+      return null;
+    }
+    return snapshot.files.find((file) => file.path === activeFilePath) ?? snapshot.files[0] ?? null;
+  }, [activeFilePath, snapshot]);
+
+  const deferredActiveFile = useDeferredValue(activeFile);
+
+  useEffect(() => {
+    void (async () => {
+      const nextSnapshot = await desktop.openProject();
+      const nextMessages = await desktop.getAgentMessages();
+      setSnapshot(nextSnapshot);
+      setOpenTabs([nextSnapshot.activeFile, nextSnapshot.projectConfig.mainTex]);
+      setActiveFilePath(nextSnapshot.activeFile);
+      setMessages(nextMessages);
+      if (nextSnapshot.compileResult.status === "idle") {
+        const compileResult = await desktop.compileProject(nextSnapshot.activeFile);
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                compileResult,
+              }
+            : current,
+        );
+      }
+    })();
+  }, []);
+
+  const runForwardSync = useEffectEvent(async (filePath: string, line: number) => {
+    if (!snapshot?.projectConfig.forwardSync) {
+      return;
+    }
+    const location = await desktop.forwardSearch(filePath, line);
+    setHighlightedPage(location.page);
+  });
+
+  useEffect(() => {
+    if (!deferredActiveFile) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void runForwardSync(deferredActiveFile.path, cursorLine);
+    }, 420);
+    return () => window.clearTimeout(timer);
+  }, [cursorLine, deferredActiveFile]);
+
+  async function saveAndCompile(filePath: string, content: string) {
+    await desktop.saveFile(filePath, content);
+    if (!snapshot?.projectConfig.autoCompile) {
+      return;
+    }
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            compileResult: {
+              ...current.compileResult,
+              status: "running",
+              logOutput: "Compile queued…",
+              diagnostics: current.compileResult.diagnostics,
+              logPath: current.compileResult.logPath,
+              timestamp: new Date().toISOString(),
+            },
+          }
+        : current,
+    );
+
+    const compileResult = await desktop.compileProject(filePath);
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            compileResult,
+          }
+        : current,
+    );
+  }
+
+  function replaceFileContent(filePath: string, content: string) {
+    setSnapshot((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        files: current.files.map((file) => (file.path === filePath ? { ...file, content } : file)),
+      };
+    });
+  }
+
+  function handleFileChange(content: string) {
+    if (!activeFile) {
+      return;
+    }
+    replaceFileContent(activeFile.path, content);
+    void saveAndCompile(activeFile.path, content);
+  }
+
+  function handleOpenFile(path: string) {
+    startTransition(() => {
+      setActiveFilePath(path);
+      setOpenTabs((current) => (current.includes(path) ? current : [...current, path]));
+    });
+  }
+
+  async function handleRunAgent() {
+    if (!activeFile) {
+      return;
+    }
+    const result = await desktop.runAgent(activeProfileId, activeFile.path, selectedText);
+    const nextMessages = await desktop.getAgentMessages();
+    setMessages(nextMessages);
+    setPendingPatch(result.suggestedPatch ?? null);
+  }
+
+  async function handleApplyPatch() {
+    if (!pendingPatch) {
+      return;
+    }
+    await desktop.applyAgentPatch(pendingPatch.filePath, pendingPatch.content);
+    replaceFileContent(pendingPatch.filePath, pendingPatch.content);
+    setPendingPatch(null);
+  }
+
+  async function handleCreateBrief() {
+    if (!activeFile) {
+      return;
+    }
+    const brief = await desktop.createFigureBrief(activeFile.path, selectedText);
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            figureBriefs: [brief, ...current.figureBriefs.filter((item) => item.id !== brief.id)],
+          }
+        : current,
+    );
+    setSelectedBrief(brief);
+    setDrawerTab("figures");
+  }
+
+  async function handleRunFigureSkill() {
+    if (!selectedBrief) {
+      return;
+    }
+    const updated = await desktop.runFigureSkill(selectedBrief.id);
+    setSelectedBrief(updated);
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            figureBriefs: current.figureBriefs.map((item) => (item.id === updated.id ? updated : item)),
+          }
+        : current,
+    );
+  }
+
+  async function handleGenerateFigure() {
+    if (!selectedBrief) {
+      return;
+    }
+    const asset = await desktop.runBananaGeneration(selectedBrief.id);
+    await desktop.registerGeneratedAsset(asset);
+    setSelectedAsset(asset);
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            assets: [asset, ...current.assets.filter((item) => item.id !== asset.id)],
+          }
+        : current,
+    );
+  }
+
+  async function handleInsertFigure() {
+    if (!activeFile || !selectedAsset) {
+      return;
+    }
+    const result = await desktop.insertFigureSnippet(
+      activeFile.path,
+      selectedAsset.id,
+      "Workflow overview of ViewerLeaf.",
+      cursorLine + 1,
+    );
+    replaceFileContent(result.filePath, result.content);
+  }
+
+  async function handlePageJump(page: number) {
+    setHighlightedPage(page);
+    const location = await desktop.reverseSearch(page);
+    handleOpenFile(location.filePath);
+    setCursorLine(location.line);
+  }
+
+  if (!snapshot || !deferredActiveFile) {
+    return <div className="app-shell loading-shell">Booting ViewerLeaf…</div>;
+  }
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand-block">
+          <p className="eyebrow">ViewerLeaf</p>
+          <h1>Local-first paper workbench</h1>
+          <span>{snapshot.projectConfig.rootPath}</span>
+        </div>
+        <div className="toolbar-block">
+          <button className="profile-switcher" onClick={() => setActiveProfileId("outline")} type="button">
+            Outline
+          </button>
+          <button className="profile-switcher" onClick={() => setActiveProfileId("draft")} type="button">
+            Draft
+          </button>
+          <button className="profile-switcher" onClick={() => setActiveProfileId("polish")} type="button">
+            Polish
+          </button>
+          <button className="profile-switcher" onClick={() => setActiveProfileId("de_ai")} type="button">
+            De-AI
+          </button>
+          <button className="profile-switcher" onClick={() => setActiveProfileId("review")} type="button">
+            Review
+          </button>
+          <div className="status-card">
+            <strong>{snapshot.compileResult.status}</strong>
+            <span>
+              {snapshot.projectConfig.engine} · {snapshot.projectConfig.bibTool}
+            </span>
+          </div>
+        </div>
+      </header>
+
+      <main className="workspace-grid">
+        <ProjectTree nodes={snapshot.tree} activeFile={activeFilePath} onOpenFile={handleOpenFile} />
+
+        <EditorPane
+          file={deferredActiveFile}
+          openTabs={openTabs}
+          onChange={handleFileChange}
+          onCursorChange={(line, selection) => {
+            setCursorLine(line);
+            setSelectedText(selection);
+          }}
+          onSelectTab={handleOpenFile}
+        />
+
+        <PdfPane compileResult={snapshot.compileResult} highlightedPage={highlightedPage} onPageJump={handlePageJump} />
+      </main>
+
+      <BottomDock
+        tab={drawerTab}
+        onTabChange={setDrawerTab}
+        messages={messages}
+        profiles={snapshot.profiles}
+        activeProfileId={activeProfileId}
+        onRunAgent={handleRunAgent}
+        pendingPatchSummary={pendingPatch?.summary}
+        onApplyPatch={handleApplyPatch}
+        compileLog={snapshot.compileResult.logOutput}
+        diagnosticsCount={snapshot.compileResult.diagnostics.length}
+        briefs={snapshot.figureBriefs}
+        assets={snapshot.assets}
+        selectedBriefId={selectedBrief?.id}
+        selectedAssetId={selectedAsset?.id}
+        onCreateBrief={handleCreateBrief}
+        onRunFigureSkill={handleRunFigureSkill}
+        onGenerateFigure={handleGenerateFigure}
+        onInsertFigure={handleInsertFigure}
+        onSelectBrief={(briefId) => {
+          const brief = snapshot.figureBriefs.find((item) => item.id === briefId) ?? null;
+          setSelectedBrief(brief);
+        }}
+        onSelectAsset={(assetId) => {
+          const asset = snapshot.assets.find((item) => item.id === assetId) ?? null;
+          setSelectedAsset(asset);
+        }}
+        skills={snapshot.skills}
+        providers={snapshot.providers}
+      />
+    </div>
+  );
+}
+
+export default App;

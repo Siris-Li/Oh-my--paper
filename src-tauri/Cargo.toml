@@ -1,0 +1,26 @@
+[package]
+name = "viewerleaf"
+version = "0.1.0"
+description = "ViewerLeaf academic writing workbench"
+authors = ["donkfeng"]
+edition = "2021"
+
+[lib]
+name = "viewerleaf_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+dirs = "6"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["process", "rt-multi-thread", "sync"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+walkdir = "2"
