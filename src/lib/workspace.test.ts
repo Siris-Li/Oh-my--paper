@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  closePathTab,
   closeTextTab,
   detectProjectFileType,
   findFirstTextPath,
@@ -65,6 +66,13 @@ describe("workspace helpers", () => {
     expect(closeTextTab(["a.tex"], "a.tex", "a.tex")).toEqual({
       openTabs: [],
       activePath: "",
+    });
+  });
+
+  it("reuses the same close logic for image tabs", () => {
+    expect(closePathTab(["a.png", "b.jpg"], "a.png", "a.png")).toEqual({
+      openTabs: ["b.jpg"],
+      activePath: "b.jpg",
     });
   });
 });

@@ -14,13 +14,14 @@ import { PdfPane, type PreviewPaneState } from "./components/PdfPane";
 import { ProjectTree } from "./components/ProjectTree";
 import { Sidebar } from "./components/Sidebar";
 import { desktop } from "./lib/desktop";
+import { resolvePdfSource } from "./lib/pdf-source";
 import {
   buildProjectOutline,
   findActiveHeading,
   type OutlineHeading,
   type OutlineNode,
 } from "./lib/outline";
-import { closeTextTab, findFirstTextPath, getNodeByPath } from "./lib/workspace";
+import { closePathTab, closeTextTab, findFirstTextPath, getNodeByPath } from "./lib/workspace";
 import type {
   AgentMessage,
   AgentProfileId,
@@ -90,6 +91,7 @@ function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [bootstrapError, setBootstrapError] = useState("");
   const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [openImageTabs, setOpenImageTabs] = useState<string[]>([]);
   const [openFiles, setOpenFiles] = useState<Record<string, ProjectFile>>({});
   const [dirtyPaths, setDirtyPaths] = useState<string[]>([]);
   const [assetCache, setAssetCache] = useState<Record<string, AssetResource>>({});
@@ -114,6 +116,8 @@ function App() {
   const [outlineWarnings, setOutlineWarnings] = useState<string[]>([]);
   const [outlineLoading, setOutlineLoading] = useState(false);
   const [editorJumpTarget, setEditorJumpTarget] = useState<EditorJumpTarget | null>(null);
+  const [editorImagePath, setEditorImagePath] = useState("");
+  const [editorImageUrl, setEditorImageUrl] = useState("");
   const draftContentRef = useRef<Record<string, string>>({});
   const pendingTextLoadsRef = useRef<Record<string, Promise<ProjectFile | null>>>({});
 
@@ -139,8 +143,14 @@ function App() {
 
   const hasProject = Boolean(snapshot?.projectConfig.rootPath);
   const dirtyPathSet = useMemo(() => new Set(dirtyPaths), [dirtyPaths]);
+  const openImageTabSet = useMemo(() => new Set(openImageTabs), [openImageTabs]);
+  const editorTabs = useMemo(
+    () => Array.from(new Set([...openTabs, ...openImageTabs])),
+    [openImageTabs, openTabs],
+  );
+  const activeEditorTabPath = editorImagePath || activeFilePath;
   const focusedTreePath =
-    previewSelection.kind === "compile" ? activeFilePath : previewSelection.path;
+    editorImagePath || (previewSelection.kind === "compile" ? activeFilePath : previewSelection.path);
   const activeOutlineId = useMemo(
     () => findActiveHeading(outlineHeadings, activeFilePath, cursorLine)?.id,
     [activeFilePath, cursorLine, outlineHeadings],
@@ -149,11 +159,14 @@ function App() {
     () => toProjectRelativePath(snapshot?.projectConfig.rootPath ?? "", snapshot?.compileResult.pdfPath),
     [snapshot?.compileResult.pdfPath, snapshot?.projectConfig.rootPath],
   );
-  const compilePreviewUrl = useMemo(
-    () => snapshot?.compileResult.pdfPath ? desktop.resolveResourceUrl(snapshot.compileResult.pdfPath) : "",
-    [snapshot?.compileResult.pdfPath],
-  );
+  const compilePreviewUrl = useMemo(() => {
+    const pdfPath = snapshot?.compileResult.pdfPath;
+    if (!pdfPath) return "";
+    return desktop.resolveResourceUrl(pdfPath);
+  }, [snapshot?.compileResult.pdfPath]);
   const compilePreviewAsset = compilePreviewPath ? assetCache[compilePreviewPath] : undefined;
+  const previewAsset = previewSelection.kind === "asset" ? assetCache[previewSelection.path] : undefined;
+  const editorImageAsset = editorImagePath ? assetCache[editorImagePath] : undefined;
   const activeFileSyncPath = activeFile?.path ?? "";
   const workspaceTargetDir = activeFilePath.includes("/")
     ? activeFilePath.slice(0, activeFilePath.lastIndexOf("/"))
@@ -214,6 +227,8 @@ function App() {
     options?: {
       activeFilePath?: string;
       openTabs?: string[];
+      openImageTabs?: string[];
+      editorImagePath?: string;
       previewSelection?: PreviewSelection;
       clearCaches?: boolean;
     },
@@ -227,6 +242,23 @@ function App() {
       activeFilePath,
     );
     const nextTabs = sanitizeOpenTabs(nextSnapshot, options?.openTabs ?? openTabs, nextActivePath);
+    const requestedImagePath = options?.editorImagePath ?? editorImagePath;
+    const nextImageTabs = Array.from(
+      new Set(
+        (options?.openImageTabs ?? openImageTabs).filter((path) => {
+          const node = getNodeByPath(nextSnapshot.tree, path);
+          return Boolean(node && node.kind !== "directory" && node.fileType === "image");
+        }),
+      ),
+    );
+    if (requestedImagePath) {
+      const node = getNodeByPath(nextSnapshot.tree, requestedImagePath);
+      if (node && node.kind !== "directory" && node.fileType === "image" && !nextImageTabs.includes(requestedImagePath)) {
+        nextImageTabs.unshift(requestedImagePath);
+      }
+    }
+    const nextEditorImagePath =
+      requestedImagePath && nextImageTabs.includes(requestedImagePath) ? requestedImagePath : "";
     const nextPreview = (() => {
       const requestedPreview = options?.previewSelection ?? previewSelection;
       if (requestedPreview.kind === "asset") {
@@ -246,7 +278,9 @@ function App() {
 
     setSnapshot(nextSnapshot);
     setOpenTabs(nextTabs);
+    setOpenImageTabs(nextImageTabs);
     setActiveFilePath(nextActivePath);
+    setEditorImagePath(nextEditorImagePath);
     setPreviewSelection(nextPreview);
     if (rootChanged) {
       draftContentRef.current = {};
@@ -286,6 +320,8 @@ function App() {
   const refreshWorkspace = useEffectEvent(async (options?: {
     activeFilePath?: string;
     openTabs?: string[];
+    openImageTabs?: string[];
+    editorImagePath?: string;
     previewSelection?: PreviewSelection;
     clearCaches?: boolean;
   }) => {
@@ -332,12 +368,38 @@ function App() {
   }, [assetCache, previewSelection]);
 
   useEffect(() => {
+    if (!editorImagePath || assetCache[editorImagePath]) {
+      return;
+    }
+    void loadAsset(editorImagePath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadAsset is useEffectEvent
+  }, [assetCache, editorImagePath]);
+
+  useEffect(() => {
     if (previewSelection.kind !== "compile" || !compilePreviewPath || assetCache[compilePreviewPath]) {
       return;
     }
     void loadAsset(compilePreviewPath);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadAsset is useEffectEvent
   }, [assetCache, compilePreviewPath, previewSelection.kind]);
+
+  useEffect(() => {
+    if (!editorImagePath || !editorImageAsset) {
+      setEditorImageUrl("");
+      return;
+    }
+    if (editorImageAsset.data instanceof Uint8Array && editorImageAsset.data.length > 0) {
+      const blob = new Blob([editorImageAsset.data as BlobPart], {
+        type: editorImageAsset.mimeType || "application/octet-stream",
+      });
+      const url = URL.createObjectURL(blob);
+      setEditorImageUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setEditorImageUrl(
+      editorImageAsset.resourceUrl ?? desktop.resolveResourceUrl(editorImageAsset.absolutePath),
+    );
+  }, [editorImagePath, editorImageAsset]);
 
   useEffect(() => {
     if (!snapshot?.projectConfig.rootPath) {
@@ -621,10 +683,12 @@ function App() {
   });
 
   function openTextFile(path: string, line?: number) {
+    setEditorImagePath("");
+    setEditorImageUrl("");
     startTransition(() => {
       setActiveFilePath(path);
       setOpenTabs((current) => (current.includes(path) ? current : [...current, path]));
-      setPreviewSelection({ kind: "compile" });
+      setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
     });
     if (line) {
       setCursorLine(line);
@@ -637,6 +701,21 @@ function App() {
     void loadTextFile(path);
   }
 
+  function openImageFile(path: string) {
+    startTransition(() => {
+      setEditorImagePath(path);
+      setOpenImageTabs((current) => (current.includes(path) ? current : [...current, path]));
+      setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
+    });
+    void loadAsset(path);
+  }
+
+  function closeImageTab(path: string) {
+    const closed = closePathTab(openImageTabs, editorImagePath, path);
+    setOpenImageTabs(closed.openTabs);
+    setEditorImagePath(closed.activePath);
+  }
+
   function handleOpenNode(node: ProjectNode) {
     if (node.kind === "directory") {
       return;
@@ -646,6 +725,17 @@ function App() {
       return;
     }
     if (node.isPreviewable) {
+      // If this is the compile output PDF, reuse the compile preview (already loaded)
+      if (node.fileType === "pdf" && compilePreviewPath && node.path === compilePreviewPath) {
+        setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
+        return;
+      }
+      // Images: show in editor area
+      if (node.fileType === "image") {
+        openImageFile(node.path);
+        return;
+      }
+      // Other previewable files (non-compile PDFs): show in preview area
       setPreviewSelection({ kind: "asset", path: node.path });
       setHighlightedPage(1);
       void loadAsset(node.path);
@@ -839,6 +929,8 @@ function App() {
     await refreshWorkspace({
       activeFilePath: targetPath,
       openTabs: [...openTabs, targetPath],
+      openImageTabs,
+      editorImagePath,
       previewSelection: { kind: "compile" },
     });
     void loadTextFile(targetPath);
@@ -850,15 +942,22 @@ function App() {
     await refreshWorkspace({
       activeFilePath,
       openTabs,
+      openImageTabs,
+      editorImagePath,
       previewSelection,
     });
   }
 
   async function handleDeleteFile(path: string) {
     const removedTabs = openTabs.filter((tab) => isSamePathOrChild(tab, path));
+    const removedImageTabs = openImageTabs.filter((tab) => isSamePathOrChild(tab, path));
     const closed = removedTabs.reduce(
       (current, tab) => closeTextTab(current.openTabs, current.activePath, tab),
       { openTabs, activePath: activeFilePath },
+    );
+    const closedImages = removedImageTabs.reduce(
+      (current, tab) => closePathTab(current.openTabs, current.activePath, tab),
+      { openTabs: openImageTabs, activePath: editorImagePath },
     );
     const nextPreview =
       previewSelection.kind !== "compile" && isSamePathOrChild(previewSelection.path, path)
@@ -894,6 +993,8 @@ function App() {
     await refreshWorkspace({
       activeFilePath: closed.activePath,
       openTabs: closed.openTabs,
+      openImageTabs: closedImages.openTabs,
+      editorImagePath: closedImages.activePath,
       previewSelection: nextPreview,
     });
   }
@@ -902,9 +1003,15 @@ function App() {
     const nextTabs = openTabs.map((tab) =>
       isSamePathOrChild(tab, oldPath) ? tab.replace(oldPath, newPath) : tab,
     );
+    const nextImageTabs = openImageTabs.map((tab) =>
+      isSamePathOrChild(tab, oldPath) ? tab.replace(oldPath, newPath) : tab,
+    );
     const nextActive = isSamePathOrChild(activeFilePath, oldPath)
       ? activeFilePath.replace(oldPath, newPath)
       : activeFilePath;
+    const nextEditorImagePath = isSamePathOrChild(editorImagePath, oldPath)
+      ? editorImagePath.replace(oldPath, newPath)
+      : editorImagePath;
     const nextPreview =
       previewSelection.kind !== "compile" && isSamePathOrChild(previewSelection.path, oldPath)
         ? ({ ...previewSelection, path: previewSelection.path.replace(oldPath, newPath) } as PreviewSelection)
@@ -948,6 +1055,8 @@ function App() {
     await refreshWorkspace({
       activeFilePath: nextActive,
       openTabs: nextTabs,
+      openImageTabs: nextImageTabs,
+      editorImagePath: nextEditorImagePath,
       previewSelection: nextPreview,
     });
   }
@@ -986,6 +1095,9 @@ function App() {
     setOpenFiles({});
     setDirtyPaths([]);
     setAssetCache({});
+    setOpenImageTabs([]);
+    setEditorImagePath("");
+    setEditorImageUrl("");
     setEditorJumpTarget(null);
     const nextSnapshot = await desktop.switchProject(selectedDir);
     applySnapshot(nextSnapshot, { openTabs: [], clearCaches: true, previewSelection: { kind: "compile" } });
@@ -1005,6 +1117,9 @@ function App() {
     setOpenFiles({});
     setDirtyPaths([]);
     setAssetCache({});
+    setOpenImageTabs([]);
+    setEditorImagePath("");
+    setEditorImageUrl("");
     setEditorJumpTarget(null);
     const nextSnapshot = await desktop.createProject(parentDir, projectName.trim());
     applySnapshot(nextSnapshot, { openTabs: [], clearCaches: true, previewSelection: { kind: "compile" } });
@@ -1017,7 +1132,7 @@ function App() {
 
     if (previewSelection.kind === "asset") {
       const node = getNodeByPath(snapshot.tree, previewSelection.path);
-      const asset = assetCache[previewSelection.path];
+      const asset = previewAsset;
       if (!node) {
         return {
           kind: "unsupported",
@@ -1025,7 +1140,7 @@ function App() {
           description: "资源不存在。",
         };
       }
-      if (!asset || (node.fileType === "pdf" ? !asset.data : !asset.resourceUrl)) {
+      if (!asset) {
         return {
           kind: "unsupported",
           title: node.name,
@@ -1033,14 +1148,30 @@ function App() {
         };
       }
       if (node.fileType === "pdf") {
+        const fileData = asset.data instanceof Uint8Array ? asset.data : undefined;
+        const fileUrl = asset.resourceUrl ?? desktop.resolveResourceUrl(asset.absolutePath);
+        if (!resolvePdfSource(fileData, fileUrl)) {
+          return {
+            kind: "unsupported",
+            title: node.name,
+            description: "正在加载预览资源…",
+          };
+        }
         return {
           kind: "pdf",
           title: node.name,
-          fileData: asset.data instanceof Uint8Array ? asset.data : undefined,
-          fileUrl: asset.resourceUrl ?? desktop.resolveResourceUrl(asset.absolutePath),
+          fileData,
+          fileUrl,
           isLoading: false,
           highlightedPage,
           onPageJump: setHighlightedPage,
+        };
+      }
+      if (!asset.resourceUrl) {
+        return {
+          kind: "unsupported",
+          title: node.name,
+          description: "正在加载预览资源…",
         };
       }
       if (node.fileType === "image") {
@@ -1064,18 +1195,31 @@ function App() {
         description: previewSelection.description,
       };
     }
+    const compileFileData = compilePreviewAsset?.data instanceof Uint8Array ? compilePreviewAsset.data : undefined;
+    const compileFileUrl = compilePreviewAsset?.resourceUrl ?? compilePreviewUrl;
+    const hasCompileSource = Boolean(
+      resolvePdfSource(compileFileData ?? snapshot.compileResult.pdfData, compileFileUrl),
+    );
 
-      return {
-        kind: "compile",
-        compileResult: snapshot.compileResult,
-        fileData: compilePreviewAsset?.data instanceof Uint8Array ? compilePreviewAsset.data : undefined,
-        fileUrl: compilePreviewUrl || compilePreviewAsset?.resourceUrl,
-        isLoading: Boolean(compilePreviewPath) && !compilePreviewAsset && !compilePreviewUrl,
-        highlightedPage,
-        onPageJump: handlePageJump,
-      };
+    return {
+      kind: "compile",
+      compileResult: snapshot.compileResult,
+      fileData: compileFileData,
+      fileUrl: compileFileUrl,
+      isLoading: Boolean(compilePreviewPath) && !hasCompileSource,
+      highlightedPage,
+      onPageJump: handlePageJump,
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handlePageJump is useEffectEvent
-  }, [assetCache, compilePreviewAsset, compilePreviewPath, compilePreviewUrl, highlightedPage, previewSelection, snapshot]);
+  }, [
+    previewAsset,
+    compilePreviewAsset,
+    compilePreviewPath,
+    compilePreviewUrl,
+    highlightedPage,
+    previewSelection,
+    snapshot,
+  ]);
 
   const outlineNode = useMemo(() => {
     if (outlineLoading) {
@@ -1347,22 +1491,31 @@ function App() {
 
             <div className="editor-area">
               <div className="editor-tabs">
-                {openTabs.map((tab) => (
+                {editorTabs.map((tab) => {
+                  const isImageTab = openImageTabSet.has(tab);
+                  const isActive = tab === activeEditorTabPath;
+                  return (
                   <button
                     key={tab}
-                    className={`editor-tab ${tab === activeFilePath ? "is-active" : ""}`}
-                    onClick={() => openTextFile(tab)}
+                    className={`editor-tab ${isActive ? "is-active" : ""}`}
+                    onClick={() => (isImageTab ? openImageFile(tab) : openTextFile(tab))}
                     type="button"
                   >
                     <span style={{ marginRight: 8, display: "inline-flex", alignItems: "center", gap: 6 }}>
                       {tab.split("/").at(-1)}
-                      {dirtyPathSet.has(tab) && <span className="editor-tab-dirty-dot" aria-hidden="true"></span>}
+                      {!isImageTab && dirtyPathSet.has(tab) && (
+                        <span className="editor-tab-dirty-dot" aria-hidden="true"></span>
+                      )}
                     </span>
                     <span
                       className="icon-btn"
                       style={{ width: 16, height: 16 }}
                       onClick={(event) => {
                         event.stopPropagation();
+                        if (isImageTab) {
+                          closeImageTab(tab);
+                          return;
+                        }
                         const closed = closeTextTab(openTabs, activeFilePath, tab);
                         setOpenTabs(closed.openTabs);
                         setActiveFilePath(closed.activePath);
@@ -1371,10 +1524,51 @@ function App() {
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                     </span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
               <div className="editor-content">
-                {activeFile ? (
+                {editorImagePath ? (
+                  <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--bg-app)" }}>
+                    <div
+                      style={{
+                        padding: "6px 16px",
+                        borderBottom: "1px solid var(--border-light)",
+                        fontSize: "12px",
+                        color: "var(--text-secondary)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        background: "var(--bg-app)",
+                      }}
+                    >
+                      <span>图片路径: {editorImagePath}</span>
+                      <span>{editorImageAsset?.mimeType ?? "image"}</span>
+                    </div>
+                    <div
+                      style={{
+                        flex: 1,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "var(--bg-secondary, #1e1e1e)",
+                        overflow: "auto",
+                        padding: 24,
+                      }}
+                    >
+                      {editorImageUrl ? (
+                        <img
+                          src={editorImageUrl}
+                          alt={editorImagePath.split("/").at(-1) ?? ""}
+                          style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 8 }}
+                        />
+                      ) : (
+                        <div style={{ color: "var(--text-secondary)" }}>
+                          {editorImageAsset ? "图片资源不可用" : "正在加载图片…"}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : activeFile ? (
                   <EditorPane
                     file={activeFile}
                     isDirty={dirtyPathSet.has(activeFile.path)}

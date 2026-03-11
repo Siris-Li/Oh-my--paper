@@ -130,7 +130,19 @@ export function ProjectTree({
   onRenameFile,
 }: ProjectTreeProps) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: ProjectNode } | null>(null);
-  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
+  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => {
+    const dirs = new Set<string>();
+    function collect(nodeList: ProjectNode[]) {
+      for (const node of nodeList) {
+        if (node.kind === "directory") {
+          dirs.add(node.path);
+          if (node.children) collect(node.children);
+        }
+      }
+    }
+    collect(nodes);
+    return dirs;
+  });
 
   useEffect(() => {
     function closeMenu() {

@@ -31,6 +31,7 @@ function OutlineBranch({
   depth,
   activeId,
   collapsedIds,
+  sectionNumbers,
   onToggle,
   onSelectNode,
 }: {
@@ -38,6 +39,7 @@ function OutlineBranch({
   depth: number;
   activeId?: string;
   collapsedIds: Set<string>;
+  sectionNumbers: Map<string, string>;
   onToggle: (id: string) => void;
   onSelectNode: (node: OutlineNode) => void;
 }) {
@@ -66,7 +68,12 @@ function OutlineBranch({
           {hasChildren ? (isCollapsed ? "▸" : "▾") : "·"}
         </button>
         <div className="outline-copy">
-          <div className="outline-title">{node.heading.title}</div>
+          <div className="outline-title">
+            {sectionNumbers.get(node.id) && (
+              <span className="outline-section-num">{sectionNumbers.get(node.id)}&nbsp;</span>
+            )}
+            {node.heading.title}
+          </div>
           <div className="outline-meta">
             {node.heading.filePath}:{node.heading.line}
           </div>
@@ -80,6 +87,7 @@ function OutlineBranch({
             depth={depth + 1}
             activeId={activeId}
             collapsedIds={collapsedIds}
+            sectionNumbers={sectionNumbers}
             onToggle={onToggle}
             onSelectNode={onSelectNode}
           />
@@ -88,8 +96,32 @@ function OutlineBranch({
   );
 }
 
+function collectAllIds(nodeList: OutlineNode[]): string[] {
+  const ids: string[] = [];
+  for (const node of nodeList) {
+    if (node.children.length > 0) {
+      ids.push(node.id);
+      ids.push(...collectAllIds(node.children));
+    }
+  }
+  return ids;
+}
+
+function computeSectionNumbers(nodeList: OutlineNode[], prefix = ""): Map<string, string> {
+  const map = new Map<string, string>();
+  nodeList.forEach((node, index) => {
+    const num = prefix ? `${prefix}.${index + 1}` : `${index + 1}`;
+    map.set(node.id, num);
+    for (const [id, childNum] of computeSectionNumbers(node.children, num)) {
+      map.set(id, childNum);
+    }
+  });
+  return map;
+}
+
 export function OutlineTree({ nodes, activeId, onSelectNode }: OutlineTreeProps) {
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set(collectAllIds(nodes)));
+  const sectionNumbers = useMemo(() => computeSectionNumbers(nodes), [nodes]);
 
   const ancestorIds = useMemo(() => collectAncestorIds(nodes, activeId), [activeId, nodes]);
 
@@ -135,6 +167,7 @@ export function OutlineTree({ nodes, activeId, onSelectNode }: OutlineTreeProps)
           depth={0}
           activeId={activeId}
           collapsedIds={collapsedIds}
+          sectionNumbers={sectionNumbers}
           onToggle={toggleNode}
           onSelectNode={onSelectNode}
         />

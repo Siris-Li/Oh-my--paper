@@ -125,7 +125,7 @@ export function findFirstTextPath(nodes: ProjectNode[]): string {
   return "";
 }
 
-export function closeTextTab(openTabs: string[], activePath: string, closingPath: string) {
+export function closePathTab(openTabs: string[], activePath: string, closingPath: string) {
   const nextTabs = openTabs.filter((item) => item !== closingPath);
   if (activePath !== closingPath) {
     return {
@@ -144,4 +144,8 @@ export function closeTextTab(openTabs: string[], activePath: string, closingPath
     openTabs: nextTabs,
     activePath: fallbackPath,
   };
+}
+
+export function closeTextTab(openTabs: string[], activePath: string, closingPath: string) {
+  return closePathTab(openTabs, activePath, closingPath);
 }

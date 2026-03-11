@@ -19,17 +19,11 @@ import type {
   UsageRecord,
   WorkspaceSnapshot,
 } from "../types";
+import { normalizeBinary } from "./binary";
 import { mockRuntime } from "./mockRuntime";
 
-function isTauriRuntime() {
+export function isTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
-function normalizeBinary(data?: Uint8Array | number[] | null) {
-  if (!data) {
-    return undefined;
-  }
-  return data instanceof Uint8Array ? data : Uint8Array.from(data);
 }
 
 async function runOrMock<T>(command: string, args: Record<string, unknown>, fallback: () => Promise<T>) {
@@ -45,7 +39,9 @@ function resolveAssetResource(asset: AssetResource): AssetResource {
     asset.resourceUrl ||
     (asset.absolutePath
       ? isTauriRuntime()
-        ? convertFileSrc(asset.absolutePath)
+        ? asset.mimeType.startsWith("image/")
+          ? convertFileSrc(asset.absolutePath)
+          : toAssetUrl(asset.absolutePath)
         : asset.absolutePath
       : undefined);
 
@@ -56,7 +52,24 @@ function resolveAssetResource(asset: AssetResource): AssetResource {
   };
 }
 
+function toAssetUrl(absolutePath: string): string {
+  // Build the asset:// URL manually:
+  // - Keep slashes literal (encodeURIComponent turns them into %2F which
+  //   PDF.js normalises back to /, producing double-slash URLs Tauri rejects).
+  // - Keep Unicode characters (CJK, etc.) as raw UTF-8 so Tauri's asset
+  //   protocol can resolve the filesystem path directly.
+  // - Only encode the few characters that are meaningful in URL syntax.
+  const normalized = absolutePath.startsWith("/") ? absolutePath.slice(1) : absolutePath;
+  const safe = normalized
+    .replaceAll("%", "%25")
+    .replaceAll(" ", "%20")
+    .replaceAll("#", "%23")
+    .replaceAll("?", "%3F");
+  return `asset://localhost/${safe}`;
+}
+
 export const desktop = {
+  isTauriRuntime,
   openProject() {
     return runOrMock<WorkspaceSnapshot>("open_project", {}, () => mockRuntime.openProject());
   },
@@ -201,7 +214,7 @@ export const desktop = {
     if (!path) {
       return "";
     }
-    return isTauriRuntime() ? convertFileSrc(path) : path;
+    return isTauriRuntime() ? toAssetUrl(path) : path;
   },
 };
 

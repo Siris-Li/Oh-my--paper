@@ -379,8 +379,8 @@ pub fn read_asset(state: &AppState, file_path: &str) -> Result<AssetResource> {
     let absolute = Path::new(&root).join(file_path);
     let metadata = fs::metadata(&absolute).context("failed to read asset metadata")?;
     let mime_type = mime_type_for_path(file_path);
-    let data = if mime_type == "application/pdf" {
-        Some(fs::read(&absolute).context("failed to read pdf asset")?)
+    let data = if mime_type == "application/pdf" || mime_type.starts_with("image/") {
+        Some(fs::read(&absolute).context("failed to read asset data")?)
     } else {
         None
     };

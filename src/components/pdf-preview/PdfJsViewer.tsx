@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { PDFJSWrapper, type PdfScaleValue } from "../../lib/pdf-js-wrapper";
+import { resolvePdfSource } from "../../lib/pdf-source";
 
 type PdfSource = Uint8Array | string | undefined;
 
@@ -30,7 +31,7 @@ function PdfJsViewerInner({
   const scalePreferenceRef = useRef<PdfScaleValue>("page-width");
 
   const handleContainer = useCallback((parent: HTMLDivElement | null) => {
-    if (!parent || pdfJsWrapper) {
+    if (!parent) {
       return;
     }
 
@@ -39,8 +40,13 @@ function PdfJsViewerInner({
       return;
     }
 
-    setPdfJsWrapper(new PDFJSWrapper(inner));
-  }, [pdfJsWrapper]);
+    setPdfJsWrapper((prev) => {
+      if (prev) {
+        void prev.destroy();
+      }
+      return new PDFJSWrapper(inner);
+    });
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -279,14 +285,8 @@ function arePdfJsViewerPropsEqual(previous: PdfJsViewerProps, next: PdfJsViewerP
 
 const PdfJsViewer = memo(PdfJsViewerInner, arePdfJsViewerPropsEqual);
 
-export function toPdfSource(fileData?: Uint8Array, fileUrl?: string): PdfSource {
-  if (fileData && fileData.length > 0) {
-    return fileData;
-  }
-  if (fileUrl) {
-    return fileUrl;
-  }
-  return undefined;
+export function toPdfSource(fileData?: Uint8Array, fileUrl?: string, allowUrlFallback = true): PdfSource {
+  return resolvePdfSource(fileData, fileUrl, allowUrlFallback);
 }
 
 export default PdfJsViewer;
