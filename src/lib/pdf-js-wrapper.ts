@@ -57,10 +57,15 @@ export class PDFJSWrapper {
     const version = ++this.loadVersion;
     await this.disposeTaskAndDoc();
 
-    const loadingTask =
-      source instanceof Uint8Array
-        ? getDocument({ data: source })
-        : getDocument({ url: source });
+    const loadingTask = (() => {
+      if (source instanceof Uint8Array) {
+        // PDF.js worker may transfer (detach) the buffer passed via `data`.
+        // Clone here to keep React state bytes reusable across rerenders/reloads.
+        const safeBytes = new Uint8Array(source);
+        return getDocument({ data: safeBytes });
+      }
+      return getDocument({ url: source });
+    })();
     this.loadingTask = loadingTask;
 
     const document = await loadingTask.promise;

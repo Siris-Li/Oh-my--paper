@@ -90,6 +90,27 @@ function toProjectRelativePath(rootPath: string, filePath?: string) {
   return normalizedFile.startsWith(prefix) ? normalizedFile.slice(prefix.length) : "";
 }
 
+const COMPILE_DEBUG_LOG_LIMIT = 300;
+
+function formatDebugTimestamp(date: Date) {
+  const pad = (value: number, length = 2) => String(value).padStart(length, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+}
+
+function serializeDebugDetails(details: unknown) {
+  if (details == null) {
+    return "";
+  }
+  if (typeof details === "string") {
+    return details;
+  }
+  try {
+    return JSON.stringify(details);
+  } catch {
+    return String(details);
+  }
+}
+
 function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [bootstrapError, setBootstrapError] = useState("");
@@ -103,7 +124,9 @@ function App() {
   const [syncHighlights, setSyncHighlights] = useState<SyncHighlight[]>([]);
   const [compilePreviewLoadError, setCompilePreviewLoadError] = useState("");
   const [compilePdfData, setCompilePdfData] = useState<Uint8Array | null>(null);
+  const [compilePdfLoadedKey, setCompilePdfLoadedKey] = useState("");
   const [isLoadingCompilePdf, setIsLoadingCompilePdf] = useState(false);
+  const [compileDebugLogLines, setCompileDebugLogLines] = useState<string[]>([]);
   const [compileEnvironment, setCompileEnvironment] = useState<CompileEnvironmentStatus | null>(null);
   const [isCheckingCompileEnvironment, setIsCheckingCompileEnvironment] = useState(false);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("ai");
@@ -129,6 +152,30 @@ function App() {
   const [editorImageUrl, setEditorImageUrl] = useState("");
   const draftContentRef = useRef<Record<string, string>>({});
   const pendingTextLoadsRef = useRef<Record<string, Promise<ProjectFile | null>>>({});
+
+  const logCompileDebug = useEffectEvent(
+    (level: "info" | "warn" | "error", message: string, details?: unknown) => {
+      const timestamp = formatDebugTimestamp(new Date());
+      const detailText = serializeDebugDetails(details);
+      const line =
+        detailText.length > 0
+          ? `[${timestamp}] [${level.toUpperCase()}] ${message} ${detailText}`
+          : `[${timestamp}] [${level.toUpperCase()}] ${message}`;
+
+      setCompileDebugLogLines((current) => {
+        const next = [...current, line];
+        return next.length > COMPILE_DEBUG_LOG_LIMIT ? next.slice(next.length - COMPILE_DEBUG_LOG_LIMIT) : next;
+      });
+
+      if (level === "error") {
+        console.error(message, details);
+      } else if (level === "warn") {
+        console.warn(message, details);
+      } else {
+        console.info(message, details);
+      }
+    },
+  );
 
   const activeFile = (() => {
     if (!activeFilePath) {
@@ -287,8 +334,10 @@ function App() {
     setHighlightedPage(1);
     setSyncHighlights([]);
     setCompilePdfData(null);
+    setCompilePdfLoadedKey("");
     setCompilePreviewLoadError("");
     setIsLoadingCompilePdf(false);
+    setCompileDebugLogLines([]);
     setCompileEnvironment(null);
     setIsCheckingCompileEnvironment(false);
     setEditorImagePath(nextEditorImagePath);
@@ -387,6 +436,10 @@ function App() {
   }, [assetCache, editorImagePath]);
 
   useEffect(() => {
+    const currentCompilePdfKey = snapshot?.compileResult.pdfPath
+      ? `${snapshot.compileResult.pdfPath}:${snapshot.compileResult.timestamp}`
+      : "";
+
     if (
       previewSelection.kind !== "compile" ||
       !snapshot?.compileResult.pdfPath ||
@@ -398,7 +451,7 @@ function App() {
       return;
     }
 
-    if (compilePdfData !== null) {
+    if (compilePdfData !== null && compilePdfLoadedKey === currentCompilePdfKey) {
       setIsLoadingCompilePdf(false);
       return;
     }
@@ -408,8 +461,18 @@ function App() {
     void (async () => {
       const shouldRetry = snapshot.compileResult.status === "success";
       const attempts = shouldRetry ? 8 : 1;
+      const fallbackAssetPath =
+        compilePreviewPath || (isTauriRuntime() ? snapshot.compileResult.pdfPath ?? "" : "");
       setIsLoadingCompilePdf(true);
       setCompilePreviewLoadError("");
+
+      logCompileDebug("info", "[pdf-preview] begin loading compile pdf", {
+        key: currentCompilePdfKey,
+        absolutePath: snapshot.compileResult.pdfPath,
+        relativePath: compilePreviewPath,
+        fallbackAssetPath,
+        attempts,
+      });
 
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         const data = await desktop.readPdfBinary(snapshot.compileResult.pdfPath!);
@@ -417,11 +480,50 @@ function App() {
           return;
         }
         if (data && data.length > 0) {
-          setCompilePdfData(data);
+          logCompileDebug("info", "[pdf-preview] loaded compile pdf via read_pdf_binary", {
+            key: currentCompilePdfKey,
+            bytes: data.length,
+            attempt: attempt + 1,
+          });
+          setCompilePdfData(new Uint8Array(data));
+          setCompilePdfLoadedKey(currentCompilePdfKey);
           setCompilePreviewLoadError("");
           setIsLoadingCompilePdf(false);
           return;
         }
+
+        if (fallbackAssetPath) {
+          const asset = await desktop.readAsset(fallbackAssetPath).catch((error) => {
+            logCompileDebug("warn", "[pdf-preview] readAsset fallback failed", {
+              key: currentCompilePdfKey,
+              fallbackAssetPath,
+              attempt: attempt + 1,
+              reason: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          });
+          const assetData = asset?.data instanceof Uint8Array ? asset.data : undefined;
+          if (assetData && assetData.length > 0) {
+            logCompileDebug("info", "[pdf-preview] loaded compile pdf via read_asset fallback", {
+              key: currentCompilePdfKey,
+              bytes: assetData.length,
+              attempt: attempt + 1,
+              fallbackAssetPath,
+            });
+            setCompilePdfData(new Uint8Array(assetData));
+            setCompilePdfLoadedKey(currentCompilePdfKey);
+            setCompilePreviewLoadError("");
+            setIsLoadingCompilePdf(false);
+            return;
+          }
+        }
+
+        logCompileDebug("info", "[pdf-preview] compile pdf not ready yet", {
+          key: currentCompilePdfKey,
+          attempt: attempt + 1,
+          fallbackAssetPath,
+        });
+
         if (attempt < attempts - 1) {
           await new Promise((resolve) => {
             window.setTimeout(resolve, 180 * (attempt + 1));
@@ -435,6 +537,12 @@ function App() {
 
       setIsLoadingCompilePdf(false);
       if (snapshot.compileResult.status === "success" && isTauriRuntime()) {
+        logCompileDebug("error", "[pdf-preview] failed to load compile pdf after retries", {
+          key: currentCompilePdfKey,
+          absolutePath: snapshot.compileResult.pdfPath,
+          relativePath: compilePreviewPath,
+          fallbackAssetPath,
+        });
         setCompilePreviewLoadError(
           "编译已经完成，但预览区暂时没有读到新的 PDF 文件。通常是编译输出刚被替换，或当前 PDF 仍被占用。",
         );
@@ -444,7 +552,15 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [compilePdfData, previewSelection.kind, snapshot?.compileResult.pdfPath, snapshot?.compileResult.status, snapshot?.compileResult.timestamp]);
+  }, [
+    compilePdfData,
+    compilePdfLoadedKey,
+    compilePreviewPath,
+    previewSelection.kind,
+    snapshot?.compileResult.pdfPath,
+    snapshot?.compileResult.status,
+    snapshot?.compileResult.timestamp,
+  ]);
 
   useEffect(() => {
     if (!editorImagePath || !editorImageAsset) {
@@ -592,6 +708,12 @@ function App() {
       snapshot?.compileResult.pdfPath,
     );
 
+    setCompileDebugLogLines((current) => {
+      const marker = `[${formatDebugTimestamp(new Date())}] [INFO] ===== compile requested =====`;
+      const next = [...current, marker];
+      return next.length > COMPILE_DEBUG_LOG_LIMIT ? next.slice(next.length - COMPILE_DEBUG_LOG_LIMIT) : next;
+    });
+
     setSnapshot((current) =>
       current
         ? {
@@ -608,12 +730,23 @@ function App() {
         : current,
     );
     setSyncHighlights([]);
-    setCompilePdfData(null);
     setCompilePreviewLoadError("");
-    setIsLoadingCompilePdf(false);
+    setIsLoadingCompilePdf(true);
+    logCompileDebug("info", "[compile] start", {
+      filePath,
+      previousStatus: snapshot?.compileResult.status,
+      previousPdfPath: snapshot?.compileResult.pdfPath,
+    });
 
     const compileResult = await desktop.compileProject(filePath);
     const nextCompilePath = toProjectRelativePath(snapshot?.projectConfig.rootPath ?? "", compileResult.pdfPath);
+
+    logCompileDebug("info", "[compile] result", {
+      status: compileResult.status,
+      pdfPath: compileResult.pdfPath,
+      diagnostics: compileResult.diagnostics.length,
+      timestamp: compileResult.timestamp,
+    });
 
     if (previousCompilePath && previousCompilePath !== nextCompilePath) {
       setAssetCache((current) => {
@@ -753,7 +886,9 @@ function App() {
         return;
       }
     } catch (error) {
-      console.warn("failed to detect compile environment", error);
+      logCompileDebug("warn", "[compile] failed to detect compile environment", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
       setDrawerTab("latex");
       return;
     }
@@ -1374,9 +1509,13 @@ function App() {
       compileResult: snapshot.compileResult,
       fileData: inlineCompileData,
       fileUrl: undefined,
+      reloadKey:
+        compilePdfLoadedKey ||
+        `${snapshot.compileResult.timestamp}:${snapshot.compileResult.pdfPath ?? ""}`,
       isLoading:
         snapshot.compileResult.status === "running" ||
         (isLoadingCompilePdf && !hasCompileSource),
+      onDebug: logCompileDebug,
       highlightedPage,
       highlights: syncHighlights,
       onPageJump: handlePageJump,
@@ -1388,6 +1527,7 @@ function App() {
     compilePreviewAsset,
     compilePreviewPath,
     compilePdfData,
+    compilePdfLoadedKey,
     highlightedPage,
     previewSelection,
     snapshot,
@@ -1395,6 +1535,22 @@ function App() {
     isLoadingCompilePdf,
     syncHighlights,
   ]);
+
+  const frontendCompileDebugLog = useMemo(
+    () => compileDebugLogLines.join("\n"),
+    [compileDebugLogLines],
+  );
+  const mergedCompileLog = useMemo(() => {
+    const sections: string[] = [];
+    const backendLog = snapshot?.compileResult.logOutput?.trim();
+    if (backendLog) {
+      sections.push(backendLog);
+    }
+    if (frontendCompileDebugLog) {
+      sections.push(`=== Frontend Debug ===\n${frontendCompileDebugLog}`);
+    }
+    return sections.join("\n\n");
+  }, [frontendCompileDebugLog, snapshot?.compileResult.logOutput]);
 
   const outlineNode = useMemo(() => {
     if (outlineLoading) {
@@ -1598,7 +1754,7 @@ function App() {
             onRunAgent={handleRunAgent}
             pendingPatchSummary={pendingPatch?.summary}
             onApplyPatch={handleApplyPatch}
-            compileLog={snapshot.compileResult.logOutput}
+            compileLog={mergedCompileLog}
             compileStatus={snapshot.compileResult.status}
             projectConfig={snapshot.projectConfig}
             compileEnvironment={compileEnvironment}

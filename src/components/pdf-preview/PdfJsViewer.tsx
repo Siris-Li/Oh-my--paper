@@ -13,6 +13,7 @@ export interface PdfJsViewerProps {
   source: PdfSource;
   reloadKey?: string;
   isLoading?: boolean;
+  onDebug?: (level: "info" | "warn" | "error", message: string, details?: unknown) => void;
   highlightedPage: number;
   highlights?: SyncHighlight[];
   onPageJump: (page: number) => void;
@@ -24,6 +25,7 @@ function PdfJsViewerInner({
   source,
   reloadKey,
   isLoading,
+  onDebug,
   highlightedPage,
   highlights,
   onPageJump,
@@ -37,6 +39,9 @@ function PdfJsViewerInner({
   const [scale, setScale] = useState(1);
   const [errorMessage, setErrorMessage] = useState("");
   const SCALE_STORAGE_KEY = "viwerleaf.pdf.scale";
+  const onDebugRef = useRef<PdfJsViewerProps["onDebug"]>(onDebug);
+  const lastLoadSignatureRef = useRef("");
+  const lastWrapperRef = useRef<PDFJSWrapper | null>(null);
   const scalePreferenceRef = useRef<PdfScaleValue>(
     (() => {
       const saved = localStorage.getItem(SCALE_STORAGE_KEY);
@@ -50,6 +55,25 @@ function PdfJsViewerInner({
     })(),
   );
   const highlightRendererRef = useRef<{ clear: () => void } | null>(null);
+  useEffect(() => {
+    onDebugRef.current = onDebug;
+  }, [onDebug]);
+  const debug = useCallback(
+    (level: "info" | "warn" | "error", message: string, details?: unknown) => {
+      const reporter = onDebugRef.current;
+      reporter?.(level, `[pdf-viewer] ${message}`, details);
+      if (!reporter) {
+        if (level === "error") {
+          console.error(`[pdf-viewer] ${message}`, details);
+        } else if (level === "warn") {
+          console.warn(`[pdf-viewer] ${message}`, details);
+        } else {
+          console.info(`[pdf-viewer] ${message}`, details);
+        }
+      }
+    },
+    [],
+  );
 
   const handleContainer = useCallback((parent: HTMLDivElement | null) => {
     if (!parent) {
@@ -103,7 +127,34 @@ function PdfJsViewerInner({
       return;
     }
 
+    if (lastWrapperRef.current !== pdfJsWrapper) {
+      lastWrapperRef.current = pdfJsWrapper;
+      lastLoadSignatureRef.current = "";
+    }
+
+    const signature = source
+      ? source instanceof Uint8Array
+        ? `bytes:${reloadKey ?? ""}:${source.byteLength}`
+        : `url:${reloadKey ?? ""}:${source}`
+      : `empty:${reloadKey ?? ""}`;
+
+    if (signature === lastLoadSignatureRef.current) {
+      return;
+    }
+    lastLoadSignatureRef.current = signature;
+
     if (!source) {
+      if (isLoading) {
+        debug("info", "source is empty while loading, keep current document", {
+          reloadKey,
+          isLoading: true,
+        });
+        return;
+      }
+      debug("warn", "source is empty, clearing document", {
+        reloadKey,
+        isLoading: Boolean(isLoading),
+      });
       setPageCount(0);
       setCurrentPage(1);
       setPageInput("1");
@@ -112,13 +163,22 @@ function PdfJsViewerInner({
       return;
     }
 
-    let cancelled = false;
     setErrorMessage("");
+    debug("info", "begin loadDocument", {
+      reloadKey,
+      sourceType: source instanceof Uint8Array ? "bytes" : "url",
+      sourceSize: source instanceof Uint8Array ? source.length : undefined,
+      isLoading: Boolean(isLoading),
+    });
 
     void pdfJsWrapper
       .loadDocument(source)
       .then((document) => {
-        if (cancelled || !document) {
+        if (!document) {
+          debug("info", "loadDocument resolved but ignored", {
+            reloadKey,
+            hasDocument: Boolean(document),
+          });
           return;
         }
 
@@ -127,20 +187,23 @@ function PdfJsViewerInner({
         setCurrentPage(pdfJsWrapper.currentPage);
         setPageInput(String(pdfJsWrapper.currentPage));
         setScale(pdfJsWrapper.currentScale);
+        debug("info", "loadDocument success", {
+          reloadKey,
+          pages: document.numPages,
+          currentPage: pdfJsWrapper.currentPage,
+          currentScale: pdfJsWrapper.currentScale,
+        });
       })
       .catch((error) => {
-        if (cancelled) {
-          return;
-        }
         const message = error instanceof Error ? error.message : String(error);
         setErrorMessage(message || "加载 PDF 失败");
         setPageCount(0);
+        debug("error", "loadDocument failed", {
+          reloadKey,
+          reason: message || "加载 PDF 失败",
+        });
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [pdfJsWrapper, reloadKey, source]);
+  }, [debug, isLoading, pdfJsWrapper, reloadKey, source]);
 
   useEffect(() => {
     if (!pdfJsWrapper || !pageCount || highlightedPage <= 0) {
@@ -384,6 +447,7 @@ function arePdfJsViewerPropsEqual(previous: PdfJsViewerProps, next: PdfJsViewerP
     previous.source === next.source &&
     previous.reloadKey === next.reloadKey &&
     previous.isLoading === next.isLoading &&
+    previous.onDebug === next.onDebug &&
     previous.highlightedPage === next.highlightedPage &&
     previous.highlights === next.highlights &&
     previous.onPageJump === next.onPageJump &&

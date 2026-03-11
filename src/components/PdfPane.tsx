@@ -9,7 +9,9 @@ export type PreviewPaneState =
       compileResult: CompileResult;
       fileData?: Uint8Array;
       fileUrl?: string;
+      reloadKey?: string;
       isLoading?: boolean;
+      onDebug?: (level: "info" | "warn" | "error", message: string, details?: unknown) => void;
       highlightedPage: number;
       highlights?: SyncHighlight[];
       onPageJump: (page: number) => void;
@@ -21,6 +23,7 @@ export type PreviewPaneState =
       fileData?: Uint8Array;
       fileUrl?: string;
       isLoading?: boolean;
+      onDebug?: (level: "info" | "warn" | "error", message: string, details?: unknown) => void;
       highlightedPage: number;
       highlights?: SyncHighlight[];
       onPageJump: (page: number) => void;
@@ -76,6 +79,7 @@ function PdfPaneInner({ preview }: { preview: PreviewPaneState }) {
         source={toPdfSource(preview.fileData, preview.fileUrl, false)}
         reloadKey={preview.fileUrl ?? preview.title}
         isLoading={preview.isLoading}
+        onDebug={preview.onDebug}
         highlightedPage={preview.highlightedPage}
         highlights={preview.highlights}
         onPageJump={preview.onPageJump}
@@ -95,8 +99,9 @@ function PdfPaneInner({ preview }: { preview: PreviewPaneState }) {
   return (
     <PdfJsViewer
       source={toPdfSource(preview.fileData ?? preview.compileResult.pdfData, preview.fileUrl, false)}
-      reloadKey={`${preview.compileResult.timestamp}:${preview.compileResult.pdfPath ?? preview.fileUrl ?? ""}`}
+      reloadKey={preview.reloadKey ?? `${preview.compileResult.timestamp}:${preview.compileResult.pdfPath ?? preview.fileUrl ?? ""}`}
       isLoading={preview.isLoading}
+      onDebug={preview.onDebug}
       highlightedPage={preview.highlightedPage}
       highlights={preview.highlights}
       onPageJump={preview.onPageJump}
@@ -139,6 +144,7 @@ function arePreviewPaneStatesEqual(previous: PreviewPaneState, next: PreviewPane
       previous.compileResult.pdfPath === next.compileResult.pdfPath &&
       previous.fileData === next.fileData &&
       previous.fileUrl === next.fileUrl &&
+      previous.reloadKey === next.reloadKey &&
       previous.isLoading === next.isLoading &&
       previous.highlightedPage === next.highlightedPage &&
       previous.highlights === next.highlights &&
