@@ -387,9 +387,9 @@ pub fn delete_file(state: State<'_, AppState>, path: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub fn read_pdf_binary(path: String) -> Result<tauri::ipc::Response, String> {
-    let bytes = std::fs::read(&path).map_err(|e| format!("failed to read PDF: {e}"))?;
-    Ok(tauri::ipc::Response::new(bytes))
+pub fn read_pdf_binary(path: String) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("failed to read PDF at {path}: {e}"))?;
+    Ok(bytes)
 }
 
 #[tauri::command]

@@ -212,13 +212,19 @@ export const desktop = {
     if (!isTauriRuntime() || !absolutePath) {
       return Promise.resolve(null);
     }
-    return invoke<ArrayBuffer>("read_pdf_binary", { path: absolutePath })
-      .then((buffer) => new Uint8Array(buffer))
-      .catch(() => null);
+    return invoke<number[] | Uint8Array>("read_pdf_binary", { path: absolutePath })
+      .then((raw) => {
+        const result = normalizeBinary(raw);
+        return result instanceof Uint8Array && result.length > 0 ? result : null;
+      })
+      .catch((error) => {
+        console.error("[readPdfBinary] failed to load PDF:", absolutePath, error);
+        return null;
+      });
   },
   onAgentStream(callback: (chunk: StreamChunk) => void): Promise<UnlistenFn> {
     if (!isTauriRuntime()) {
-      return Promise.resolve(() => {});
+      return Promise.resolve(() => { });
     }
     return listen<StreamChunk>("agent:stream", (event) => {
       callback(event.payload);

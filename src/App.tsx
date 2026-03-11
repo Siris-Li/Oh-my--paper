@@ -103,6 +103,7 @@ function App() {
   const [syncHighlights, setSyncHighlights] = useState<SyncHighlight[]>([]);
   const [compilePreviewLoadError, setCompilePreviewLoadError] = useState("");
   const [compilePdfData, setCompilePdfData] = useState<Uint8Array | null>(null);
+  const [isLoadingCompilePdf, setIsLoadingCompilePdf] = useState(false);
   const [compileEnvironment, setCompileEnvironment] = useState<CompileEnvironmentStatus | null>(null);
   const [isCheckingCompileEnvironment, setIsCheckingCompileEnvironment] = useState(false);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("ai");
@@ -285,6 +286,9 @@ function App() {
     setActiveFilePath(nextActivePath);
     setHighlightedPage(1);
     setSyncHighlights([]);
+    setCompilePdfData(null);
+    setCompilePreviewLoadError("");
+    setIsLoadingCompilePdf(false);
     setCompileEnvironment(null);
     setIsCheckingCompileEnvironment(false);
     setEditorImagePath(nextEditorImagePath);
@@ -385,22 +389,52 @@ function App() {
   useEffect(() => {
     if (
       previewSelection.kind !== "compile" ||
-      compilePdfData !== null ||
       !snapshot?.compileResult.pdfPath ||
-      snapshot.compileResult.status !== "success"
+      snapshot.compileResult.status === "running"
     ) {
+      if (previewSelection.kind !== "compile" || snapshot?.compileResult.status === "running") {
+        setIsLoadingCompilePdf(false);
+      }
+      return;
+    }
+
+    if (compilePdfData !== null) {
+      setIsLoadingCompilePdf(false);
       return;
     }
 
     let cancelled = false;
 
     void (async () => {
-      const data = await desktop.readPdfBinary(snapshot.compileResult.pdfPath!);
-      if (cancelled) return;
-      if (data && data.length > 0) {
-        setCompilePdfData(data);
-        setCompilePreviewLoadError("");
-      } else if (isTauriRuntime()) {
+      const shouldRetry = snapshot.compileResult.status === "success";
+      const attempts = shouldRetry ? 8 : 1;
+      setIsLoadingCompilePdf(true);
+      setCompilePreviewLoadError("");
+
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const data = await desktop.readPdfBinary(snapshot.compileResult.pdfPath!);
+        if (cancelled) {
+          return;
+        }
+        if (data && data.length > 0) {
+          setCompilePdfData(data);
+          setCompilePreviewLoadError("");
+          setIsLoadingCompilePdf(false);
+          return;
+        }
+        if (attempt < attempts - 1) {
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, 180 * (attempt + 1));
+          });
+        }
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      setIsLoadingCompilePdf(false);
+      if (snapshot.compileResult.status === "success" && isTauriRuntime()) {
         setCompilePreviewLoadError(
           "编译已经完成，但预览区暂时没有读到新的 PDF 文件。通常是编译输出刚被替换，或当前 PDF 仍被占用。",
         );
@@ -574,17 +608,12 @@ function App() {
         : current,
     );
     setSyncHighlights([]);
+    setCompilePdfData(null);
+    setCompilePreviewLoadError("");
+    setIsLoadingCompilePdf(false);
 
     const compileResult = await desktop.compileProject(filePath);
     const nextCompilePath = toProjectRelativePath(snapshot?.projectConfig.rootPath ?? "", compileResult.pdfPath);
-
-    if (compileResult.pdfPath) {
-      const data = await desktop.readPdfBinary(compileResult.pdfPath);
-      if (data && data.length > 0) {
-        setCompilePdfData(data);
-        setCompilePreviewLoadError("");
-      }
-    }
 
     if (previousCompilePath && previousCompilePath !== nextCompilePath) {
       setAssetCache((current) => {
@@ -1346,9 +1375,8 @@ function App() {
       fileData: inlineCompileData,
       fileUrl: undefined,
       isLoading:
-        Boolean(compilePreviewPath) &&
-        snapshot.compileResult.status !== "failed" &&
-        !hasCompileSource,
+        snapshot.compileResult.status === "running" ||
+        (isLoadingCompilePdf && !hasCompileSource),
       highlightedPage,
       highlights: syncHighlights,
       onPageJump: handlePageJump,
@@ -1364,6 +1392,7 @@ function App() {
     previewSelection,
     snapshot,
     compilePreviewLoadError,
+    isLoadingCompilePdf,
     syncHighlights,
   ]);
 
@@ -1409,8 +1438,8 @@ function App() {
           : "空闲";
   const compileNeedsAttention = Boolean(
     compileEnvironment &&
-      (!compileEnvironment.ready ||
-        !compileEnvironment.availableEngines.includes(snapshot.projectConfig.engine as LatexEngine)),
+    (!compileEnvironment.ready ||
+      !compileEnvironment.availableEngines.includes(snapshot.projectConfig.engine as LatexEngine)),
   );
 
   return (
@@ -1657,35 +1686,35 @@ function App() {
                   const isImageTab = openImageTabSet.has(tab);
                   const isActive = tab === activeEditorTabPath;
                   return (
-                  <button
-                    key={tab}
-                    className={`editor-tab ${isActive ? "is-active" : ""}`}
-                    onClick={() => (isImageTab ? openImageFile(tab) : openTextFile(tab))}
-                    type="button"
-                  >
-                    <span style={{ marginRight: 8, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      {tab.split("/").at(-1)}
-                      {!isImageTab && dirtyPathSet.has(tab) && (
-                        <span className="editor-tab-dirty-dot" aria-hidden="true"></span>
-                      )}
-                    </span>
-                    <span
-                      className="icon-btn"
-                      style={{ width: 16, height: 16 }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (isImageTab) {
-                          closeImageTab(tab);
-                          return;
-                        }
-                        const closed = closeTextTab(openTabs, activeFilePath, tab);
-                        setOpenTabs(closed.openTabs);
-                        setActiveFilePath(closed.activePath);
-                      }}
+                    <button
+                      key={tab}
+                      className={`editor-tab ${isActive ? "is-active" : ""}`}
+                      onClick={() => (isImageTab ? openImageFile(tab) : openTextFile(tab))}
+                      type="button"
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                    </span>
-                  </button>
+                      <span style={{ marginRight: 8, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        {tab.split("/").at(-1)}
+                        {!isImageTab && dirtyPathSet.has(tab) && (
+                          <span className="editor-tab-dirty-dot" aria-hidden="true"></span>
+                        )}
+                      </span>
+                      <span
+                        className="icon-btn"
+                        style={{ width: 16, height: 16 }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (isImageTab) {
+                            closeImageTab(tab);
+                            return;
+                          }
+                          const closed = closeTextTab(openTabs, activeFilePath, tab);
+                          setOpenTabs(closed.openTabs);
+                          setActiveFilePath(closed.activePath);
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                      </span>
+                    </button>
                   );
                 })}
               </div>
