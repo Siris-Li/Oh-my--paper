@@ -72,11 +72,20 @@ export interface CompileResult {
   timestamp: string;
 }
 
+export interface SyncHighlight {
+  page: number;
+  h: number;
+  v: number;
+  width: number;
+  height: number;
+}
+
 export interface SyncLocation {
   filePath: string;
   line: number;
   column: number;
   page: number;
+  highlights: SyncHighlight[];
 }
 
 export interface AssetResource {

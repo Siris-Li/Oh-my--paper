@@ -25,6 +25,7 @@ interface EditorPaneProps {
   onSave?: (content: string) => void;
   onRunAgent?: () => void;
   onCompile?: () => void;
+  onForwardSync?: () => void;
 }
 
 function wrapSelection(view: EditorView, before: string, after: string) {
@@ -71,6 +72,7 @@ function EditorPaneInner({
   onSave,
   onRunAgent,
   onCompile,
+  onForwardSync,
 }: EditorPaneProps) {
   const activePathRef = useRef(file.path);
   const applyingExternalChangeRef = useRef(false);
@@ -81,6 +83,7 @@ function EditorPaneInner({
   const onSaveRef = useRef(onSave);
   const onRunAgentRef = useRef(onRunAgent);
   const onCompileRef = useRef(onCompile);
+  const onForwardSyncRef = useRef(onForwardSync);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -88,7 +91,8 @@ function EditorPaneInner({
     onSaveRef.current = onSave;
     onRunAgentRef.current = onRunAgent;
     onCompileRef.current = onCompile;
-  }, [onChange, onCursorChange, onSave, onRunAgent, onCompile]);
+    onForwardSyncRef.current = onForwardSync;
+  }, [onChange, onCursorChange, onSave, onRunAgent, onCompile, onForwardSync]);
 
   const extensions = useMemo(() => {
     const customKeymap = keymap.of([
@@ -135,6 +139,13 @@ function EditorPaneInner({
         key: "Mod-Shift-b",
         run: () => {
           onCompileRef.current?.();
+          return true;
+        },
+      },
+      {
+        key: "Mod-Shift-j",
+        run: () => {
+          onForwardSyncRef.current?.();
           return true;
         },
       },
@@ -281,7 +292,8 @@ function areEditorPanePropsEqual(previous: EditorPaneProps, next: EditorPaneProp
     previous.onCursorChange === next.onCursorChange &&
     previous.onSave === next.onSave &&
     previous.onRunAgent === next.onRunAgent &&
-    previous.onCompile === next.onCompile
+    previous.onCompile === next.onCompile &&
+    previous.onForwardSync === next.onForwardSync
   );
 }
 

@@ -85,8 +85,10 @@ pub fn forward_search(
 pub fn reverse_search(
     state: State<'_, AppState>,
     page: usize,
+    h: Option<f64>,
+    v: Option<f64>,
 ) -> Result<crate::models::SyncLocation, String> {
-    sync::reverse_search(&state, page).map_err(|err| err.to_string())
+    sync::reverse_search(&state, page, h, v).map_err(|err| err.to_string())
 }
 
 #[tauri::command]

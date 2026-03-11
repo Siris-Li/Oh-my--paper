@@ -1,7 +1,7 @@
 import { memo } from "react";
 
 import PdfJsViewer, { toPdfSource } from "./pdf-preview/PdfJsViewer";
-import type { CompileResult } from "../types";
+import type { CompileResult, SyncHighlight } from "../types";
 
 export type PreviewPaneState =
   | {
@@ -11,7 +11,9 @@ export type PreviewPaneState =
       fileUrl?: string;
       isLoading?: boolean;
       highlightedPage: number;
+      highlights?: SyncHighlight[];
       onPageJump: (page: number) => void;
+      onDoubleClickPage?: (page: number, h: number, v: number) => void;
     }
   | {
       kind: "pdf";
@@ -20,7 +22,9 @@ export type PreviewPaneState =
       fileUrl?: string;
       isLoading?: boolean;
       highlightedPage: number;
+      highlights?: SyncHighlight[];
       onPageJump: (page: number) => void;
+      onDoubleClickPage?: (page: number, h: number, v: number) => void;
     }
   | {
       kind: "image";
@@ -73,7 +77,9 @@ function PdfPaneInner({ preview }: { preview: PreviewPaneState }) {
         reloadKey={preview.fileUrl ?? preview.title}
         isLoading={preview.isLoading}
         highlightedPage={preview.highlightedPage}
+        highlights={preview.highlights}
         onPageJump={preview.onPageJump}
+        onDoubleClickPage={preview.onDoubleClickPage}
         statusLabel={preview.title}
       />
     );
@@ -92,7 +98,9 @@ function PdfPaneInner({ preview }: { preview: PreviewPaneState }) {
       reloadKey={`${preview.compileResult.timestamp}:${preview.compileResult.pdfPath ?? preview.fileUrl ?? ""}`}
       isLoading={preview.isLoading}
       highlightedPage={preview.highlightedPage}
+      highlights={preview.highlights}
       onPageJump={preview.onPageJump}
+      onDoubleClickPage={preview.onDoubleClickPage}
       statusLabel={statusLabel}
     />
   );
@@ -118,7 +126,9 @@ function arePreviewPaneStatesEqual(previous: PreviewPaneState, next: PreviewPane
       previous.fileUrl === next.fileUrl &&
       previous.isLoading === next.isLoading &&
       previous.highlightedPage === next.highlightedPage &&
-      previous.onPageJump === next.onPageJump
+      previous.highlights === next.highlights &&
+      previous.onPageJump === next.onPageJump &&
+      previous.onDoubleClickPage === next.onDoubleClickPage
     );
   }
 
@@ -131,7 +141,9 @@ function arePreviewPaneStatesEqual(previous: PreviewPaneState, next: PreviewPane
       previous.fileUrl === next.fileUrl &&
       previous.isLoading === next.isLoading &&
       previous.highlightedPage === next.highlightedPage &&
-      previous.onPageJump === next.onPageJump
+      previous.highlights === next.highlights &&
+      previous.onPageJump === next.onPageJump &&
+      previous.onDoubleClickPage === next.onDoubleClickPage
     );
   }
 

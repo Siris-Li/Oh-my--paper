@@ -33,6 +33,7 @@ import type {
   ProjectNode,
   ProviderConfig,
   SkillManifest,
+  SyncHighlight,
   TestResult,
   UsageRecord,
   WorkspacePaneMode,
@@ -97,6 +98,7 @@ function App() {
   const [assetCache, setAssetCache] = useState<Record<string, AssetResource>>({});
   const [activeFilePath, setActiveFilePath] = useState("");
   const [highlightedPage, setHighlightedPage] = useState(1);
+  const [syncHighlights, setSyncHighlights] = useState<SyncHighlight[]>([]);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("ai");
   const [workspacePaneMode, setWorkspacePaneMode] = useState<WorkspacePaneMode>("files");
   const [cursorLine, setCursorLine] = useState(1);
@@ -280,6 +282,8 @@ function App() {
     setOpenTabs(nextTabs);
     setOpenImageTabs(nextImageTabs);
     setActiveFilePath(nextActivePath);
+    setHighlightedPage(1);
+    setSyncHighlights([]);
     setEditorImagePath(nextEditorImagePath);
     setPreviewSelection(nextPreview);
     if (rootChanged) {
@@ -466,28 +470,32 @@ function App() {
     };
   }, [openFiles, snapshot?.projectConfig.mainTex, snapshot?.projectConfig.rootPath]);
 
-  const runForwardSync = useEffectEvent(async (filePath: string, line: number) => {
-    if (!snapshot?.projectConfig.forwardSync || snapshot.compileResult.status !== "success") {
+  const performForwardSync = useEffectEvent(async (filePath: string, line: number) => {
+    if (snapshot?.compileResult.status !== "success") {
       return;
     }
     try {
       const location = await desktop.forwardSearch(filePath, line);
       setHighlightedPage(location.page);
+      setSyncHighlights(location.highlights ?? []);
     } catch (error) {
       console.warn("forward sync failed", error);
     }
   });
 
   useEffect(() => {
+    if (!snapshot?.projectConfig.forwardSync) {
+      return;
+    }
     if (!activeFileSyncPath) {
       return;
     }
     const timer = window.setTimeout(() => {
-      void runForwardSync(activeFileSyncPath, cursorLine);
+      void performForwardSync(activeFileSyncPath, cursorLine);
     }, 420);
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runForwardSync is useEffectEvent
-  }, [activeFileSyncPath, cursorLine, snapshot?.compileResult.status]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- performForwardSync is useEffectEvent
+  }, [activeFileSyncPath, cursorLine, snapshot?.compileResult.status, snapshot?.projectConfig.forwardSync]);
 
 
   const runCompile = useEffectEvent(async (filePath: string) => {
@@ -511,6 +519,7 @@ function App() {
         }
         : current,
     );
+    setSyncHighlights([]);
 
     const compileResult = await desktop.compileProject(filePath);
     const nextCompilePath = toProjectRelativePath(snapshot?.projectConfig.rootPath ?? "", compileResult.pdfPath);
@@ -678,6 +687,13 @@ function App() {
     void handleManualCompile();
   });
 
+  const handleEditorForwardSync = useEffectEvent(() => {
+    if (!activeFile) {
+      return;
+    }
+    void performForwardSync(activeFile.path, cursorLine);
+  });
+
   const handleEditorRunAgent = useEffectEvent(() => {
     void handleRunAgent();
   });
@@ -738,9 +754,11 @@ function App() {
       // Other previewable files (non-compile PDFs): show in preview area
       setPreviewSelection({ kind: "asset", path: node.path });
       setHighlightedPage(1);
+      setSyncHighlights([]);
       void loadAsset(node.path);
       return;
     }
+    setSyncHighlights([]);
     setPreviewSelection({
       kind: "unsupported",
       path: node.path,
@@ -881,11 +899,28 @@ function App() {
 
   const handlePageJump = useEffectEvent(async (page: number) => {
     setHighlightedPage(page);
+    setSyncHighlights([]);
     if (previewSelection.kind !== "compile" || snapshot?.compileResult.status !== "success") {
       return;
     }
     try {
       const location = await desktop.reverseSearch(page);
+      openTextFile(location.filePath, location.line);
+    } catch (error) {
+      console.warn("reverse sync failed", error);
+    }
+  });
+
+  const handleDoubleClickPage = useEffectEvent(async (page: number, h: number, v: number) => {
+    if (previewSelection.kind !== "compile" || snapshot?.compileResult.status !== "success") {
+      return;
+    }
+
+    setHighlightedPage(page);
+    setSyncHighlights([]);
+
+    try {
+      const location = await desktop.reverseSearch(page, h, v);
       openTextFile(location.filePath, location.line);
     } catch (error) {
       console.warn("reverse sync failed", error);
@@ -1164,7 +1199,9 @@ function App() {
           fileUrl,
           isLoading: false,
           highlightedPage,
+          highlights: undefined,
           onPageJump: setHighlightedPage,
+          onDoubleClickPage: undefined,
         };
       }
       if (!asset.resourceUrl) {
@@ -1208,9 +1245,11 @@ function App() {
       fileUrl: compileFileUrl,
       isLoading: Boolean(compilePreviewPath) && !hasCompileSource,
       highlightedPage,
+      highlights: syncHighlights,
       onPageJump: handlePageJump,
+      onDoubleClickPage: handleDoubleClickPage,
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handlePageJump is useEffectEvent
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handlePageJump / handleDoubleClickPage are useEffectEvent
   }, [
     previewAsset,
     compilePreviewAsset,
@@ -1219,6 +1258,7 @@ function App() {
     highlightedPage,
     previewSelection,
     snapshot,
+    syncHighlights,
   ]);
 
   const outlineNode = useMemo(() => {
@@ -1579,6 +1619,7 @@ function App() {
                     onSave={handleEditorSave}
                     onRunAgent={handleEditorRunAgent}
                     onCompile={handleEditorCompile}
+                    onForwardSync={handleEditorForwardSync}
                   />
                 ) : (
                   <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>

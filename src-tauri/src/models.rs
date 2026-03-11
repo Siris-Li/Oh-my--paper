@@ -128,11 +128,22 @@ pub struct Diagnostic {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct SyncHighlight {
+    pub page: usize,
+    pub h: f64,
+    pub v: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncLocation {
     pub file_path: String,
     pub line: usize,
     pub column: usize,
     pub page: usize,
+    pub highlights: Vec<SyncHighlight>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

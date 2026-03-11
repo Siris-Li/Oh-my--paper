@@ -1,7 +1,11 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
+import { useKeyboardZoom } from "../../hooks/useKeyboardZoom";
+import { useMouseWheelZoom } from "../../hooks/useMouseWheelZoom";
+import { renderSyncHighlights } from "../../lib/pdf-highlights";
 import { PDFJSWrapper, type PdfScaleValue } from "../../lib/pdf-js-wrapper";
 import { resolvePdfSource } from "../../lib/pdf-source";
+import type { SyncHighlight } from "../../types";
 
 type PdfSource = Uint8Array | string | undefined;
 
@@ -10,7 +14,9 @@ export interface PdfJsViewerProps {
   reloadKey?: string;
   isLoading?: boolean;
   highlightedPage: number;
+  highlights?: SyncHighlight[];
   onPageJump: (page: number) => void;
+  onDoubleClickPage?: (page: number, h: number, v: number) => void;
   statusLabel: string;
 }
 
@@ -19,7 +25,9 @@ function PdfJsViewerInner({
   reloadKey,
   isLoading,
   highlightedPage,
+  highlights,
   onPageJump,
+  onDoubleClickPage,
   statusLabel,
 }: PdfJsViewerProps) {
   const [pdfJsWrapper, setPdfJsWrapper] = useState<PDFJSWrapper | null>(null);
@@ -28,7 +36,20 @@ function PdfJsViewerInner({
   const [pageInput, setPageInput] = useState("1");
   const [scale, setScale] = useState(1);
   const [errorMessage, setErrorMessage] = useState("");
-  const scalePreferenceRef = useRef<PdfScaleValue>("page-width");
+  const SCALE_STORAGE_KEY = "viwerleaf.pdf.scale";
+  const scalePreferenceRef = useRef<PdfScaleValue>(
+    (() => {
+      const saved = localStorage.getItem(SCALE_STORAGE_KEY);
+      if (saved !== null) {
+        const parsed = Number(saved);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          return parsed;
+        }
+      }
+      return "page-width";
+    })(),
+  );
+  const highlightRendererRef = useRef<{ clear: () => void } | null>(null);
 
   const handleContainer = useCallback((parent: HTMLDivElement | null) => {
     if (!parent) {
@@ -50,6 +71,8 @@ function PdfJsViewerInner({
 
   useEffect(() => {
     return () => {
+      highlightRendererRef.current?.clear();
+      highlightRendererRef.current = null;
       if (pdfJsWrapper) {
         void pdfJsWrapper.destroy();
       }
@@ -132,6 +155,76 @@ function PdfJsViewerInner({
   }, [highlightedPage, pageCount, pdfJsWrapper]);
 
   useEffect(() => {
+    highlightRendererRef.current?.clear();
+    highlightRendererRef.current = null;
+
+    if (!pdfJsWrapper || !pageCount || !highlights?.length) {
+      return;
+    }
+
+    const targetPage = highlights[0]?.page ?? 0;
+    if (targetPage > 0 && targetPage !== pdfJsWrapper.currentPage) {
+      pdfJsWrapper.scrollToPage(targetPage);
+    }
+
+    const timer = window.setTimeout(() => {
+      highlightRendererRef.current = renderSyncHighlights(
+        pdfJsWrapper.viewerElement,
+        highlights,
+        (page) => pdfJsWrapper.getPageViewport(page),
+      );
+    }, 150);
+
+    return () => {
+      window.clearTimeout(timer);
+      highlightRendererRef.current?.clear();
+      highlightRendererRef.current = null;
+    };
+  }, [highlights, pageCount, pdfJsWrapper]);
+
+  useEffect(() => {
+    if (!pdfJsWrapper || !onDoubleClickPage) {
+      return;
+    }
+
+    const container = pdfJsWrapper.container;
+    const handleDoubleClick = (event: MouseEvent) => {
+      const pageElement = (event.target instanceof Element ? event.target : null)?.closest(
+        ".page[data-page-number]",
+      );
+      if (!(pageElement instanceof HTMLElement)) {
+        return;
+      }
+
+      const pageNumber = Number.parseInt(pageElement.dataset.pageNumber ?? "0", 10);
+      if (!pageNumber) {
+        return;
+      }
+
+      const canvas = pageElement.querySelector("canvas");
+      const pageSize = pdfJsWrapper.getPageViewport(pageNumber);
+      if (!(canvas instanceof HTMLCanvasElement) || !pageSize || canvas.clientWidth <= 0 || canvas.clientHeight <= 0) {
+        return;
+      }
+
+      const bounds = canvas.getBoundingClientRect();
+      const relativeX = Math.max(0, Math.min(event.clientX - bounds.left, bounds.width));
+      const relativeY = Math.max(0, Math.min(event.clientY - bounds.top, bounds.height));
+      const scaleX = pageSize.width / canvas.clientWidth;
+      const scaleY = pageSize.height / canvas.clientHeight;
+
+      onDoubleClickPage(
+        pageNumber,
+        relativeX * scaleX,
+        pageSize.height - relativeY * scaleY,
+      );
+    };
+
+    container.addEventListener("dblclick", handleDoubleClick);
+    return () => container.removeEventListener("dblclick", handleDoubleClick);
+  }, [onDoubleClickPage, pdfJsWrapper]);
+
+  useEffect(() => {
     if (!pdfJsWrapper || !("ResizeObserver" in window)) {
       return;
     }
@@ -177,11 +270,25 @@ function PdfJsViewerInner({
       }
 
       scalePreferenceRef.current = next;
+      if (typeof next === "number") {
+        localStorage.setItem(SCALE_STORAGE_KEY, String(next));
+      } else {
+        localStorage.removeItem(SCALE_STORAGE_KEY);
+      }
       pdfJsWrapper.setScale(next);
       setScale(pdfJsWrapper.currentScale);
     },
     [pdfJsWrapper],
   );
+
+  const handleZoomScaleChange = useCallback((nextScale: number) => {
+    setScale(nextScale);
+    scalePreferenceRef.current = nextScale;
+    localStorage.setItem(SCALE_STORAGE_KEY, String(nextScale));
+  }, []);
+
+  useMouseWheelZoom(pdfJsWrapper, handleZoomScaleChange);
+  useKeyboardZoom(pdfJsWrapper, handleZoomScaleChange);
 
   const handlePageInputCommit = useCallback(() => {
     const parsed = Number.parseInt(pageInput, 10);
@@ -239,13 +346,13 @@ function PdfJsViewerInner({
 
           <div style={{ width: 1, height: 20, background: "var(--border-light)", margin: "0 4px" }} />
 
-          <button className="btn-secondary" type="button" onClick={() => applyScale(Math.max(0.4, scale - 0.1))}>
+          <button className="btn-secondary" type="button" onClick={() => applyScale(Math.max(0.25, scale - 0.1))}>
             -
           </button>
           <span className="text-subtle" style={{ minWidth: 56, textAlign: "center" }}>
             {Math.round(scale * 100)}%
           </span>
-          <button className="btn-secondary" type="button" onClick={() => applyScale(Math.min(4, scale + 0.1))}>
+          <button className="btn-secondary" type="button" onClick={() => applyScale(Math.min(5, scale + 0.1))}>
             +
           </button>
           <button className="btn-secondary" type="button" onClick={() => applyScale("page-width")}>
@@ -278,7 +385,9 @@ function arePdfJsViewerPropsEqual(previous: PdfJsViewerProps, next: PdfJsViewerP
     previous.reloadKey === next.reloadKey &&
     previous.isLoading === next.isLoading &&
     previous.highlightedPage === next.highlightedPage &&
+    previous.highlights === next.highlights &&
     previous.onPageJump === next.onPageJump &&
+    previous.onDoubleClickPage === next.onDoubleClickPage &&
     previous.statusLabel === next.statusLabel
   );
 }

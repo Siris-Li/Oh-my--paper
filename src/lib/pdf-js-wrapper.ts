@@ -149,6 +149,19 @@ export class PDFJSWrapper {
     return this.viewer.pagesCount;
   }
 
+  getPageViewport(pageNumber: number): { width: number; height: number } | null {
+    const pageView = this.viewer.getPageView(pageNumber - 1);
+    if (!pageView?.viewport) {
+      return null;
+    }
+
+    const [x1, y1, x2, y2] = pageView.viewport.viewBox;
+    return {
+      width: Math.abs(x2 - x1),
+      height: Math.abs(y2 - y1),
+    };
+  }
+
   scrollToPage(page: number) {
     const pagesCount = this.pagesCount;
     if (!pagesCount) {

@@ -106,8 +106,8 @@ export const desktop = {
       mockRuntime.forwardSearch(filePath, line),
     );
   },
-  reverseSearch(page: number) {
-    return runOrMock<SyncLocation>("reverse_search", { page }, () => mockRuntime.reverseSearch(page));
+  reverseSearch(page: number, h?: number, v?: number) {
+    return runOrMock<SyncLocation>("reverse_search", { page, h, v }, () => mockRuntime.reverseSearch(page, h, v));
   },
   runAgent(profileId: AgentProfileId, filePath: string, selectedText: string) {
     return runOrMock<AgentRunResult>("run_agent", { profileId, filePath, selectedText }, () =>

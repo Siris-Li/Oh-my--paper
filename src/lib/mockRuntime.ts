@@ -743,20 +743,31 @@ export const mockRuntime = {
   },
 
   async forwardSearch(filePath: string, line: number): Promise<SyncLocation> {
+    const page = Math.max(1, Math.ceil(line / 20));
     return {
       filePath,
       line,
       column: 1,
-      page: Math.max(1, Math.ceil(line / 20)),
+      page,
+      highlights: [
+        {
+          page,
+          h: 72,
+          v: 720 - ((line - 1) % 20) * 24,
+          width: 280,
+          height: 14,
+        },
+      ],
     };
   },
 
-  async reverseSearch(page: number): Promise<SyncLocation> {
+  async reverseSearch(page: number, _h?: number, _v?: number): Promise<SyncLocation> {
     return {
       filePath: projectConfig.mainTex,
       line: (page - 1) * 20 + 1,
       column: 1,
       page,
+      highlights: [],
     };
   },
 
