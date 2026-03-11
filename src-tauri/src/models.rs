@@ -91,6 +91,25 @@ pub struct AgentMessage {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentSessionSummary {
+    pub id: String,
+    pub profile_id: String,
+    pub title: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub message_count: i64,
+    pub last_message_preview: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentConversationMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentSuggestedPatch {
     pub file_path: String,
     pub content: String,
@@ -216,6 +235,8 @@ pub struct AgentRequest {
     pub provider: AgentProvider,
     pub system_prompt: String,
     pub tools: Vec<String>,
+    pub user_message: String,
+    pub history: Vec<AgentConversationMessage>,
     pub context: AgentContext,
 }
 
@@ -249,7 +270,11 @@ pub enum StreamChunk {
         args: serde_json::Value,
     },
     #[serde(rename = "tool_call_result")]
-    ToolCallResult { tool_id: String, output: String },
+    ToolCallResult {
+        tool_id: String,
+        output: String,
+        status: Option<String>,
+    },
     #[serde(rename = "patch")]
     Patch {
         file_path: String,

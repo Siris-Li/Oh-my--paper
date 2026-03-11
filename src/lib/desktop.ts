@@ -5,6 +5,7 @@ import type {
   AgentMessage,
   AgentProfileId,
   AgentRunResult,
+  AgentSessionSummary,
   AssetResource,
   CompileEnvironmentStatus,
   FigureBriefDraft,
@@ -115,16 +116,27 @@ export const desktop = {
   reverseSearch(page: number, h?: number, v?: number) {
     return runOrMock<SyncLocation>("reverse_search", { page, h, v }, () => mockRuntime.reverseSearch(page, h, v));
   },
-  runAgent(profileId: AgentProfileId, filePath: string, selectedText: string) {
-    return runOrMock<AgentRunResult>("run_agent", { profileId, filePath, selectedText }, () =>
-      mockRuntime.runAgent(profileId, filePath, selectedText),
+  runAgent(
+    profileId: AgentProfileId,
+    filePath: string,
+    selectedText: string,
+    userMessage?: string,
+    sessionId?: string,
+  ) {
+    return runOrMock<AgentRunResult>("run_agent", { profileId, filePath, selectedText, userMessage, sessionId }, () =>
+      mockRuntime.runAgent(profileId, filePath, selectedText, userMessage, sessionId),
     );
   },
   applyAgentPatch(filePath: string, content: string) {
     return runOrMock("apply_agent_patch", { filePath, content }, () => mockRuntime.applyAgentPatch(filePath, content));
   },
   getAgentMessages(sessionId?: string) {
-    return runOrMock<AgentMessage[]>("get_agent_messages", { sessionId }, () => mockRuntime.getAgentMessages());
+    return runOrMock<AgentMessage[]>("get_agent_messages", { sessionId }, () => mockRuntime.getAgentMessages(sessionId));
+  },
+  listAgentSessions() {
+    return runOrMock<AgentSessionSummary[]>("list_agent_sessions", {}, () =>
+      mockRuntime.listAgentSessions?.() ?? Promise.resolve([]),
+    );
   },
   listSkills() {
     return runOrMock<SkillManifest[]>("list_skills", {}, () => mockRuntime.listSkills());

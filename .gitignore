@@ -48,3 +48,7 @@ sidecar/node_modules
 
 # OMC files
 .omc
+
+# ViewerLeaf opencode runtime data
+.viewerleaf/opencode-home/
+.viewerleaf/opencode-session-map.json

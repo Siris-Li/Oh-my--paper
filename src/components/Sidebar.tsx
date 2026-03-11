@@ -6,6 +6,7 @@ import { ProviderCard, ProviderEditModal } from "./ProviderCard";
 import type {
   AgentMessage,
   AgentProfile,
+  AgentSessionSummary,
   CompileEnvironmentStatus,
   DrawerTab,
   FigureBriefDraft,
@@ -14,6 +15,7 @@ import type {
   ProjectConfig,
   ProviderConfig,
   SkillManifest,
+  StreamToolCall,
   TestResult,
   UsageRecord,
 } from "../types";
@@ -21,6 +23,10 @@ import type {
 interface SidebarProps {
   tab: DrawerTab;
   messages: AgentMessage[];
+  sessions: AgentSessionSummary[];
+  activeSessionId: string;
+  onSelectSession: (sessionId: string) => void;
+  onNewSession: () => void;
   profiles: AgentProfile[];
   activeProfileId: string;
   onSelectProfile: (profileId: string) => void;
@@ -57,6 +63,8 @@ interface SidebarProps {
   onActivateProvider: (providerId: string) => void;
   onToggleSkill: (skill: SkillManifest) => Promise<void>;
   streamText?: string;
+  streamToolCalls?: StreamToolCall[];
+  streamError?: string;
   isStreaming?: boolean;
   onSendMessage: (text: string) => void;
   onDismissPatch: () => void;
@@ -76,6 +84,10 @@ const LATEX_ENGINE_LABELS: Record<LatexEngine, string> = {
 export function Sidebar({
   tab,
   messages,
+  sessions,
+  activeSessionId,
+  onSelectSession,
+  onNewSession,
   profiles,
   activeProfileId,
   onSelectProfile,
@@ -112,6 +124,8 @@ export function Sidebar({
   onActivateProvider,
   onToggleSkill,
   streamText,
+  streamToolCalls,
+  streamError,
   isStreaming,
   onSendMessage,
   onDismissPatch,
@@ -310,6 +324,10 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
           <div className="sidebar-content" style={{ padding: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <ChatPanel
               messages={messages}
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSelectSession={onSelectSession}
+              onNewSession={onNewSession}
               profiles={profiles}
               activeProfileId={activeProfileId}
               onSelectProfile={onSelectProfile}
@@ -319,6 +337,8 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
               onApplyPatch={onApplyPatch}
               onDismissPatch={onDismissPatch}
               streamText={streamText}
+              streamToolCalls={streamToolCalls}
+              streamError={streamError}
               isStreaming={isStreaming}
               skills={skills}
               onToggleSkill={onToggleSkill}

@@ -1,8 +1,52 @@
 import { loadProvider } from "./providers/index.mjs";
 import { getTools } from "./tools/registry.mjs";
+import { runAgentWithOpencode, supportsOpencodeVendor } from "./opencode.mjs";
 import { emit } from "./utils/ndjson.mjs";
 
 export async function runAgent(request) {
+  const requestedEngine = process.env.VIEWERLEAF_AGENT_ENGINE;
+  const useOpencode =
+    requestedEngine === "opencode" && supportsOpencodeVendor(request?.provider?.vendor);
+
+  if (useOpencode) {
+    try {
+      await runAgentWithOpencode(request);
+      return;
+    } catch (error) {
+      const message = error?.message || String(error);
+      emit({ type: "error", message: `opencode runner failed: ${message}` });
+      emit({
+        type: "done",
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          model: request?.provider?.model || "",
+        },
+      });
+      return;
+    }
+  }
+
+  if (requestedEngine === "opencode") {
+    emit({
+      type: "error",
+      message: `opencode runner does not support provider vendor: ${request?.provider?.vendor ?? "unknown"}`,
+    });
+    emit({
+      type: "done",
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        model: request?.provider?.model || "",
+      },
+    });
+    return;
+  }
+
+  await runLegacyAgent(request);
+}
+
+async function runLegacyAgent(request) {
   const { provider: providerConfig, systemPrompt, tools: toolIds, context } = request;
   const provider = loadProvider(providerConfig);
   const tools = getTools(toolIds);
@@ -12,13 +56,21 @@ export async function runAgent(request) {
     sessionId: request.sessionId,
   };
 
-  const messages = [
-    { role: "system", content: systemPrompt },
-    {
-      role: "user",
-      content: buildUserMessage(context),
-    },
-  ];
+  const messages = [{ role: "system", content: systemPrompt }];
+  const history = Array.isArray(request.history) ? request.history : [];
+  for (const item of history) {
+    if (!item || typeof item.content !== "string") {
+      continue;
+    }
+    if (item.role !== "user" && item.role !== "assistant") {
+      continue;
+    }
+    messages.push({ role: item.role, content: item.content });
+  }
+  messages.push({
+    role: "user",
+    content: buildUserMessage(context, request.userMessage),
+  });
 
   const maxToolRounds = 10;
   let round = 0;
@@ -76,14 +128,14 @@ export async function runAgent(request) {
       const tool = tools.find((item) => item.id === call.name);
       if (!tool) {
         const errMsg = `Unknown tool: ${call.name}`;
-        emit({ type: "tool_call_result", toolId: call.name, output: errMsg });
+        emit({ type: "tool_call_result", toolId: call.name, output: errMsg, status: "error" });
         messages.push({ role: "tool", tool_call_id: call.id, content: errMsg });
         continue;
       }
 
       try {
         const result = await tool.execute(call.args, toolCtx);
-        emit({ type: "tool_call_result", toolId: call.name, output: result.output });
+        emit({ type: "tool_call_result", toolId: call.name, output: result.output, status: "completed" });
 
         if (result.sideEffects) {
           for (const effect of result.sideEffects) {
@@ -102,7 +154,7 @@ export async function runAgent(request) {
         messages.push({ role: "tool", tool_call_id: call.id, content: result.output });
       } catch (error) {
         const errMsg = `Tool error: ${error?.message || String(error)}`;
-        emit({ type: "tool_call_result", toolId: call.name, output: errMsg });
+        emit({ type: "tool_call_result", toolId: call.name, output: errMsg, status: "error" });
         messages.push({ role: "tool", tool_call_id: call.id, content: errMsg });
       }
     }
@@ -111,12 +163,29 @@ export async function runAgent(request) {
   emit({ type: "done", usage: provider.getUsage() });
 }
 
-function buildUserMessage(context) {
+function buildUserMessage(context, userMessage) {
   const parts = [];
+  if (typeof userMessage === "string" && userMessage.trim()) {
+    parts.push(`## User Request\n\n${userMessage}`);
+  }
   if (context.selectedText) {
     parts.push(`## Selected Text\n\n${context.selectedText}`);
   }
-  parts.push(`## Current File: ${context.activeFilePath}\n\n${context.fullFileContent}`);
-  parts.push(`## Cursor Position: Line ${context.cursorLine}`);
+  if (context.activeFilePath) {
+    parts.push(`## Active File\n\n${context.activeFilePath}`);
+  }
+  if (context.projectRoot) {
+    parts.push(`## Project Root\n\n${context.projectRoot}`);
+  }
+  parts.push(`## Cursor\n\nLine ${context.cursorLine}`);
+  parts.push(
+    [
+      "## Tooling Policy",
+      "",
+      "Do not assume full file content is preloaded.",
+      "Read files on demand and only inspect the minimal ranges needed.",
+      "Before editing, verify exact context with targeted tool reads.",
+    ].join("\n"),
+  );
   return parts.join("\n\n---\n\n");
 }

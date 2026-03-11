@@ -4,6 +4,16 @@ export function createAnthropicProvider(config) {
   const client = new Anthropic({
     apiKey: config.apiKey,
     baseURL: config.baseUrl || undefined,
+    // Prevent ANTHROPIC_AUTH_TOKEN env var from injecting Authorization: Bearer,
+    // which some reverse-proxy endpoints reject.
+    authToken: null,
+    fetch: (url, opts = {}) => {
+      const headers = new Headers(opts.headers);
+      // Some reverse-proxy endpoints block SDK-specific headers.
+      headers.delete("authorization");
+      headers.delete("user-agent");
+      return fetch(url, { ...opts, headers });
+    },
   });
 
   let totalInputTokens = 0;

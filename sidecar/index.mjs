@@ -2,9 +2,29 @@ import process from "node:process";
 
 import { runAgent } from "./agent.mjs";
 
-function parsePayload() {
-  const raw = process.argv[3] ?? "{}";
-  return JSON.parse(raw);
+async function parsePayload() {
+  const raw = process.argv[3];
+  if (raw && raw !== "--stdin-payload") {
+    return JSON.parse(raw);
+  }
+
+  const stdinPayload = await readStdin();
+  if (!stdinPayload.trim()) {
+    return {};
+  }
+  return JSON.parse(stdinPayload);
+}
+
+async function readStdin() {
+  if (process.stdin.isTTY) {
+    return "";
+  }
+
+  const chunks = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 async function main() {
@@ -12,22 +32,22 @@ async function main() {
 
   switch (command) {
     case "agent": {
-      const payload = parsePayload();
+      const payload = await parsePayload();
       await runAgent(payload);
       break;
     }
     case "test-provider": {
-      const payload = parsePayload();
+      const payload = await parsePayload();
       await testProvider(payload);
       break;
     }
     case "figure-skill": {
-      const payload = parsePayload();
+      const payload = await parsePayload();
       await runFigureSkill(payload);
       break;
     }
     case "banana": {
-      const payload = parsePayload();
+      const payload = await parsePayload();
       await runBanana(payload);
       break;
     }

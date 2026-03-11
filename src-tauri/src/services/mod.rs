@@ -6,6 +6,7 @@ pub mod figure;
 pub mod profile;
 pub mod project;
 pub mod provider;
+pub mod sidecar;
 pub mod skill;
 pub mod sync;
 

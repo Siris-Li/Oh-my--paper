@@ -1,11 +1,10 @@
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
 use std::path::Path;
-use std::process::Command;
 use uuid::Uuid;
 
 use crate::models::{FigureBriefDraft, GeneratedAsset};
-use crate::services::provider;
+use crate::services::{provider, sidecar};
 use crate::state::AppState;
 
 pub fn create_brief(
@@ -92,11 +91,7 @@ pub fn run_figure_skill(state: &AppState, brief_id: &str) -> Result<FigureBriefD
         "briefMarkdown": brief.brief_markdown
     });
 
-    let output = Command::new("node")
-        .arg(state.app_root.join("sidecar/index.mjs"))
-        .args(["figure-skill", &payload.to_string()])
-        .current_dir(&state.app_root)
-        .output()
+    let output = sidecar::run_sidecar(state, "figure-skill", &payload.to_string())
         .context("failed to run figure skill sidecar")?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -138,11 +133,7 @@ pub fn run_banana_generation(state: &AppState, brief_id: &str) -> Result<Generat
         "briefId": brief.id
     });
 
-    let output = Command::new("node")
-        .arg(state.app_root.join("sidecar/index.mjs"))
-        .args(["banana", &payload.to_string()])
-        .current_dir(&state.app_root)
-        .output()
+    let output = sidecar::run_sidecar(state, "banana", &payload.to_string())
         .context("failed to run banana sidecar")?;
 
     if !output.status.success() {

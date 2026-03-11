@@ -2,14 +2,14 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::models::{
-    AgentMessage, AgentRunResult, AssetResource, FigureBriefDraft, GeneratedAsset, ProfileConfig,
-    ProjectConfig, ProjectFile, ProviderConfig, SkillManifest, TestResult, UsageRecord,
-    WorkspaceSnapshot,
+    AgentMessage, AgentRunResult, AgentSessionSummary, AssetResource, FigureBriefDraft,
+    GeneratedAsset, ProfileConfig, ProjectConfig, ProjectFile, ProviderConfig, SkillManifest,
+    TestResult, UsageRecord, WorkspaceSnapshot,
 };
-use crate::services::{agent, compile, figure, profile, project, provider, skill, sync};
+use crate::services::{agent, compile, figure, profile, project, provider, sidecar, skill, sync};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -101,11 +101,62 @@ pub fn run_agent(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     profile_id: String,
+    session_id: Option<String>,
     file_path: String,
     selected_text: String,
+    user_message: Option<String>,
 ) -> Result<AgentRunResult, String> {
-    agent::run_agent(&app_handle, &state, &profile_id, &file_path, &selected_text)
-        .map_err(|err| err.to_string())
+    // Resolve session_id eagerly so we can return it immediately to the frontend.
+    let resolved_session_id = session_id
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    // Pre-insert the user message synchronously so the DB is consistent.
+    agent::prepare_user_message(
+        &state,
+        &profile_id,
+        &resolved_session_id,
+        &file_path,
+        user_message.as_deref().unwrap_or_default(),
+    )
+    .map_err(|err| format!("{err:#}"))?;
+
+    let app_handle2 = app_handle.clone();
+    let profile_id2 = profile_id.clone();
+    let session_id2 = resolved_session_id.clone();
+    let file_path2 = file_path.clone();
+    let selected_text2 = selected_text.clone();
+    let user_message2 = user_message.clone();
+
+    // Run the blocking sidecar I/O on a dedicated thread so the command
+    // returns immediately and does not freeze the frontend invoke() call.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state_ref = app_handle2.state::<AppState>();
+        if let Err(err) = agent::run_agent(
+            &app_handle2,
+            &state_ref,
+            &profile_id2,
+            Some(&session_id2),
+            &file_path2,
+            &selected_text2,
+            user_message2.as_deref(),
+        ) {
+            let _ = app_handle2.emit(
+                "agent:stream",
+                &crate::models::StreamChunk::Error {
+                    message: format!("{err:#}"),
+                },
+            );
+        }
+    });
+
+    Ok(AgentRunResult {
+        session_id: Some(resolved_session_id),
+        message: None,
+        suggested_patch: None,
+    })
 }
 
 #[tauri::command]
@@ -132,6 +183,11 @@ pub fn get_agent_messages(
     session_id: Option<String>,
 ) -> Result<Vec<AgentMessage>, String> {
     agent::get_agent_messages(&state, session_id.as_deref()).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn list_agent_sessions(state: State<'_, AppState>) -> Result<Vec<AgentSessionSummary>, String> {
+    agent::list_agent_sessions(&state).map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -237,21 +293,18 @@ pub fn test_provider(state: State<'_, AppState>, id: String) -> Result<TestResul
     drop(conn);
 
     let start = Instant::now();
-    let output = std::process::Command::new("node")
-        .arg(state.app_root.join("sidecar/index.mjs"))
-        .args([
-            "test-provider",
-            &serde_json::json!({
-                "vendor": prov.vendor,
-                "baseUrl": prov.base_url,
-                "apiKey": prov.api_key,
-                "model": prov.default_model,
-            })
-            .to_string(),
-        ])
-        .current_dir(&state.app_root)
-        .output()
-        .map_err(|err| err.to_string())?;
+    let output = sidecar::run_sidecar(
+        &state,
+        "test-provider",
+        &serde_json::json!({
+            "vendor": prov.vendor,
+            "baseUrl": prov.base_url,
+            "apiKey": prov.api_key,
+            "model": prov.default_model,
+        })
+        .to_string(),
+    )
+    .map_err(|err| err.to_string())?;
     let latency = start.elapsed().as_millis() as u64;
 
     if output.status.success() {

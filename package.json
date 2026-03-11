@@ -4,8 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 5173 --strictPort",
-    "build": "tsc -b && vite build",
+    "sidecar:install": "npm install --prefix sidecar --no-audit --no-fund",
+    "dev": "npm run sidecar:install && vite --port 5173 --strictPort",
+    "build": "npm run sidecar:install && tsc -b && vite build",
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",

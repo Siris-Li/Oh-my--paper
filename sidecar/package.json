@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
-    "openai": "^4.80.0"
+    "openai": "^4.80.0",
+    "opencode-ai": "^1.2.24"
   }
 }

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { ProviderConfig } from "../types";
 
+const MASKED_API_KEY = "••••••••";
+
 function initials(name: string) {
   return name
     .split(/\s+/)
@@ -105,18 +107,19 @@ export function ProviderEditModal({ provider, onSave, onClose }: EditModalProps)
     name: provider.name ?? "",
     baseUrl: provider.baseUrl ?? "",
     defaultModel: provider.defaultModel ?? "",
-    apiKey: "",
+    apiKey: provider.apiKey ? MASKED_API_KEY : "",
   });
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     setSaving(true);
     try {
+      const apiKey = form.apiKey.trim();
       await onSave({
         name: form.name.trim() || provider.vendor,
         baseUrl: form.baseUrl.trim(),
         defaultModel: form.defaultModel.trim(),
-        ...(form.apiKey ? { apiKey: form.apiKey } : {}),
+        ...(apiKey && apiKey !== MASKED_API_KEY ? { apiKey } : {}),
       });
       onClose();
     } finally {
@@ -146,7 +149,18 @@ export function ProviderEditModal({ provider, onSave, onClose }: EditModalProps)
           </label>
           <label className="modal-label">
             API Key <span style={{ opacity: 0.5, fontSize: 11 }}>（留空不修改）</span>
-            <input className="sidebar-input" type="password" value={form.apiKey} onChange={e => setForm(f => ({ ...f, apiKey: e.target.value }))} placeholder="sk-…" />
+            <input
+              className="sidebar-input"
+              type="password"
+              value={form.apiKey}
+              onFocus={() => {
+                if (form.apiKey === MASKED_API_KEY) {
+                  setForm((current) => ({ ...current, apiKey: "" }));
+                }
+              }}
+              onChange={e => setForm(f => ({ ...f, apiKey: e.target.value }))}
+              placeholder={provider.apiKey ? MASKED_API_KEY : "sk-…"}
+            />
           </label>
         </div>
         <div className="modal-footer">

@@ -25,6 +25,7 @@ import { closePathTab, closeTextTab, findFirstTextPath, getNodeByPath } from "./
 import type {
   AgentMessage,
   AgentProfileId,
+  AgentSessionSummary,
   AssetResource,
   CompileEnvironmentStatus,
   DrawerTab,
@@ -35,6 +36,7 @@ import type {
   ProjectNode,
   ProviderConfig,
   SkillManifest,
+  StreamToolCall,
   SyncHighlight,
   TestResult,
   UsageRecord,
@@ -134,6 +136,8 @@ function App() {
   const [cursorLine, setCursorLine] = useState(1);
   const [selectedText, setSelectedText] = useState("");
   const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [agentSessions, setAgentSessions] = useState<AgentSessionSummary[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState("");
   const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<AgentProfileId>("outline");
   const [pendingPatch, setPendingPatch] = useState<{ filePath: string; content: string; summary: string } | null>(null);
@@ -141,6 +145,8 @@ function App() {
   const [selectedAsset, setSelectedAsset] = useState<GeneratedAsset | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
+  const [streamToolCalls, setStreamToolCalls] = useState<StreamToolCall[]>([]);
+  const [streamError, setStreamError] = useState("");
   const [loadingFilePath, setLoadingFilePath] = useState("");
   const [previewSelection, setPreviewSelection] = useState<PreviewSelection>({ kind: "compile" });
   const [outlineHeadings, setOutlineHeadings] = useState<OutlineHeading[]>([]);
@@ -152,6 +158,9 @@ function App() {
   const [editorImageUrl, setEditorImageUrl] = useState("");
   const draftContentRef = useRef<Record<string, string>>({});
   const pendingTextLoadsRef = useRef<Record<string, Promise<ProjectFile | null>>>({});
+  const streamBufferRef = useRef("");
+  const streamFlushTimerRef = useRef<number | null>(null);
+  const streamToolSeqRef = useRef(0);
 
   const logCompileDebug = useEffectEvent(
     (level: "info" | "warn" | "error", message: string, details?: unknown) => {
@@ -176,6 +185,100 @@ function App() {
       }
     },
   );
+
+  const flushStreamBuffer = useEffectEvent(() => {
+    const delta = streamBufferRef.current;
+    if (!delta) {
+      return;
+    }
+    streamBufferRef.current = "";
+    setStreamText((current) => current + delta);
+  });
+
+  const queueStreamDelta = useEffectEvent((delta: string) => {
+    if (!delta) {
+      return;
+    }
+    streamBufferRef.current += delta;
+    if (streamFlushTimerRef.current !== null) {
+      return;
+    }
+    streamFlushTimerRef.current = window.setTimeout(() => {
+      streamFlushTimerRef.current = null;
+      flushStreamBuffer();
+    }, 16);
+  });
+
+  const clearStreamBuffer = useEffectEvent(() => {
+    if (streamFlushTimerRef.current !== null) {
+      window.clearTimeout(streamFlushTimerRef.current);
+      streamFlushTimerRef.current = null;
+    }
+    streamBufferRef.current = "";
+  });
+
+  const resetStreamState = useEffectEvent(() => {
+    clearStreamBuffer();
+    setStreamText("");
+    setStreamToolCalls([]);
+    setStreamError("");
+    streamToolSeqRef.current = 0;
+  });
+
+  const pushStreamToolStart = useEffectEvent((toolId: string, args: Record<string, unknown>) => {
+    const seq = streamToolSeqRef.current + 1;
+    streamToolSeqRef.current = seq;
+    setStreamToolCalls((current) => [
+      ...current,
+      {
+        id: `${Date.now()}-${seq}`,
+        toolId,
+        args,
+        status: "running",
+      },
+    ]);
+  });
+
+  const pushStreamToolResult = useEffectEvent(
+    (toolId: string, output: string, status: "completed" | "error" = "completed") => {
+      setStreamToolCalls((current) => {
+        for (let index = current.length - 1; index >= 0; index -= 1) {
+          const item = current[index];
+          if (item.toolId !== toolId || item.status !== "running") {
+            continue;
+          }
+          const next = [...current];
+          next[index] = {
+            ...item,
+            output,
+            status,
+          };
+          return next;
+        }
+
+        const seq = streamToolSeqRef.current + 1;
+        streamToolSeqRef.current = seq;
+        return [
+          ...current,
+          {
+            id: `${Date.now()}-${seq}`,
+            toolId,
+            output,
+            status,
+          },
+        ];
+      });
+    },
+  );
+
+  useEffect(() => {
+    return () => {
+      if (streamFlushTimerRef.current !== null) {
+        window.clearTimeout(streamFlushTimerRef.current);
+        streamFlushTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const activeFile = (() => {
     if (!activeFilePath) {
@@ -394,8 +497,14 @@ function App() {
     void (async () => {
       try {
         await refreshWorkspace({ clearCaches: true });
-        const nextMessages = await desktop.getAgentMessages();
+        const nextSessions = await desktop.listAgentSessions();
+        const initialSessionId = nextSessions[0]?.id ?? "";
+        const nextMessages = initialSessionId
+          ? await desktop.getAgentMessages(initialSessionId)
+          : [];
         const nextUsage = await desktop.getUsageStats();
+        setAgentSessions(nextSessions);
+        setActiveSessionId(initialSessionId);
         setMessages(nextMessages);
         setUsageRecords(nextUsage);
       } catch (error) {
@@ -1024,6 +1133,43 @@ function App() {
     });
   }
 
+  function appendAssistantErrorMessage(message: string) {
+    setMessages((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        profileId: activeProfileId,
+        content: `Error: ${message}`,
+        sessionId: activeSessionId || undefined,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+  }
+
+  async function handleNewSession() {
+    if (isStreaming) {
+      return;
+    }
+    setActiveSessionId("");
+    setMessages([]);
+    setPendingPatch(null);
+    resetStreamState();
+    setDrawerTab("ai");
+  }
+
+  async function handleSelectSession(sessionId: string) {
+    if (isStreaming || sessionId === activeSessionId) {
+      return;
+    }
+    setDrawerTab("ai");
+    setActiveSessionId(sessionId);
+    setPendingPatch(null);
+    resetStreamState();
+    const nextMessages = sessionId ? await desktop.getAgentMessages(sessionId) : [];
+    setMessages(nextMessages);
+  }
+
   async function handleRunAgent() {
     if (!activeFile || isStreaming) {
       return;
@@ -1031,19 +1177,22 @@ function App() {
 
     setDrawerTab("ai");
     setIsStreaming(true);
-    setStreamText("");
+    resetStreamState();
     setPendingPatch(null);
 
-    const unlisten = await desktop.onAgentStream((chunk) => {
+    let unlistenFn: (() => void) | undefined;
+    const stopStream = () => { unlistenFn?.(); };
+
+    unlistenFn = await desktop.onAgentStream((chunk) => {
       switch (chunk.type) {
         case "text_delta":
-          setStreamText((current) => current + chunk.content);
+          queueStreamDelta(chunk.content);
           break;
         case "tool_call_start":
-          setStreamText((current) => `${current}\n[Tool: ${chunk.toolId}]\n`);
+          pushStreamToolStart(chunk.toolId, chunk.args);
           break;
         case "tool_call_result":
-          setStreamText((current) => `${current}\n[Result: ${chunk.output.slice(0, 240)}]\n`);
+          pushStreamToolResult(chunk.toolId, chunk.output, chunk.status ?? "completed");
           break;
         case "patch":
           setPendingPatch({
@@ -1053,29 +1202,42 @@ function App() {
           });
           break;
         case "error":
-          setStreamText((current) => `${current}\n[Error: ${chunk.message}]\n`);
+          setStreamError(chunk.message);
+          flushStreamBuffer();
           setIsStreaming(false);
+          stopStream();
           break;
         case "done":
+          flushStreamBuffer();
           setIsStreaming(false);
+          stopStream();
+          // Refresh session data after AI finishes
+          void desktop.listAgentSessions().then(setAgentSessions);
+          void desktop.getUsageStats().then(setUsageRecords);
           break;
       }
     });
 
     try {
-      const result = await desktop.runAgent(activeProfileId, activeFile.path, selectedText);
-      const allMessages = await desktop.getAgentMessages();
-      const nextUsage = await desktop.getUsageStats();
-      const nextMessages =
-        allMessages.length > 0 ? allMessages : await desktop.getAgentMessages(result.sessionId);
-      setMessages(nextMessages);
-      setUsageRecords(nextUsage);
-      if (result.suggestedPatch) {
-        setPendingPatch(result.suggestedPatch);
+      const result = await desktop.runAgent(
+        activeProfileId,
+        activeFile.path,
+        selectedText,
+        undefined,
+        activeSessionId || undefined,
+      );
+      // invoke returns immediately now; update session id for subsequent messages
+      const nextSessionId = result.sessionId ?? activeSessionId;
+      if (nextSessionId && nextSessionId !== activeSessionId) {
+        setActiveSessionId(nextSessionId);
       }
-      setStreamText("");
-    } finally {
-      unlisten();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("runAgent failed", error);
+      flushStreamBuffer();
+      setStreamError(message);
+      appendAssistantErrorMessage(message);
+      stopStream();
       setIsStreaming(false);
     }
   }
@@ -1095,13 +1257,13 @@ function App() {
   }
 
   async function handleSendMessage(text: string) {
-    if (!activeFile || isStreaming) {
+    if (isStreaming) {
       return;
     }
 
     setDrawerTab("ai");
     setIsStreaming(true);
-    setStreamText("");
+    resetStreamState();
     setPendingPatch(null);
 
     // Optimistically add user message to UI
@@ -1114,16 +1276,19 @@ function App() {
     };
     setMessages((current) => [...current, userMsg]);
 
-    const unlisten = await desktop.onAgentStream((chunk) => {
+    let unlistenFn: (() => void) | undefined;
+    const stopStream = () => { unlistenFn?.(); };
+
+    unlistenFn = await desktop.onAgentStream((chunk) => {
       switch (chunk.type) {
         case "text_delta":
-          setStreamText((current) => current + chunk.content);
+          queueStreamDelta(chunk.content);
           break;
         case "tool_call_start":
-          setStreamText((current) => `${current}\n[Tool: ${chunk.toolId}]\n`);
+          pushStreamToolStart(chunk.toolId, chunk.args);
           break;
         case "tool_call_result":
-          setStreamText((current) => `${current}\n[Result: ${chunk.output.slice(0, 240)}]\n`);
+          pushStreamToolResult(chunk.toolId, chunk.output, chunk.status ?? "completed");
           break;
         case "patch":
           setPendingPatch({
@@ -1133,29 +1298,49 @@ function App() {
           });
           break;
         case "error":
-          setStreamText((current) => `${current}\n[Error: ${chunk.message}]\n`);
+          setStreamError(chunk.message);
+          flushStreamBuffer();
           setIsStreaming(false);
+          stopStream();
           break;
         case "done":
+          flushStreamBuffer();
           setIsStreaming(false);
+          stopStream();
+          // Refresh session list, messages and usage after AI finishes
+          void Promise.all([
+            desktop.listAgentSessions(),
+            desktop.getUsageStats(),
+          ]).then(([nextSessions, nextUsage]) => {
+            setAgentSessions(nextSessions);
+            setUsageRecords(nextUsage);
+          });
           break;
       }
     });
 
     try {
-      const result = await desktop.runAgent(activeProfileId, activeFile.path, text);
-      const allMessages = await desktop.getAgentMessages();
-      const nextUsage = await desktop.getUsageStats();
-      const nextMessages =
-        allMessages.length > 0 ? allMessages : await desktop.getAgentMessages(result.sessionId);
-      setMessages(nextMessages);
-      setUsageRecords(nextUsage);
-      if (result.suggestedPatch) {
-        setPendingPatch(result.suggestedPatch);
+      const result = await desktop.runAgent(
+        activeProfileId,
+        activeFile?.path ?? "",
+        selectedText,
+        text,
+        activeSessionId || undefined,
+      );
+      // invoke returns immediately; capture the session_id for subsequent messages
+      const nextSessionId = result.sessionId ?? activeSessionId;
+      if (nextSessionId && nextSessionId !== activeSessionId) {
+        setActiveSessionId(nextSessionId);
+        // Immediately load messages for the new session
+        void desktop.getAgentMessages(nextSessionId).then(setMessages);
       }
-      setStreamText("");
-    } finally {
-      unlisten();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("runAgent failed", error);
+      flushStreamBuffer();
+      setStreamError(message);
+      appendAssistantErrorMessage(message);
+      stopStream();
       setIsStreaming(false);
     }
   }
@@ -1267,13 +1452,41 @@ function App() {
   }
 
   async function handleActivateProvider(providerId: string) {
-    // Set this one as enabled, disable others
-    const current = snapshot?.providers ?? [];
+    const currentSnapshot = snapshot;
+    if (!currentSnapshot) {
+      return;
+    }
+
+    const currentProviders = currentSnapshot.providers;
+    const targetProvider = currentProviders.find((provider) => provider.id === providerId);
+
     await Promise.all(
-      current.map((p) => desktop.updateProvider(p.id, { isEnabled: p.id === providerId }))
+      currentProviders.map((provider) =>
+        desktop.updateProvider(provider.id, { isEnabled: provider.id === providerId }),
+      ),
     );
-    const providers = await desktop.listProviders();
-    setSnapshot((prev) => (prev ? { ...prev, providers } : prev));
+
+    const activeProfile =
+      currentSnapshot.profiles.find((profile) => profile.id === activeProfileId) ??
+      currentSnapshot.profiles[0];
+    if (activeProfile && targetProvider) {
+      const nextModel = targetProvider.defaultModel?.trim() || activeProfile.model;
+      const needsUpdate =
+        activeProfile.providerId !== providerId || activeProfile.model !== nextModel;
+      if (needsUpdate) {
+        await desktop.updateProfile({
+          ...activeProfile,
+          providerId,
+          model: nextModel,
+        });
+      }
+    }
+
+    const [providers, profiles] = await Promise.all([
+      desktop.listProviders(),
+      desktop.listProfiles(),
+    ]);
+    setSnapshot((prev) => (prev ? { ...prev, providers, profiles } : prev));
   }
 
   async function handleDeleteProvider(providerId: string) {
@@ -1834,6 +2047,10 @@ function App() {
           <Sidebar
             tab={drawerTab}
             messages={messages}
+            sessions={agentSessions}
+            activeSessionId={activeSessionId}
+            onSelectSession={(sessionId) => void handleSelectSession(sessionId)}
+            onNewSession={() => void handleNewSession()}
             profiles={snapshot.profiles}
             activeProfileId={activeProfileId}
             onSelectProfile={(profileId: string) => setActiveProfileId(profileId as AgentProfileId)}
@@ -1860,7 +2077,7 @@ function App() {
             onSelectBrief={(briefId: string) => setSelectedBrief(snapshot.figureBriefs.find((brief) => brief.id === briefId) ?? null)}
             onSelectAsset={(assetId: string) => setSelectedAsset(snapshot.assets.find((asset) => asset.id === assetId) ?? null)}
             providers={snapshot.providers}
-            activeProviderId={snapshot.providers.find((p) => p.isEnabled)?.id}
+            activeProviderId={activeProfile?.providerId || snapshot.providers.find((p) => p.isEnabled)?.id}
             skills={snapshot.skills}
             usageRecords={usageRecords}
             onAddProvider={handleAddProvider}
@@ -1870,6 +2087,8 @@ function App() {
             onActivateProvider={(id) => void handleActivateProvider(id)}
             onToggleSkill={handleToggleSkill}
             streamText={streamText}
+            streamToolCalls={streamToolCalls}
+            streamError={streamError}
             isStreaming={isStreaming}
             onSendMessage={handleSendMessage}
             onDismissPatch={handleDismissPatch}

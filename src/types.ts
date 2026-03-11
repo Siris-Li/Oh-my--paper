@@ -167,6 +167,16 @@ export interface AgentMessage {
   timestamp?: string;
 }
 
+export interface AgentSessionSummary {
+  id: string;
+  profileId: AgentProfileId | string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  lastMessagePreview: string;
+}
+
 export interface AgentRunResult {
   sessionId?: string;
   message?: AgentMessage;
@@ -177,10 +187,18 @@ export interface AgentRunResult {
   };
 }
 
+export interface StreamToolCall {
+  id: string;
+  toolId: string;
+  args?: Record<string, unknown>;
+  output?: string;
+  status: "running" | "completed" | "error";
+}
+
 export type StreamChunk =
   | { type: "text_delta"; content: string }
   | { type: "tool_call_start"; toolId: string; args: Record<string, unknown> }
-  | { type: "tool_call_result"; toolId: string; output: string }
+  | { type: "tool_call_result"; toolId: string; output: string; status?: "completed" | "error" }
   | { type: "patch"; filePath: string; startLine: number; endLine: number; newContent: string }
   | { type: "error"; message: string }
   | { type: "done"; usage: { inputTokens: number; outputTokens: number; model: string } };

@@ -4,6 +4,7 @@ mod models;
 mod services;
 mod state;
 
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, RwLock};
 
 use tauri::Manager;
@@ -25,7 +26,8 @@ pub fn run() {
                 .expect("failed to resolve app data dir");
             let conn = db::init_db(&app_data_dir).expect("failed to init database");
 
-            let app_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let app_root = resolve_app_root(app.handle());
+            let sidecar_dir = resolve_sidecar_dir(app.handle(), &app_root);
             let workspace_root = resolve_initial_workspace(&app_data_dir);
             let project_config = workspace_root
                 .as_ref()
@@ -56,7 +58,7 @@ pub fn run() {
                 db: Mutex::new(conn),
                 project_config: RwLock::new(project_config),
                 last_compile: RwLock::new(last_compile),
-                app_root,
+                sidecar_dir,
                 app_data_dir,
             });
             Ok(())
@@ -76,6 +78,7 @@ pub fn run() {
             commands::run_agent,
             commands::apply_agent_patch,
             commands::get_agent_messages,
+            commands::list_agent_sessions,
             commands::list_skills,
             commands::install_skill,
             commands::enable_skill,
@@ -100,4 +103,88 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to start ViewerLeaf");
+}
+
+fn resolve_sidecar_dir(app: &tauri::AppHandle, app_root: &std::path::Path) -> PathBuf {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(explicit) = std::env::var("VIEWERLEAF_SIDECAR_DIR") {
+        let explicit = PathBuf::from(explicit.trim());
+        if !explicit.as_os_str().is_empty() {
+            candidates.push(explicit);
+        }
+    }
+    candidates.push(app_root.join("sidecar"));
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.join("sidecar"));
+        candidates.push(resource_dir.join("../Resources/sidecar"));
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.join("sidecar"));
+            candidates.push(parent.join("../Resources/sidecar"));
+            candidates.push(parent.join("../../Resources/sidecar"));
+        }
+    }
+
+    let manifest_sidecar = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("sidecar");
+    candidates.push(manifest_sidecar.clone());
+
+    for candidate in candidates {
+        if candidate.join("index.mjs").is_file() {
+            return candidate;
+        }
+    }
+
+    manifest_sidecar
+}
+
+fn resolve_app_root(app: &tauri::AppHandle) -> PathBuf {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if let Ok(explicit) = std::env::var("VIEWERLEAF_APP_ROOT") {
+        let explicit = PathBuf::from(explicit.trim());
+        if !explicit.as_os_str().is_empty() {
+            candidates.push(explicit);
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd);
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.to_path_buf());
+            candidates.push(parent.join(".."));
+            candidates.push(parent.join("../.."));
+            candidates.push(parent.join("../../.."));
+        }
+    }
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir);
+    }
+
+    let manifest_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .to_path_buf();
+    candidates.push(manifest_root.clone());
+
+    for candidate in candidates {
+        if has_root_markers(&candidate) {
+            return candidate;
+        }
+    }
+
+    manifest_root
+}
+
+fn has_root_markers(path: &Path) -> bool {
+    path.join("sidecar").join("index.mjs").is_file()
+        || path.join("skills").is_dir()
+        || path.join("src-tauri").is_dir()
 }

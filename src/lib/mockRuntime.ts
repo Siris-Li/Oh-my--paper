@@ -5,6 +5,7 @@ import type {
   AgentProfile,
   AgentProfileId,
   AgentRunResult,
+  AgentSessionSummary,
   AssetResource,
   CompileEnvironmentStatus,
   CompileResult,
@@ -263,6 +264,7 @@ let activeFile = "sections/introduction.tex";
 let compileCounter = 0;
 const figureBriefs: FigureBriefDraft[] = [];
 const assets: GeneratedAsset[] = [];
+const agentSessions: AgentSessionSummary[] = [];
 const agentMessages: AgentMessage[] = [
   {
     id: "msg-system",
@@ -782,20 +784,39 @@ export const mockRuntime = {
     };
   },
 
-  async runAgent(profileId: AgentProfileId, filePath: string, selectedText: string): Promise<AgentRunResult> {
+  async runAgent(
+    profileId: AgentProfileId,
+    filePath: string,
+    selectedText: string,
+    userMessage?: string,
+    sessionId?: string,
+  ): Promise<AgentRunResult> {
+    const resolvedSessionId = ensureSession(profileId, sessionId, userMessage || selectedText || `Run agent on ${filePath}`);
+    const userContent = userMessage?.trim() || selectedText.trim() || `Run agent on ${filePath}`;
+    agentMessages.push({
+      id: crypto.randomUUID(),
+      role: "user",
+      profileId,
+      sessionId: resolvedSessionId,
+      content: userContent,
+      timestamp: new Date().toISOString(),
+    });
+
     const summary = createRunSummary(profileId, selectedText);
     const message: AgentMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
       profileId,
+      sessionId: resolvedSessionId,
       content: summary,
       timestamp: new Date().toISOString(),
     };
 
     agentMessages.push(message);
+    touchSession(resolvedSessionId, summary);
 
     if (profileId === "review") {
-      return { message };
+      return { message, sessionId: resolvedSessionId };
     }
 
     const file = getFile(filePath) ?? files[0];
@@ -805,6 +826,7 @@ export const mockRuntime = {
         : `${file.content}\n\n% ${profiles.find((item) => item.id === profileId)?.label} patch\n${summary}`;
 
     return {
+      sessionId: resolvedSessionId,
       message,
       suggestedPatch: {
         filePath,
@@ -984,11 +1006,57 @@ export const mockRuntime = {
     return { filePath, content: file.content };
   },
 
-  async getAgentMessages() {
-    return structuredClone(agentMessages);
+  async getAgentMessages(sessionId?: string) {
+    if (!sessionId) {
+      return structuredClone(agentMessages);
+    }
+    return structuredClone(agentMessages.filter((item) => item.sessionId === sessionId));
+  },
+
+  async listAgentSessions() {
+    return structuredClone(
+      [...agentSessions].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)),
+    );
   },
 
   async getUsageStats() {
     return [];
   },
 };
+
+function ensureSession(profileId: AgentProfileId, sessionId: string | undefined, titleSeed: string) {
+  const resolvedId = sessionId && sessionId.trim() ? sessionId : crypto.randomUUID();
+  const existing = agentSessions.find((item) => item.id === resolvedId);
+  if (existing) {
+    return resolvedId;
+  }
+  const now = new Date().toISOString();
+  agentSessions.unshift({
+    id: resolvedId,
+    profileId,
+    title: truncateTitle(titleSeed),
+    createdAt: now,
+    updatedAt: now,
+    messageCount: 0,
+    lastMessagePreview: "",
+  });
+  return resolvedId;
+}
+
+function touchSession(sessionId: string, lastMessage: string) {
+  const session = agentSessions.find((item) => item.id === sessionId);
+  if (!session) {
+    return;
+  }
+  session.updatedAt = new Date().toISOString();
+  session.messageCount = agentMessages.filter((item) => item.sessionId === sessionId).length;
+  session.lastMessagePreview = truncateTitle(lastMessage, 80);
+}
+
+function truncateTitle(text: string, max = 36) {
+  const compact = text.replaceAll("\n", " ").trim();
+  if (!compact) {
+    return "New Chat";
+  }
+  return compact.length > max ? `${compact.slice(0, max)}...` : compact;
+}

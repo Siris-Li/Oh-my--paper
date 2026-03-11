@@ -10,7 +10,7 @@ pub struct AppState {
     pub db: Mutex<Connection>,
     pub project_config: RwLock<ProjectConfig>,
     pub last_compile: RwLock<CompileResult>,
-    pub app_root: PathBuf,
+    pub sidecar_dir: PathBuf,
     pub app_data_dir: PathBuf,
 }
 
