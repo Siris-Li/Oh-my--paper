@@ -1090,6 +1090,76 @@ function App() {
     setPendingPatch(null);
   }
 
+  function handleDismissPatch() {
+    setPendingPatch(null);
+  }
+
+  async function handleSendMessage(text: string) {
+    if (!activeFile || isStreaming) {
+      return;
+    }
+
+    setDrawerTab("ai");
+    setIsStreaming(true);
+    setStreamText("");
+    setPendingPatch(null);
+
+    // Optimistically add user message to UI
+    const userMsg = {
+      id: crypto.randomUUID(),
+      role: "user" as const,
+      profileId: activeProfileId,
+      content: text,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((current) => [...current, userMsg]);
+
+    const unlisten = await desktop.onAgentStream((chunk) => {
+      switch (chunk.type) {
+        case "text_delta":
+          setStreamText((current) => current + chunk.content);
+          break;
+        case "tool_call_start":
+          setStreamText((current) => `${current}\n[Tool: ${chunk.toolId}]\n`);
+          break;
+        case "tool_call_result":
+          setStreamText((current) => `${current}\n[Result: ${chunk.output.slice(0, 240)}]\n`);
+          break;
+        case "patch":
+          setPendingPatch({
+            filePath: chunk.filePath,
+            content: chunk.newContent,
+            summary: `Patch from agent for ${chunk.filePath}`,
+          });
+          break;
+        case "error":
+          setStreamText((current) => `${current}\n[Error: ${chunk.message}]\n`);
+          setIsStreaming(false);
+          break;
+        case "done":
+          setIsStreaming(false);
+          break;
+      }
+    });
+
+    try {
+      const result = await desktop.runAgent(activeProfileId, activeFile.path, text);
+      const allMessages = await desktop.getAgentMessages();
+      const nextUsage = await desktop.getUsageStats();
+      const nextMessages =
+        allMessages.length > 0 ? allMessages : await desktop.getAgentMessages(result.sessionId);
+      setMessages(nextMessages);
+      setUsageRecords(nextUsage);
+      if (result.suggestedPatch) {
+        setPendingPatch(result.suggestedPatch);
+      }
+      setStreamText("");
+    } finally {
+      unlisten();
+      setIsStreaming(false);
+    }
+  }
+
   async function handleCreateBrief() {
     if (!activeFile) {
       return;
@@ -1782,6 +1852,8 @@ function App() {
             onToggleSkill={handleToggleSkill}
             streamText={streamText}
             isStreaming={isStreaming}
+            onSendMessage={handleSendMessage}
+            onDismissPatch={handleDismissPatch}
           />
 
           <div className="workspace-main">

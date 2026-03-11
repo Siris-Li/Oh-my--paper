@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { useMemo, useState } from "react";
 
+import { ChatPanel } from "./ChatPanel";
 import { PROVIDER_PRESETS } from "../lib/providerPresets";
 import type {
   AgentMessage,
@@ -54,6 +55,8 @@ interface SidebarProps {
   onToggleSkill: (skill: SkillManifest) => Promise<void>;
   streamText?: string;
   isStreaming?: boolean;
+  onSendMessage: (text: string) => void;
+  onDismissPatch: () => void;
 }
 
 function providerEnabled(provider: ProviderConfig) {
@@ -108,6 +111,8 @@ export function Sidebar({
   onToggleSkill,
   streamText,
   isStreaming,
+  onSendMessage,
+  onDismissPatch,
 }: SidebarProps) {
   const [selectedVendor, setSelectedVendor] = useState(PROVIDER_PRESETS[0]?.vendor ?? "openai");
   const [providerForm, setProviderForm] = useState(() => {
@@ -319,65 +324,20 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
       {tab === "ai" && (
         <>
           <div className="sidebar-header">AI 智能体助手</div>
-          <div className="sidebar-content sidebar-stack">
-            <div className="card hover-spring">
-              <div className="card-header">智能体配置</div>
-              <select
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: "var(--radius-sm)",
-                  border: "1px solid var(--border-light)",
-                  fontSize: "12px",
-                  marginBottom: "12px",
-                  background: "var(--bg-app)",
-                }}
-                value={activeProfileId}
-                onChange={(event) => onSelectProfile(event.target.value)}
-              >
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.label} - {profile.model}
-                  </option>
-                ))}
-              </select>
-
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button className="btn-primary" onClick={onRunAgent} style={{ flex: 1 }} disabled={isStreaming}>
-                  {isStreaming ? "处理中..." : "执行分析"}
-                </button>
-                <button className="btn-secondary" disabled={!pendingPatchSummary} onClick={onApplyPatch}>
-                  应用补丁
-                </button>
-              </div>
-              {pendingPatchSummary && (
-                <div style={{ marginTop: "8px", fontSize: "11px", color: "var(--accent-primary)" }}>
-                  待处理: {pendingPatchSummary}
-                </div>
-              )}
-            </div>
-
-            <div className="message-list">
-              {messages.map((message) => (
-                <div key={message.id} className={clsx("message", `role-${message.role}`)}>
-                  <div className="message-header">
-                    {message.role === "user" ? "用户" : message.role === "assistant" ? "助手" : "系统"} · {message.profileId}
-                  </div>
-                  <div className="message-bubble">{message.content}</div>
-                </div>
-              ))}
-              {streamText && (
-                <div className={clsx("message", "role-assistant")}>
-                  <div className="message-header">助手 (Streaming)</div>
-                  <div className="message-bubble" style={{ whiteSpace: "pre-wrap" }}>
-                    {streamText}
-                  </div>
-                </div>
-              )}
-              {messages.length === 0 && !streamText && (
-                <div className="sidebar-empty-state">暂无对话记录</div>
-              )}
-            </div>
+          <div className="sidebar-content" style={{ padding: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <ChatPanel
+              messages={messages}
+              profiles={profiles}
+              activeProfileId={activeProfileId}
+              onSelectProfile={onSelectProfile}
+              onRunAgent={onRunAgent}
+              onSendMessage={onSendMessage}
+              pendingPatchSummary={pendingPatchSummary}
+              onApplyPatch={onApplyPatch}
+              onDismissPatch={onDismissPatch}
+              streamText={streamText}
+              isStreaming={isStreaming}
+            />
           </div>
         </>
       )}
