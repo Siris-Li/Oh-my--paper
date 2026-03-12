@@ -1,5 +1,6 @@
 mod commands;
 mod db;
+mod desktop_menu;
 mod models;
 mod services;
 mod state;
@@ -14,11 +15,19 @@ use state::{
     AppState,
 };
 
+enum LaunchWorkspace {
+    UseRecent,
+    Empty,
+    Root(PathBuf),
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .menu(|app| desktop_menu::build_app_menu(app))
+        .on_menu_event(|app, event| desktop_menu::handle_menu_event(app, event))
         .setup(|app| {
             let app_data_dir = app
                 .path()
@@ -28,7 +37,12 @@ pub fn run() {
 
             let app_root = resolve_app_root(app.handle());
             let sidecar_dir = resolve_sidecar_dir(app.handle(), &app_root);
-            let workspace_root = resolve_initial_workspace(&app_data_dir);
+            let workspace_root = match resolve_launch_workspace() {
+                LaunchWorkspace::UseRecent => resolve_initial_workspace(&app_data_dir),
+                LaunchWorkspace::Empty => None,
+                LaunchWorkspace::Root(root) if root.exists() => Some(root),
+                LaunchWorkspace::Root(_) => None,
+            };
             let project_config = workspace_root
                 .as_ref()
                 .map(|root| load_project_config(root))
@@ -67,6 +81,8 @@ pub fn run() {
             commands::read_asset,
             commands::switch_project,
             commands::create_project,
+            commands::launch_workspace_window,
+            commands::sync_app_menu,
             commands::save_file,
             commands::update_project_config,
             commands::compile_project,
@@ -101,6 +117,29 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to start ViewerLeaf");
+}
+
+fn resolve_launch_workspace() -> LaunchWorkspace {
+    let mut args = std::env::args().skip(1);
+
+    while let Some(argument) = args.next() {
+        if argument == "--empty-window" {
+            return LaunchWorkspace::Empty;
+        }
+
+        if argument == "--workspace" {
+            if let Some(path) = args.next() {
+                return LaunchWorkspace::Root(PathBuf::from(path));
+            }
+            continue;
+        }
+
+        if let Some(path) = argument.strip_prefix("--workspace=") {
+            return LaunchWorkspace::Root(PathBuf::from(path));
+        }
+    }
+
+    LaunchWorkspace::UseRecent
 }
 
 fn resolve_sidecar_dir(app: &tauri::AppHandle, app_root: &std::path::Path) -> PathBuf {

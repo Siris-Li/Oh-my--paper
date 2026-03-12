@@ -13,6 +13,7 @@ import { OutlineTree } from "./components/OutlineTree";
 import { PdfPane, type PreviewPaneState } from "./components/PdfPane";
 import { ProjectTree } from "./components/ProjectTree";
 import { Sidebar } from "./components/Sidebar";
+import { WorkspaceMenuBar } from "./components/WorkspaceMenuBar";
 import { desktop, isTauriRuntime } from "./lib/desktop";
 import { resolvePdfSource } from "./lib/pdf-source";
 import {
@@ -23,6 +24,8 @@ import {
 } from "./lib/outline";
 import { closePathTab, closeTextTab, findFirstTextPath, getNodeByPath } from "./lib/workspace";
 import type {
+  AppMenuAction,
+  AppMenuState,
   AgentMessage,
   AgentProfileId,
   AgentSessionSummary,
@@ -40,6 +43,7 @@ import type {
   SyncHighlight,
   TestResult,
   UsageRecord,
+  WorkspaceEntry,
   WorkspacePaneMode,
   WorkspaceSnapshot,
 } from "./types";
@@ -93,6 +97,82 @@ function toProjectRelativePath(rootPath: string, filePath?: string) {
 }
 
 const COMPILE_DEBUG_LOG_LIMIT = 300;
+const RECENT_WORKSPACE_STORAGE_KEY = "viewerleaf:recent-workspaces:v1";
+const OPEN_WORKSPACE_STORAGE_KEY = "viewerleaf:open-workspaces:v1";
+const AUTO_SAVE_STORAGE_KEY = "viewerleaf:auto-save:v1";
+const MAX_RECENT_WORKSPACES = 10;
+const MAX_OPEN_WORKSPACES = 6;
+
+function workspaceLabelFromRoot(rootPath: string) {
+  const normalized = normalizeProjectPath(rootPath).replace(/\/$/, "");
+  return normalized.split("/").at(-1) || rootPath || "Untitled";
+}
+
+function toWorkspaceEntry(rootPath: string): WorkspaceEntry {
+  return {
+    rootPath,
+    label: workspaceLabelFromRoot(rootPath),
+  };
+}
+
+function readStoredWorkspaceEntries(key: string): WorkspaceEntry[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((item): item is WorkspaceEntry => Boolean(item && typeof item.rootPath === "string" && item.rootPath))
+      .map((item) => ({
+        rootPath: item.rootPath,
+        label: typeof item.label === "string" && item.label.trim()
+          ? item.label
+          : workspaceLabelFromRoot(item.rootPath),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredWorkspaceEntries(key: string, entries: WorkspaceEntry[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(key, JSON.stringify(entries));
+}
+
+function readStoredBoolean(key: string, fallback = false) {
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+
+  const raw = window.localStorage.getItem(key);
+  return raw === null ? fallback : raw === "true";
+}
+
+function writeStoredBoolean(key: string, value: boolean) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(key, value ? "true" : "false");
+}
+
+function upsertWorkspaceEntry(entries: WorkspaceEntry[], rootPath: string, max: number) {
+  const nextEntry = toWorkspaceEntry(rootPath);
+  return [nextEntry, ...entries.filter((entry) => entry.rootPath !== rootPath)].slice(0, max);
+}
 
 function formatDebugTimestamp(date: Date) {
   const pad = (value: number, length = 2) => String(value).padStart(length, "0");
@@ -116,6 +196,15 @@ function serializeDebugDetails(details: unknown) {
 function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [bootstrapError, setBootstrapError] = useState("");
+  const [recentWorkspaces, setRecentWorkspaces] = useState<WorkspaceEntry[]>(() =>
+    readStoredWorkspaceEntries(RECENT_WORKSPACE_STORAGE_KEY),
+  );
+  const [workspaceTabs, setWorkspaceTabs] = useState<WorkspaceEntry[]>(() =>
+    readStoredWorkspaceEntries(OPEN_WORKSPACE_STORAGE_KEY),
+  );
+  const [isAutoSaveEnabled, setIsAutoSaveEnabled] = useState(() =>
+    readStoredBoolean(AUTO_SAVE_STORAGE_KEY, false),
+  );
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [openImageTabs, setOpenImageTabs] = useState<string[]>([]);
   const [openFiles, setOpenFiles] = useState<Record<string, ProjectFile>>({});
@@ -162,6 +251,7 @@ function App() {
   const streamFlushTimerRef = useRef<number | null>(null);
   const streamToolSeqRef = useRef(0);
   const currentStreamSessionIdRef = useRef("");
+  const snapshotRef = useRef<WorkspaceSnapshot | null>(null);
 
   const logCompileDebug = useEffectEvent(
     (level: "info" | "warn" | "error", message: string, details?: unknown) => {
@@ -326,6 +416,72 @@ function App() {
   const workspaceTargetDir = activeFilePath.includes("/")
     ? activeFilePath.slice(0, activeFilePath.lastIndexOf("/"))
     : "";
+  const activeWorkspaceRoot = snapshot?.projectConfig.rootPath ?? "";
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
+
+  useEffect(() => {
+    writeStoredWorkspaceEntries(RECENT_WORKSPACE_STORAGE_KEY, recentWorkspaces);
+  }, [recentWorkspaces]);
+
+  useEffect(() => {
+    writeStoredWorkspaceEntries(OPEN_WORKSPACE_STORAGE_KEY, workspaceTabs);
+  }, [workspaceTabs]);
+
+  useEffect(() => {
+    writeStoredBoolean(AUTO_SAVE_STORAGE_KEY, isAutoSaveEnabled);
+  }, [isAutoSaveEnabled]);
+
+  useEffect(() => {
+    if (!activeWorkspaceRoot) {
+      return;
+    }
+
+    setRecentWorkspaces((current) =>
+      upsertWorkspaceEntry(current, activeWorkspaceRoot, MAX_RECENT_WORKSPACES),
+    );
+    setWorkspaceTabs((current) =>
+      upsertWorkspaceEntry(current, activeWorkspaceRoot, MAX_OPEN_WORKSPACES),
+    );
+  }, [activeWorkspaceRoot]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    const menuState: AppMenuState = {
+      autoSave: isAutoSaveEnabled,
+      compileOnSave: snapshot?.projectConfig.autoCompile ?? false,
+      activeWorkspaceRoot,
+      recentWorkspaces,
+    };
+
+    void desktop.syncAppMenu(menuState);
+  }, [activeWorkspaceRoot, isAutoSaveEnabled, recentWorkspaces, snapshot?.projectConfig.autoCompile]);
+
+  useEffect(() => {
+    const workspaceLabel = activeWorkspaceRoot
+      ? workspaceLabelFromRoot(activeWorkspaceRoot)
+      : "";
+    const activeDocumentPath =
+      editorImagePath ||
+      activeFilePath ||
+      (previewSelection.kind === "asset" || previewSelection.kind === "unsupported"
+        ? previewSelection.path
+        : "");
+    const dirtyPrefix = dirtyPaths.length > 0 ? "* " : "";
+    const nextTitle = workspaceLabel
+      ? activeDocumentPath
+        ? `${dirtyPrefix}${activeDocumentPath} - ${workspaceLabel} - ViewerLeaf`
+        : `${dirtyPrefix}${workspaceLabel} - ViewerLeaf`
+      : "ViewerLeaf";
+
+    document.title = nextTitle;
+    void desktop.setWindowTitle(nextTitle);
+  }, [activeFilePath, activeWorkspaceRoot, dirtyPaths.length, editorImagePath, previewSelection]);
 
   const loadTextFile = useEffectEvent(async (path: string) => {
     if (!path) {
@@ -820,8 +976,9 @@ function App() {
 
 
   const runCompile = useEffectEvent(async (filePath: string) => {
+    const compileWorkspaceRoot = snapshot?.projectConfig.rootPath ?? "";
     const previousCompilePath = toProjectRelativePath(
-      snapshot?.projectConfig.rootPath ?? "",
+      compileWorkspaceRoot,
       snapshot?.compileResult.pdfPath,
     );
 
@@ -856,7 +1013,8 @@ function App() {
     });
 
     const compileResult = await desktop.compileProject(filePath);
-    const nextCompilePath = toProjectRelativePath(snapshot?.projectConfig.rootPath ?? "", compileResult.pdfPath);
+    const nextCompilePath = toProjectRelativePath(compileWorkspaceRoot, compileResult.pdfPath);
+    const currentWorkspaceRoot = snapshotRef.current?.projectConfig.rootPath ?? "";
 
     logCompileDebug("info", "[compile] result", {
       status: compileResult.status,
@@ -864,6 +1022,14 @@ function App() {
       diagnostics: compileResult.diagnostics.length,
       timestamp: compileResult.timestamp,
     });
+
+    if (currentWorkspaceRoot !== compileWorkspaceRoot) {
+      logCompileDebug("info", "[compile] stale result ignored after workspace switch", {
+        compileWorkspaceRoot,
+        currentWorkspaceRoot,
+      });
+      return compileResult;
+    }
 
     if (previousCompilePath && previousCompilePath !== nextCompilePath) {
       setAssetCache((current) => {
@@ -928,6 +1094,60 @@ function App() {
     return savedContents.map((saved) => saved.path);
   });
 
+  const resetWorkspaceUiState = useEffectEvent(() => {
+    draftContentRef.current = {};
+    pendingTextLoadsRef.current = {};
+    currentStreamSessionIdRef.current = "";
+    setOpenFiles({});
+    setDirtyPaths([]);
+    setAssetCache({});
+    setOpenImageTabs([]);
+    setEditorImagePath("");
+    setEditorImageUrl("");
+    setEditorJumpTarget(null);
+    setPendingPatch(null);
+    setMessages([]);
+    setActiveSessionId("");
+    setSelectedText("");
+    resetStreamState();
+  });
+
+  const saveDirtyFilesBeforeWorkspaceSwitch = useEffectEvent(async () => {
+    if (dirtyPaths.length === 0) {
+      return;
+    }
+
+    await saveOpenFiles(dirtyPaths);
+  });
+
+  const applyFreshWorkspaceSnapshot = useEffectEvent((nextSnapshot: WorkspaceSnapshot) => {
+    resetWorkspaceUiState();
+    applySnapshot(nextSnapshot, {
+      openTabs: [],
+      openImageTabs: [],
+      editorImagePath: "",
+      previewSelection: { kind: "compile" },
+      clearCaches: true,
+    });
+  });
+
+  const activateWorkspace = useEffectEvent(async (rootPath: string) => {
+    if (!rootPath || rootPath === activeWorkspaceRoot || isStreaming) {
+      return;
+    }
+
+    try {
+      await saveDirtyFilesBeforeWorkspaceSwitch();
+      const nextSnapshot = await desktop.switchProject(rootPath);
+      applyFreshWorkspaceSnapshot(nextSnapshot);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecentWorkspaces((current) => current.filter((entry) => entry.rootPath !== rootPath));
+      setWorkspaceTabs((current) => current.filter((entry) => entry.rootPath !== rootPath));
+      window.alert(`无法打开项目:\n${message}`);
+    }
+  });
+
   function replaceFileContent(filePath: string, content: string) {
     draftContentRef.current[filePath] = content;
     setOpenFiles((current) => {
@@ -976,6 +1196,18 @@ function App() {
     }
 
     await saveOpenFiles([activeFile.path]);
+  });
+
+  const handleSaveAllFiles = useEffectEvent(async () => {
+    if (!snapshot || dirtyPaths.length === 0) {
+      return;
+    }
+
+    await saveOpenFiles(dirtyPaths);
+
+    if (snapshot.projectConfig.autoCompile && snapshot.compileResult.status !== "running") {
+      await runCompile(activeFilePath || snapshot.projectConfig.mainTex);
+    }
   });
 
   const handleManualCompile = useEffectEvent(async () => {
@@ -1052,6 +1284,19 @@ function App() {
 
     setSnapshot((current) => (current ? { ...current, projectConfig } : current));
   });
+
+  useEffect(() => {
+    if (!isAutoSaveEnabled || !snapshot || dirtyPaths.length === 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void handleSaveAllFiles();
+    }, 900);
+
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSaveAllFiles is useEffectEvent
+  }, [dirtyPaths, isAutoSaveEnabled, snapshot?.projectConfig.autoCompile, snapshot?.compileResult.status]);
 
   const handleEditorSave = useEffectEvent(() => {
     void handleSaveCurrentFile();
@@ -1713,43 +1958,111 @@ function App() {
 
   async function handleOpenExistingProject() {
     const selectedDir = await pickDirectory();
+    if (!selectedDir || selectedDir === activeWorkspaceRoot || isStreaming) {
+      return;
+    }
+
+    await saveDirtyFilesBeforeWorkspaceSwitch();
+    const nextSnapshot = await desktop.switchProject(selectedDir);
+    applyFreshWorkspaceSnapshot(nextSnapshot);
+  }
+
+  async function handleOpenProjectInNewWindow() {
+    const selectedDir = await pickDirectory();
     if (!selectedDir) {
       return;
     }
-    draftContentRef.current = {};
-    pendingTextLoadsRef.current = {};
-    setOpenFiles({});
-    setDirtyPaths([]);
-    setAssetCache({});
-    setOpenImageTabs([]);
-    setEditorImagePath("");
-    setEditorImageUrl("");
-    setEditorJumpTarget(null);
-    const nextSnapshot = await desktop.switchProject(selectedDir);
-    applySnapshot(nextSnapshot, { openTabs: [], clearCaches: true, previewSelection: { kind: "compile" } });
+
+    await desktop.launchWorkspaceWindow(selectedDir);
   }
 
   async function handleCreateNewProject() {
     const parentDir = await pickDirectory();
-    if (!parentDir) {
+    if (!parentDir || isStreaming) {
       return;
     }
     const projectName = window.prompt("输入项目名称", "MyPaper");
     if (!projectName?.trim()) {
       return;
     }
-    draftContentRef.current = {};
-    pendingTextLoadsRef.current = {};
-    setOpenFiles({});
-    setDirtyPaths([]);
-    setAssetCache({});
-    setOpenImageTabs([]);
-    setEditorImagePath("");
-    setEditorImageUrl("");
-    setEditorJumpTarget(null);
+
+    await saveDirtyFilesBeforeWorkspaceSwitch();
     const nextSnapshot = await desktop.createProject(parentDir, projectName.trim());
-    applySnapshot(nextSnapshot, { openTabs: [], clearCaches: true, previewSelection: { kind: "compile" } });
+    applyFreshWorkspaceSnapshot(nextSnapshot);
   }
+
+  async function handleCloseWorkspaceTab(rootPath: string) {
+    const nextTabs = workspaceTabs.filter((entry) => entry.rootPath !== rootPath);
+    const isCurrentWorkspace = rootPath === activeWorkspaceRoot;
+
+    if (nextTabs.length === 0) {
+      return;
+    }
+
+    setWorkspaceTabs(nextTabs);
+
+    if (!isCurrentWorkspace) {
+      return;
+    }
+
+    const currentIndex = workspaceTabs.findIndex((entry) => entry.rootPath === rootPath);
+    const fallbackEntry = nextTabs[Math.max(0, currentIndex - 1)] ?? nextTabs[0];
+    if (fallbackEntry) {
+      await activateWorkspace(fallbackEntry.rootPath);
+    }
+  }
+
+  const handleNativeMenuAction = useEffectEvent((payload: AppMenuAction) => {
+    switch (payload.action) {
+      case "open-project":
+        void handleOpenExistingProject();
+        break;
+      case "open-project-new-window":
+        void handleOpenProjectInNewWindow();
+        break;
+      case "new-project":
+        void handleCreateNewProject();
+        break;
+      case "open-recent-workspace":
+        if (payload.rootPath) {
+          void activateWorkspace(payload.rootPath);
+        }
+        break;
+      case "clear-recent-workspaces":
+        setRecentWorkspaces([]);
+        break;
+      case "save-current":
+        void handleSaveCurrentFile();
+        break;
+      case "save-all":
+        void handleSaveAllFiles();
+        break;
+      case "toggle-auto-save":
+        setIsAutoSaveEnabled(Boolean(payload.checked));
+        break;
+      case "toggle-compile-on-save":
+        void handleSetAutoCompile(Boolean(payload.checked));
+        break;
+    }
+  });
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    let unlisten: (() => void) | undefined;
+
+    void desktop.onAppMenuAction((payload) => {
+      handleNativeMenuAction(payload);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [handleNativeMenuAction]);
 
   const previewState = useMemo<PreviewPaneState | null>(() => {
     if (!snapshot) {
@@ -1936,13 +2249,26 @@ function App() {
     <div className="app-shell fade-in">
       <header className="topbar">
         <div className="topbar-left">
-          <span className="brand-title">ViewerLeaf 工作台</span>
-          {hasProject && (
-            <span className="topbar-metric" style={{ marginLeft: 12 }}>
-              项目
-              <strong>{snapshot.projectConfig.rootPath.split("/").at(-1) || "未命名"}</strong>
-            </span>
-          )}
+          <span className="brand-title">ViewerLeaf</span>
+          <WorkspaceMenuBar
+            showInAppFileMenu={!isTauriRuntime()}
+            hasProject={hasProject}
+            hasDirtyChanges={dirtyPaths.length > 0}
+            activeWorkspaceRoot={activeWorkspaceRoot}
+            workspaceTabs={workspaceTabs}
+            recentWorkspaces={recentWorkspaces}
+            isAutoSaveEnabled={isAutoSaveEnabled}
+            isCompileOnSaveEnabled={snapshot.projectConfig.autoCompile}
+            isBusy={isStreaming}
+            onOpenProject={() => void handleOpenExistingProject()}
+            onCreateProject={() => void handleCreateNewProject()}
+            onSaveCurrent={() => void handleSaveCurrentFile()}
+            onSaveAll={() => void handleSaveAllFiles()}
+            onToggleAutoSave={setIsAutoSaveEnabled}
+            onToggleCompileOnSave={(enabled) => void handleSetAutoCompile(enabled)}
+            onSelectWorkspace={(rootPath) => void activateWorkspace(rootPath)}
+            onCloseWorkspaceTab={(rootPath) => void handleCloseWorkspaceTab(rootPath)}
+          />
         </div>
         <div className="topbar-center">
           <span className="topbar-metric">当前配置 <strong>{activeProfile?.label ?? "未选择"}</strong></span>
@@ -1952,12 +2278,6 @@ function App() {
           </span>
         </div>
         <div className="topbar-right">
-          <button className="btn-secondary hover-spring" onClick={() => void handleOpenExistingProject()} type="button">
-            打开项目
-          </button>
-          <button className="btn-secondary hover-spring" onClick={() => void handleCreateNewProject()} type="button">
-            新建项目
-          </button>
           {hasProject && (
             <>
               <span className="topbar-metric">诊断结果 <strong>{snapshot.compileResult.diagnostics.length} 项</strong></span>

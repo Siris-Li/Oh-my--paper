@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::desktop_menu;
 use crate::models::{
     AgentMessage, AgentRunResult, AgentSessionSummary, AssetResource, FigureBriefDraft,
     GeneratedAsset, ProfileConfig, ProjectConfig, ProjectFile, ProviderConfig, SkillManifest,
@@ -46,6 +47,33 @@ pub fn create_project(
 }
 
 #[tauri::command]
+pub fn launch_workspace_window(root_path: Option<String>) -> Result<bool, String> {
+    desktop_menu::launch_workspace_window(root_path.as_deref())
+        .map(|_| true)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn sync_app_menu(
+    app_handle: AppHandle,
+    auto_save: bool,
+    compile_on_save: bool,
+    active_workspace_root: String,
+    recent_workspaces: Vec<desktop_menu::WorkspaceMenuEntry>,
+) -> Result<bool, String> {
+    let state = desktop_menu::AppMenuState {
+        auto_save,
+        compile_on_save,
+        active_workspace_root,
+        recent_workspaces,
+    };
+
+    desktop_menu::sync_menu_state(&app_handle, &state)
+        .map(|_| true)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub fn save_file(
     state: State<'_, AppState>,
     file_path: String,
@@ -65,11 +93,16 @@ pub fn update_project_config(
 }
 
 #[tauri::command]
-pub fn compile_project(
-    state: State<'_, AppState>,
+pub async fn compile_project(
+    app_handle: AppHandle,
     file_path: String,
 ) -> Result<crate::models::CompileResult, String> {
-    compile::compile_project(&state, &file_path).map_err(|err| err.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        compile::compile_project(&state, &file_path).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]

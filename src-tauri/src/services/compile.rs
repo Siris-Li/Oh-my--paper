@@ -113,11 +113,13 @@ pub fn compile_project(state: &AppState, file_path: &str) -> Result<CompileResul
                 format!("failed to run latexmk for {file_path}: {err}"),
             );
 
-            let mut last_compile = state
-                .last_compile
-                .write()
-                .expect("compile result lock poisoned");
-            *last_compile = result.clone();
+            if compile_target_still_active(state, &root_path, &main_tex) {
+                let mut last_compile = state
+                    .last_compile
+                    .write()
+                    .expect("compile result lock poisoned");
+                *last_compile = result.clone();
+            }
             return Ok(result);
         }
     };
@@ -149,13 +151,23 @@ pub fn compile_project(state: &AppState, file_path: &str) -> Result<CompileResul
         timestamp: format!("{:?}", std::time::SystemTime::now()),
     };
 
-    let mut last_compile = state
-        .last_compile
-        .write()
-        .expect("compile result lock poisoned");
-    *last_compile = result.clone();
+    if compile_target_still_active(state, &root_path, &main_tex) {
+        let mut last_compile = state
+            .last_compile
+            .write()
+            .expect("compile result lock poisoned");
+        *last_compile = result.clone();
+    }
 
     Ok(result)
+}
+
+fn compile_target_still_active(state: &AppState, root_path: &str, main_tex: &str) -> bool {
+    let current = state
+        .project_config
+        .read()
+        .expect("project config lock poisoned");
+    current.root_path == root_path && current.main_tex == main_tex
 }
 
 fn failed_compile_result(root: &Path, main_tex: &str, log_output: String) -> CompileResult {

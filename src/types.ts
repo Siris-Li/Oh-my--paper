@@ -230,6 +230,33 @@ export interface UsageRecord {
   createdAt: string;
 }
 
+export interface WorkspaceEntry {
+  rootPath: string;
+  label: string;
+}
+
+export interface AppMenuState {
+  autoSave: boolean;
+  compileOnSave: boolean;
+  activeWorkspaceRoot: string;
+  recentWorkspaces: WorkspaceEntry[];
+}
+
+export interface AppMenuAction {
+  action:
+    | "open-project"
+    | "open-project-new-window"
+    | "new-project"
+    | "open-recent-workspace"
+    | "clear-recent-workspaces"
+    | "save-current"
+    | "save-all"
+    | "toggle-auto-save"
+    | "toggle-compile-on-save";
+  checked?: boolean;
+  rootPath?: string;
+}
+
 export interface TestResult {
   success: boolean;
   latencyMs: number;

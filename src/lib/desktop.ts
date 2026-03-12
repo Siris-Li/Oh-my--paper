@@ -1,7 +1,10 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import type {
+  AppMenuAction,
+  AppMenuState,
   AgentMessage,
   AgentProfileId,
   AgentRunResult,
@@ -91,6 +94,27 @@ export const desktop = {
     return runOrMock<WorkspaceSnapshot>("create_project", { parentDir, projectName }, () =>
       mockRuntime.createProject?.(parentDir, projectName) ?? mockRuntime.openProject(),
     );
+  },
+  launchWorkspaceWindow(rootPath?: string) {
+    return runOrMock("launch_workspace_window", { rootPath }, () =>
+      mockRuntime.launchWorkspaceWindow?.(rootPath) ?? Promise.resolve(true),
+    );
+  },
+  syncAppMenu(state: AppMenuState) {
+    return runOrMock("sync_app_menu", { ...state }, () =>
+      mockRuntime.syncAppMenu?.(state) ?? Promise.resolve(true),
+    );
+  },
+  async setWindowTitle(title: string) {
+    if (isTauriRuntime()) {
+      try {
+        await getCurrentWindow().setTitle(title);
+      } catch (error) {
+        console.warn("[desktop.setWindowTitle] failed to set title", error);
+      }
+      return;
+    }
+    await (mockRuntime.setWindowTitle?.(title) ?? Promise.resolve());
   },
   saveFile(filePath: string, content: string) {
     return runOrMock("save_file", { filePath, content }, () => mockRuntime.saveFile(filePath, content));
@@ -239,6 +263,14 @@ export const desktop = {
       return Promise.resolve(() => { });
     }
     return listen<StreamChunk>("agent:stream", (event) => {
+      callback(event.payload);
+    });
+  },
+  onAppMenuAction(callback: (action: AppMenuAction) => void): Promise<UnlistenFn> {
+    if (!isTauriRuntime()) {
+      return Promise.resolve(() => { });
+    }
+    return listen<AppMenuAction>("app:menu-action", (event) => {
       callback(event.payload);
     });
   },

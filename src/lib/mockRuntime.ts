@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import type {
+  AppMenuState,
   AgentMessage,
   AgentProfile,
   AgentProfileId,
@@ -554,6 +555,18 @@ export const mockRuntime = {
     projectConfig.rootPath = `${parentDir}/${projectName}`;
     syncProjectConfigFile();
     return this.openProject();
+  },
+
+  async launchWorkspaceWindow(_rootPath?: string) {
+    return { ok: true };
+  },
+
+  async syncAppMenu(_state: AppMenuState) {
+    return { ok: true };
+  },
+
+  async setWindowTitle(_title: string) {
+    return { ok: true };
   },
 
   async readFile(path: string) {
