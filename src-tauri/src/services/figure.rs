@@ -116,7 +116,10 @@ pub fn run_figure_skill(state: &AppState, brief_id: &str) -> Result<FigureBriefD
 
 pub fn run_banana_generation(state: &AppState, brief_id: &str) -> Result<GeneratedAsset> {
     let root = {
-        let config = state.project_config.read().expect("project config lock poisoned");
+        let config = state
+            .project_config
+            .read()
+            .expect("project config lock poisoned");
         config.root_path.clone()
     };
     let conn = state.db.lock().expect("db lock poisoned");
@@ -144,8 +147,7 @@ pub fn run_banana_generation(state: &AppState, brief_id: &str) -> Result<Generat
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    serde_json::from_str::<GeneratedAsset>(&stdout)
-        .context("failed to parse banana response")
+    serde_json::from_str::<GeneratedAsset>(&stdout).context("failed to parse banana response")
 }
 
 pub fn register_asset(state: &AppState, asset: GeneratedAsset) -> Result<GeneratedAsset> {
@@ -196,7 +198,8 @@ pub fn list_assets(conn: &Connection) -> Result<Vec<GeneratedAsset>, String> {
                 kind: row.get(1)?,
                 file_path,
                 source_brief_id: row.get(3)?,
-                metadata: serde_json::from_str(&metadata_json).unwrap_or_else(|_| serde_json::json!({})),
+                metadata: serde_json::from_str(&metadata_json)
+                    .unwrap_or_else(|_| serde_json::json!({})),
                 preview_uri,
             })
         })
@@ -224,7 +227,8 @@ pub fn get_asset(conn: &Connection, asset_id: &str) -> Result<GeneratedAsset, St
                 kind: row.get(1)?,
                 file_path,
                 source_brief_id: row.get(3)?,
-                metadata: serde_json::from_str(&metadata_json).unwrap_or_else(|_| serde_json::json!({})),
+                metadata: serde_json::from_str(&metadata_json)
+                    .unwrap_or_else(|_| serde_json::json!({})),
                 preview_uri,
             })
         },
@@ -240,7 +244,10 @@ pub fn insert_figure_snippet(
     line: usize,
 ) -> Result<(String, String)> {
     let root = {
-        let config = state.project_config.read().expect("project config lock poisoned");
+        let config = state
+            .project_config
+            .read()
+            .expect("project config lock poisoned");
         config.root_path.clone()
     };
     let conn = state.db.lock().expect("db lock poisoned");
@@ -260,7 +267,10 @@ pub fn insert_figure_snippet(
         caption,
         label
     );
-    let mut lines = content.lines().map(|line| line.to_string()).collect::<Vec<_>>();
+    let mut lines = content
+        .lines()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
     let target = line.min(lines.len());
     lines.insert(target, String::new());
     lines.insert(target, snippet);

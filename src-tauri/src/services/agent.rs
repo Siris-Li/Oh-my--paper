@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::models::{
     AgentContext, AgentConversationMessage, AgentMessage, AgentProvider, AgentRequest,
-    AgentRunResult, AgentSessionSummary, StreamChunk,
+    AgentRunResult, AgentSessionSummary, StreamChunk, UsageInfo,
 };
 use crate::services::{profile, provider, sidecar, skill};
 use crate::state::AppState;
@@ -26,7 +26,10 @@ pub fn prepare_user_message(
     user_message: &str,
 ) -> Result<()> {
     let project_root = {
-        let config = state.project_config.read().expect("project config lock poisoned");
+        let config = state
+            .project_config
+            .read()
+            .expect("project config lock poisoned");
         config.root_path.clone()
     };
     let effective_msg = if user_message.trim().is_empty() {
@@ -35,7 +38,13 @@ pub fn prepare_user_message(
         user_message.to_owned()
     };
     let conn = state.db.lock().expect("db lock poisoned");
-    ensure_session(&conn, session_id, profile_id, &project_root, &build_session_title(&effective_msg))?;
+    ensure_session(
+        &conn,
+        session_id,
+        profile_id,
+        &project_root,
+        &build_session_title(&effective_msg),
+    )?;
     conn.execute(
         "INSERT INTO messages (id, session_id, role, content, profile_id) VALUES (?1, ?2, 'user', ?3, ?4)",
         params![Uuid::new_v4().to_string(), session_id, effective_msg, profile_id],
@@ -54,7 +63,10 @@ pub fn run_agent(
     user_message: Option<&str>,
 ) -> Result<AgentRunResult> {
     let project_root = {
-        let config = state.project_config.read().expect("project config lock poisoned");
+        let config = state
+            .project_config
+            .read()
+            .expect("project config lock poisoned");
         config.root_path.clone()
     };
 
@@ -163,6 +175,7 @@ pub fn run_agent(
     let reader = std::io::BufReader::new(stdout);
     let mut full_response = String::new();
     let mut last_error: Option<String> = None;
+    let mut done_usage: Option<UsageInfo> = None;
 
     for line in reader.lines() {
         let line = line?;
@@ -171,33 +184,22 @@ pub fn run_agent(
         }
 
         match serde_json::from_str::<StreamChunk>(&line) {
-            Ok(chunk) => {
-                let _ = app_handle.emit("agent:stream", &chunk);
-
-                match &chunk {
-                    StreamChunk::TextDelta { content } => {
-                        full_response.push_str(content);
-                    }
-                    StreamChunk::Done { usage } => {
-                        let conn = state.db.lock().expect("db lock poisoned");
-                        let _ = conn.execute(
-                            "INSERT INTO usage_logs (id, session_id, provider_id, model, input_tokens, output_tokens) VALUES (?1,?2,?3,?4,?5,?6)",
-                            params![
-                                Uuid::new_v4().to_string(),
-                                session_id,
-                                profile.provider_id,
-                                usage.model,
-                                usage.input_tokens,
-                                usage.output_tokens
-                            ],
-                        );
-                    }
-                    StreamChunk::Error { message } => {
-                        last_error = Some(message.clone());
-                    }
-                    _ => {}
+            Ok(chunk) => match &chunk {
+                StreamChunk::TextDelta { content } => {
+                    full_response.push_str(content);
+                    let _ = app_handle.emit("agent:stream", &chunk);
                 }
-            }
+                StreamChunk::Done { usage } => {
+                    done_usage = Some(usage.clone());
+                }
+                StreamChunk::Error { message } => {
+                    last_error = Some(message.clone());
+                    let _ = app_handle.emit("agent:stream", &chunk);
+                }
+                _ => {
+                    let _ = app_handle.emit("agent:stream", &chunk);
+                }
+            },
             Err(err) => {
                 let _ = app_handle.emit(
                     "agent:stream",
@@ -209,7 +211,9 @@ pub fn run_agent(
         }
     }
 
-    let output = child.wait_with_output().context("failed to wait for sidecar")?;
+    let output = child
+        .wait_with_output()
+        .context("failed to wait for sidecar")?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let error_message = if stderr.trim().is_empty() {
@@ -223,15 +227,48 @@ pub fn run_agent(
                 message: error_message.clone(),
             },
         );
-        persist_assistant_message(state, &session_id, profile_id, &format!("Error: {error_message}"))?;
+        persist_assistant_message(
+            state,
+            &session_id,
+            profile_id,
+            &format!("Error: {error_message}"),
+        )?;
         return Err(anyhow::anyhow!("agent sidecar failed: {error_message}"));
     }
 
     if !full_response.is_empty() {
         persist_assistant_message(state, &session_id, profile_id, &full_response)?;
     } else if let Some(error_message) = last_error {
-        persist_assistant_message(state, &session_id, profile_id, &format!("Error: {error_message}"))?;
+        persist_assistant_message(
+            state,
+            &session_id,
+            profile_id,
+            &format!("Error: {error_message}"),
+        )?;
     }
+
+    let usage = done_usage.unwrap_or_else(|| UsageInfo {
+        input_tokens: 0,
+        output_tokens: 0,
+        model: profile.model.clone(),
+    });
+
+    {
+        let conn = state.db.lock().expect("db lock poisoned");
+        let _ = conn.execute(
+            "INSERT INTO usage_logs (id, session_id, provider_id, model, input_tokens, output_tokens) VALUES (?1,?2,?3,?4,?5,?6)",
+            params![
+                Uuid::new_v4().to_string(),
+                session_id,
+                profile.provider_id,
+                usage.model.clone(),
+                usage.input_tokens,
+                usage.output_tokens
+            ],
+        );
+    }
+
+    let _ = app_handle.emit("agent:stream", &StreamChunk::Done { usage });
 
     Ok(AgentRunResult {
         session_id: Some(session_id),
@@ -400,8 +437,8 @@ fn run_agent_with_opencode_binary(
     profile_id: &str,
     session_id: &str,
 ) -> Result<AgentRunResult> {
-    let opencode_provider_id =
-        map_vendor_to_opencode_provider(&request.provider.vendor).context("unsupported provider vendor")?;
+    let opencode_provider_id = map_vendor_to_opencode_provider(&request.provider.vendor)
+        .context("unsupported provider vendor")?;
     let model_ref = build_opencode_model_ref(opencode_provider_id, &request.provider.model);
     if model_ref.trim().is_empty() {
         anyhow::bail!("missing model for opencode fallback runner");
@@ -424,7 +461,10 @@ fn run_agent_with_opencode_binary(
     }
 
     let mut provider_entry = serde_json::Map::new();
-    provider_entry.insert("options".to_string(), serde_json::Value::Object(provider_options));
+    provider_entry.insert(
+        "options".to_string(),
+        serde_json::Value::Object(provider_options),
+    );
 
     let mut provider_map = serde_json::Map::new();
     provider_map.insert(
@@ -495,7 +535,10 @@ fn run_agent_with_opencode_binary(
             continue;
         };
 
-        let event_type = event.get("type").and_then(|value| value.as_str()).unwrap_or_default();
+        let event_type = event
+            .get("type")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
         match event_type {
             "text" => {
                 let text = event
@@ -506,12 +549,8 @@ fn run_agent_with_opencode_binary(
                     .to_string();
                 if !text.is_empty() {
                     full_response.push_str(&text);
-                    let _ = app_handle.emit(
-                        "agent:stream",
-                        &StreamChunk::TextDelta {
-                            content: text,
-                        },
-                    );
+                    let _ =
+                        app_handle.emit("agent:stream", &StreamChunk::TextDelta { content: text });
                 }
             }
             "tool_use" => {
@@ -603,8 +642,24 @@ fn run_agent_with_opencode_binary(
                 message: error_message.clone(),
             },
         );
-        persist_assistant_message(state, session_id, profile_id, &format!("Error: {error_message}"))?;
+        persist_assistant_message(
+            state,
+            session_id,
+            profile_id,
+            &format!("Error: {error_message}"),
+        )?;
         anyhow::bail!("opencode fallback failed: {error_message}");
+    }
+
+    if !full_response.is_empty() {
+        persist_assistant_message(state, session_id, profile_id, &full_response)?;
+    } else if let Some(error_message) = last_error {
+        persist_assistant_message(
+            state,
+            session_id,
+            profile_id,
+            &format!("Error: {error_message}"),
+        )?;
     }
 
     {
@@ -623,19 +678,13 @@ fn run_agent_with_opencode_binary(
     let _ = app_handle.emit(
         "agent:stream",
         &StreamChunk::Done {
-            usage: crate::models::UsageInfo {
+            usage: UsageInfo {
                 input_tokens: 0,
                 output_tokens: 0,
                 model: request.provider.model.clone(),
             },
         },
     );
-
-    if !full_response.is_empty() {
-        persist_assistant_message(state, session_id, profile_id, &full_response)?;
-    } else if let Some(error_message) = last_error {
-        persist_assistant_message(state, session_id, profile_id, &format!("Error: {error_message}"))?;
-    }
 
     Ok(AgentRunResult {
         session_id: Some(session_id.to_string()),

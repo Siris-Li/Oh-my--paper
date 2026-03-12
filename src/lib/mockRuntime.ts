@@ -808,12 +808,12 @@ export const mockRuntime = {
       role: "assistant",
       profileId,
       sessionId: resolvedSessionId,
-      content: summary,
+      content: summary ?? "",
       timestamp: new Date().toISOString(),
     };
 
     agentMessages.push(message);
-    touchSession(resolvedSessionId, summary);
+    touchSession(resolvedSessionId, summary ?? "");
 
     if (profileId === "review") {
       return { message, sessionId: resolvedSessionId };

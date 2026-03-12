@@ -4,6 +4,12 @@ export function createOpenAIProvider(config) {
   const client = new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseUrl,
+    fetch: (url, opts = {}) => {
+      const headers = new Headers(opts.headers);
+      // Some reverse-proxy endpoints block SDK-specific headers.
+      headers.delete("user-agent");
+      return fetch(url, { ...opts, headers });
+    },
   });
 
   let totalInputTokens = 0;

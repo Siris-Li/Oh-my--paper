@@ -52,7 +52,11 @@ fn parse_yaml_array(raw: &str) -> Vec<String> {
         .collect()
 }
 
-pub fn discover_skills(conn: &Connection, search_dirs: &[PathBuf], source: &str) -> Result<(), String> {
+pub fn discover_skills(
+    conn: &Connection,
+    search_dirs: &[PathBuf],
+    source: &str,
+) -> Result<(), String> {
     for dir in search_dirs {
         if !dir.exists() {
             continue;
@@ -137,7 +141,11 @@ pub fn install_skill(conn: &Connection, skill: &SkillManifest) -> Result<(), Str
     Ok(())
 }
 
-pub fn enable_skill(conn: &Connection, skill_id: &str, enabled: bool) -> Result<Option<SkillManifest>, String> {
+pub fn enable_skill(
+    conn: &Connection,
+    skill_id: &str,
+    enabled: bool,
+) -> Result<Option<SkillManifest>, String> {
     conn.execute(
         "UPDATE skills SET is_enabled=?2 WHERE id=?1",
         params![skill_id, enabled as i32],

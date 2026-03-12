@@ -139,7 +139,7 @@ function App() {
   const [agentSessions, setAgentSessions] = useState<AgentSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
-  const [activeProfileId, setActiveProfileId] = useState<AgentProfileId>("outline");
+  const [activeProfileId, setActiveProfileId] = useState<AgentProfileId>("chat");
   const [pendingPatch, setPendingPatch] = useState<{ filePath: string; content: string; summary: string } | null>(null);
   const [selectedBrief, setSelectedBrief] = useState<FigureBriefDraft | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<GeneratedAsset | null>(null);
@@ -161,6 +161,7 @@ function App() {
   const streamBufferRef = useRef("");
   const streamFlushTimerRef = useRef<number | null>(null);
   const streamToolSeqRef = useRef(0);
+  const currentStreamSessionIdRef = useRef("");
 
   const logCompileDebug = useEffectEvent(
     (level: "info" | "warn" | "error", message: string, details?: unknown) => {
@@ -496,7 +497,7 @@ function App() {
   useEffect(() => {
     void (async () => {
       try {
-        await refreshWorkspace({ clearCaches: true });
+        const nextSnapshot = await refreshWorkspace({ clearCaches: true });
         const nextSessions = await desktop.listAgentSessions();
         const initialSessionId = nextSessions[0]?.id ?? "";
         const nextMessages = initialSessionId
@@ -507,6 +508,13 @@ function App() {
         setActiveSessionId(initialSessionId);
         setMessages(nextMessages);
         setUsageRecords(nextUsage);
+        // Auto-select first available profile if default doesn't exist
+        if (nextSnapshot && nextSnapshot.profiles.length > 0) {
+          const hasChat = nextSnapshot.profiles.some(p => p.id === "chat");
+          if (!hasChat) {
+            setActiveProfileId(nextSnapshot.profiles[0].id as AgentProfileId);
+          }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         setBootstrapError(message);
@@ -1209,11 +1217,24 @@ function App() {
           break;
         case "done":
           flushStreamBuffer();
-          setIsStreaming(false);
           stopStream();
-          // Refresh session data after AI finishes
-          void desktop.listAgentSessions().then(setAgentSessions);
-          void desktop.getUsageStats().then(setUsageRecords);
+          void Promise.all([
+            desktop.listAgentSessions(),
+            desktop.getUsageStats(),
+          ]).then(([nextSessions, nextUsage]) => {
+            setAgentSessions(nextSessions);
+            setUsageRecords(nextUsage);
+            const resolvedId = currentStreamSessionIdRef.current || nextSessions[0]?.id || "";
+            if (resolvedId) {
+              void desktop.getAgentMessages(resolvedId).then((nextMessages) => {
+                setMessages(nextMessages);
+                setActiveSessionId(resolvedId);
+                setIsStreaming(false);
+              });
+            } else {
+              setIsStreaming(false);
+            }
+          });
           break;
       }
     });
@@ -1226,8 +1247,11 @@ function App() {
         undefined,
         activeSessionId || undefined,
       );
-      // invoke returns immediately now; update session id for subsequent messages
+      // invoke returns immediately now; store session id for the done handler
       const nextSessionId = result.sessionId ?? activeSessionId;
+      if (nextSessionId) {
+        currentStreamSessionIdRef.current = nextSessionId;
+      }
       if (nextSessionId && nextSessionId !== activeSessionId) {
         setActiveSessionId(nextSessionId);
       }
@@ -1305,15 +1329,24 @@ function App() {
           break;
         case "done":
           flushStreamBuffer();
-          setIsStreaming(false);
           stopStream();
-          // Refresh session list, messages and usage after AI finishes
+          // Keep streaming bubble visible until DB messages are loaded
           void Promise.all([
             desktop.listAgentSessions(),
             desktop.getUsageStats(),
           ]).then(([nextSessions, nextUsage]) => {
             setAgentSessions(nextSessions);
             setUsageRecords(nextUsage);
+            const resolvedId = currentStreamSessionIdRef.current || nextSessions[0]?.id || "";
+            if (resolvedId) {
+              void desktop.getAgentMessages(resolvedId).then((nextMessages) => {
+                setMessages(nextMessages);
+                setActiveSessionId(resolvedId);
+                setIsStreaming(false);
+              });
+            } else {
+              setIsStreaming(false);
+            }
           });
           break;
       }
@@ -1327,12 +1360,14 @@ function App() {
         text,
         activeSessionId || undefined,
       );
-      // invoke returns immediately; capture the session_id for subsequent messages
+      // invoke returns immediately; store session_id for the done handler
       const nextSessionId = result.sessionId ?? activeSessionId;
+      if (nextSessionId) {
+        currentStreamSessionIdRef.current = nextSessionId;
+      }
       if (nextSessionId && nextSessionId !== activeSessionId) {
         setActiveSessionId(nextSessionId);
-        // Immediately load messages for the new session
-        void desktop.getAgentMessages(nextSessionId).then(setMessages);
+        // Do NOT fetch messages here — assistant reply isn't in DB yet while streaming
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

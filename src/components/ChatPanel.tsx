@@ -53,24 +53,49 @@ function toToolCallBlock(call: StreamToolCall): ToolCallBlock {
 /* ─── Tool call card ──────────────────────────────────── */
 function ToolCallCard({ call }: { call: ToolCallBlock }) {
   const [open, setOpen] = useState(false);
-  const statusLabel = call.status === "running" ? "运行中" : call.status === "error" ? "失败" : "完成";
+  const isRunning = call.status === "running";
+  const isError = call.status === "error";
+
+  // Extract a short arg summary for inline display
+  const argSummary = (() => {
+    if (!call.args) return "";
+    const vals = Object.values(call.args).filter(v => typeof v === "string" || typeof v === "number");
+    if (!vals.length) return "";
+    const first = String(vals[0]);
+    return first.length > 60 ? first.slice(0, 60) + "…" : first;
+  })();
+
   return (
-    <div className="ag-tool-card">
+    <div className={`ag-tool-card${isError ? " ag-tool-card--error" : ""}`}>
       <button type="button" className="ag-tool-header" onClick={() => setOpen(v => !v)}>
         <span className="ag-tool-icon">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="12" height="12">
-            <circle cx="8" cy="8" r="2.5"/>
-            <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/>
-          </svg>
+          {isRunning ? (
+            <span className="ag-tool-spinner" />
+          ) : isError ? (
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="12" height="12">
+              <circle cx="8" cy="8" r="7"/><path d="M8 5v4M8 11v.5"/>
+            </svg>
+          ) : (
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="12" height="12">
+              <polyline points="2,8 6,12 14,4"/>
+            </svg>
+          )}
         </span>
         <span className="ag-tool-name">{call.toolId}</span>
-        <span className="ag-tool-meta">{statusLabel}</span>
-        {call.output && (
+        {argSummary && <span className="ag-tool-arg">{argSummary}</span>}
+        {(call.output || call.args) && (
           <span className="ag-tool-chevron">{open ? "▾" : "▸"}</span>
         )}
       </button>
-      {open && call.output && (
-        <pre className="ag-tool-output">{call.output}</pre>
+      {open && (
+        <div className="ag-tool-body">
+          {call.args && Object.keys(call.args).length > 0 && (
+            <pre className="ag-tool-args">{JSON.stringify(call.args, null, 2)}</pre>
+          )}
+          {call.output && (
+            <pre className="ag-tool-output">{call.output}</pre>
+          )}
+        </div>
       )}
     </div>
   );

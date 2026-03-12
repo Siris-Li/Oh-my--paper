@@ -77,7 +77,10 @@ fn parse_diagnostics(output: &str) -> Vec<Diagnostic> {
 }
 
 pub fn compile_project(state: &AppState, file_path: &str) -> Result<CompileResult> {
-    let config = state.project_config.read().expect("project config lock poisoned");
+    let config = state
+        .project_config
+        .read()
+        .expect("project config lock poisoned");
     let root_path = config.root_path.clone();
     let main_tex = config.main_tex.clone();
     let engine = config.engine.clone();
@@ -158,7 +161,11 @@ pub fn compile_project(state: &AppState, file_path: &str) -> Result<CompileResul
 fn failed_compile_result(root: &Path, main_tex: &str, log_output: String) -> CompileResult {
     CompileResult {
         status: "failed".into(),
-        pdf_path: Some(root.join(main_tex.replace(".tex", ".pdf")).to_string_lossy().to_string()),
+        pdf_path: Some(
+            root.join(main_tex.replace(".tex", ".pdf"))
+                .to_string_lossy()
+                .to_string(),
+        ),
         synctex_path: Some(
             root.join(main_tex.replace(".tex", ".synctex.gz"))
                 .to_string_lossy()

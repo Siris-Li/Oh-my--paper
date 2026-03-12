@@ -133,7 +133,8 @@ fn infer_main_tex(root: &Path) -> String {
         .filter_map(|entry| {
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("tex") {
-                path.file_name().map(|name| name.to_string_lossy().to_string())
+                path.file_name()
+                    .map(|name| name.to_string_lossy().to_string())
             } else {
                 None
             }

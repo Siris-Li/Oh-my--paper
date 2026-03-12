@@ -34,12 +34,8 @@ pub fn run() {
                 .map(|root| load_project_config(root))
                 .unwrap_or_else(empty_project_config);
 
-            services::skill::discover_skills(
-                &conn,
-                &[app_root.join("skills")],
-                "builtin",
-            )
-            .expect("failed to discover builtin skills");
+            services::skill::discover_skills(&conn, &[app_root.join("skills")], "builtin")
+                .expect("failed to discover builtin skills");
             if let Some(workspace_root) = workspace_root.as_ref() {
                 services::skill::discover_skills(
                     &conn,
@@ -52,7 +48,9 @@ pub fn run() {
             let last_compile = workspace_root
                 .as_ref()
                 .map(|root| default_compile_result(root, &project_config.main_tex))
-                .unwrap_or_else(|| default_compile_result(std::path::Path::new(""), &project_config.main_tex));
+                .unwrap_or_else(|| {
+                    default_compile_result(std::path::Path::new(""), &project_config.main_tex)
+                });
 
             app.manage(AppState {
                 db: Mutex::new(conn),

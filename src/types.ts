@@ -1,7 +1,7 @@
 export type LatexEngine = "pdflatex" | "xelatex" | "lualatex";
 export type BibTool = "bibtex" | "biber" | "auto";
 export type CompileStatus = "idle" | "running" | "success" | "failed" | "canceled";
-export type AgentProfileId = "outline" | "draft" | "polish" | "de_ai" | "review";
+export type AgentProfileId = string;
 export type FigureBriefStatus = "draft" | "ready" | "generated";
 export type AssetKind = "figure" | "table" | "diagram";
 export type DrawerTab = "latex" | "ai" | "logs" | "figures" | "skills" | "providers" | "usage";

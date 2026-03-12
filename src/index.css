@@ -1341,7 +1341,42 @@ button {
 .ag-tool-header:hover { background: var(--bg-surface-active); }
 .ag-tool-icon { color: var(--text-tertiary); flex-shrink: 0; }
 .ag-tool-name { flex: 1; font-weight: 500; color: var(--text-secondary); }
-.ag-tool-chevron { color: var(--text-tertiary); font-size: 10px; }
+.ag-tool-chevron { color: var(--text-tertiary); font-size: 10px; margin-left: auto; flex-shrink: 0; }
+.ag-tool-arg {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ag-tool-card--error { border-color: rgba(220, 80, 80, 0.35); }
+.ag-tool-card--error .ag-tool-icon { color: #dc5050; }
+.ag-tool-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--border-light);
+  border-top-color: var(--text-tertiary);
+  border-radius: 50%;
+  animation: ag-spin 0.7s linear infinite;
+}
+@keyframes ag-spin { to { transform: rotate(360deg); } }
+.ag-tool-body {
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-surface);
+}
+.ag-tool-args {
+  padding: 7px 12px;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-tertiary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  border-bottom: 1px solid var(--border-light);
+}
 .ag-tool-output {
   padding: 8px 12px 10px;
   font-size: 11.5px;
@@ -1349,9 +1384,7 @@ button {
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
-  border-top: 1px solid var(--border-light);
   margin: 0;
-  background: var(--bg-surface);
 }
 
 /* ─── Patch card ────────────────────────────────────────── */

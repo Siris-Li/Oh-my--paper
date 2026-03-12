@@ -8,7 +8,10 @@ use crate::services::enriched_path;
 use crate::state::AppState;
 
 pub fn forward_search(state: &AppState, file_path: &str, line: usize) -> Result<SyncLocation> {
-    let config = state.project_config.read().expect("project config lock poisoned");
+    let config = state
+        .project_config
+        .read()
+        .expect("project config lock poisoned");
     let root_path = config.root_path.clone();
     let main_tex = config.main_tex.clone();
     drop(config);
@@ -77,8 +80,16 @@ pub fn forward_search(state: &AppState, file_path: &str, line: usize) -> Result<
     })
 }
 
-pub fn reverse_search(state: &AppState, page: usize, h: Option<f64>, v: Option<f64>) -> Result<SyncLocation> {
-    let config = state.project_config.read().expect("project config lock poisoned");
+pub fn reverse_search(
+    state: &AppState,
+    page: usize,
+    h: Option<f64>,
+    v: Option<f64>,
+) -> Result<SyncLocation> {
+    let config = state
+        .project_config
+        .read()
+        .expect("project config lock poisoned");
     let root_path = config.root_path.clone();
     let main_tex = config.main_tex.clone();
     drop(config);

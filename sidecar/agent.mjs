@@ -166,26 +166,10 @@ async function runLegacyAgent(request) {
 function buildUserMessage(context, userMessage) {
   const parts = [];
   if (typeof userMessage === "string" && userMessage.trim()) {
-    parts.push(`## User Request\n\n${userMessage}`);
+    parts.push(userMessage.trim());
   }
   if (context.selectedText) {
-    parts.push(`## Selected Text\n\n${context.selectedText}`);
+    parts.push(`\`\`\`\n${context.selectedText}\n\`\`\``);
   }
-  if (context.activeFilePath) {
-    parts.push(`## Active File\n\n${context.activeFilePath}`);
-  }
-  if (context.projectRoot) {
-    parts.push(`## Project Root\n\n${context.projectRoot}`);
-  }
-  parts.push(`## Cursor\n\nLine ${context.cursorLine}`);
-  parts.push(
-    [
-      "## Tooling Policy",
-      "",
-      "Do not assume full file content is preloaded.",
-      "Read files on demand and only inspect the minimal ranges needed.",
-      "Before editing, verify exact context with targeted tool reads.",
-    ].join("\n"),
-  );
-  return parts.join("\n\n---\n\n");
+  return parts.join("\n\n") || "Hello";
 }

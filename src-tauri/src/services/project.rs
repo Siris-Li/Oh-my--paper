@@ -105,7 +105,12 @@ fn build_tree(nodes: &[ProjectNode]) -> Vec<ProjectNode> {
     roots
 }
 
-fn insert_node(nodes: &mut Vec<ProjectNode>, parts: &[&str], full_path: &str, source: &ProjectNode) {
+fn insert_node(
+    nodes: &mut Vec<ProjectNode>,
+    parts: &[&str],
+    full_path: &str,
+    source: &ProjectNode,
+) {
     if parts.is_empty() {
         return;
     }
@@ -125,20 +130,32 @@ fn insert_node(nodes: &mut Vec<ProjectNode>, parts: &[&str], full_path: &str, so
             id: joined.clone(),
             name: head.into(),
             path: joined.clone(),
-            kind: if parts.len() == 1 { source.kind.clone() } else { "directory".into() },
+            kind: if parts.len() == 1 {
+                source.kind.clone()
+            } else {
+                "directory".into()
+            },
             file_type: if parts.len() == 1 {
                 source.file_type.clone()
             } else {
                 None
             },
-            is_text: if parts.len() == 1 { source.is_text } else { None },
+            is_text: if parts.len() == 1 {
+                source.is_text
+            } else {
+                None
+            },
             is_previewable: if parts.len() == 1 {
                 source.is_previewable
             } else {
                 None
             },
             size: if parts.len() == 1 { source.size } else { None },
-            children: if parts.len() == 1 { None } else { Some(Vec::new()) },
+            children: if parts.len() == 1 {
+                None
+            } else {
+                Some(Vec::new())
+            },
         });
         nodes.last_mut().expect("node inserted")
     };
@@ -157,14 +174,18 @@ fn insert_node(nodes: &mut Vec<ProjectNode>, parts: &[&str], full_path: &str, so
 }
 
 fn sort_nodes(nodes: &mut [ProjectNode]) {
-    nodes.sort_by(|left, right| match (left.kind.as_str(), right.kind.as_str()) {
-        ("directory", "directory") | ("file", "file") | ("asset", "asset") => left.name.cmp(&right.name),
-        ("directory", _) => std::cmp::Ordering::Less,
-        (_, "directory") => std::cmp::Ordering::Greater,
-        ("file", "asset") => std::cmp::Ordering::Less,
-        ("asset", "file") => std::cmp::Ordering::Greater,
-        _ => left.name.cmp(&right.name),
-    });
+    nodes.sort_by(
+        |left, right| match (left.kind.as_str(), right.kind.as_str()) {
+            ("directory", "directory") | ("file", "file") | ("asset", "asset") => {
+                left.name.cmp(&right.name)
+            }
+            ("directory", _) => std::cmp::Ordering::Less,
+            (_, "directory") => std::cmp::Ordering::Greater,
+            ("file", "asset") => std::cmp::Ordering::Less,
+            ("asset", "file") => std::cmp::Ordering::Greater,
+            _ => left.name.cmp(&right.name),
+        },
+    );
 
     for node in nodes.iter_mut() {
         if let Some(children) = node.children.as_mut() {
@@ -173,7 +194,9 @@ fn sort_nodes(nodes: &mut [ProjectNode]) {
     }
 }
 
-fn load_assets_and_briefs(state: &AppState) -> Result<(Vec<FigureBriefDraft>, Vec<GeneratedAsset>)> {
+fn load_assets_and_briefs(
+    state: &AppState,
+) -> Result<(Vec<FigureBriefDraft>, Vec<GeneratedAsset>)> {
     let conn = state.db.lock().expect("db lock poisoned");
     let briefs = figure::list_briefs(&conn).map_err(anyhow::Error::msg)?;
     let assets = figure::list_assets(&conn).map_err(anyhow::Error::msg)?;
@@ -183,7 +206,10 @@ fn load_assets_and_briefs(state: &AppState) -> Result<(Vec<FigureBriefDraft>, Ve
 fn collect_file_nodes(root: &Path) -> Vec<ProjectNode> {
     let mut nodes = Vec::new();
 
-    for entry in WalkDir::new(root).into_iter().filter_map(|entry| entry.ok()) {
+    for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
         let path = entry.path();
         let rel = path
             .strip_prefix(root)
@@ -231,7 +257,11 @@ fn collect_file_nodes(root: &Path) -> Vec<ProjectNode> {
                 .map(|name| name.to_string_lossy().to_string())
                 .unwrap_or_else(|| rel.clone()),
             path: rel,
-            kind: if is_text { "file".into() } else { "asset".into() },
+            kind: if is_text {
+                "file".into()
+            } else {
+                "asset".into()
+            },
             file_type: Some(file_type.clone()),
             is_text: Some(is_text),
             is_previewable: Some(is_previewable_file_type(&file_type)),
@@ -245,9 +275,14 @@ fn collect_file_nodes(root: &Path) -> Vec<ProjectNode> {
 }
 
 fn choose_active_text_file(nodes: &[ProjectNode], main_tex: &str) -> String {
-    nodes.iter()
+    nodes
+        .iter()
         .find(|node| node.is_text == Some(true) && node.path.ends_with("introduction.tex"))
-        .or_else(|| nodes.iter().find(|node| node.is_text == Some(true) && node.path == main_tex))
+        .or_else(|| {
+            nodes
+                .iter()
+                .find(|node| node.is_text == Some(true) && node.path == main_tex)
+        })
         .or_else(|| nodes.iter().find(|node| node.is_text == Some(true)))
         .map(|node| node.path.clone())
         .unwrap_or_default()
@@ -255,7 +290,10 @@ fn choose_active_text_file(nodes: &[ProjectNode], main_tex: &str) -> String {
 
 pub fn load_project_snapshot(state: &AppState) -> Result<WorkspaceSnapshot> {
     let root_path = {
-        let current = state.project_config.read().expect("project config lock poisoned");
+        let current = state
+            .project_config
+            .read()
+            .expect("project config lock poisoned");
         current.root_path.clone()
     };
     if root_path.trim().is_empty() {
@@ -265,7 +303,10 @@ pub fn load_project_snapshot(state: &AppState) -> Result<WorkspaceSnapshot> {
 
     let config = load_project_config(root);
     {
-        let mut current = state.project_config.write().expect("project config lock poisoned");
+        let mut current = state
+            .project_config
+            .write()
+            .expect("project config lock poisoned");
         *current = config.clone();
     }
 
@@ -352,7 +393,10 @@ fn empty_snapshot(state: &AppState) -> Result<WorkspaceSnapshot> {
 
 pub fn read_file(state: &AppState, file_path: &str) -> Result<ProjectFile> {
     let root = {
-        let config = state.project_config.read().expect("project config lock poisoned");
+        let config = state
+            .project_config
+            .read()
+            .expect("project config lock poisoned");
         config.root_path.clone()
     };
 
@@ -372,7 +416,10 @@ pub fn read_file(state: &AppState, file_path: &str) -> Result<ProjectFile> {
 
 pub fn read_asset(state: &AppState, file_path: &str) -> Result<AssetResource> {
     let root = {
-        let config = state.project_config.read().expect("project config lock poisoned");
+        let config = state
+            .project_config
+            .read()
+            .expect("project config lock poisoned");
         config.root_path.clone()
     };
 
@@ -443,7 +490,10 @@ pub fn create_project(
 
 pub fn save_file(state: &AppState, file_path: &str, content: &str) -> Result<()> {
     let root = {
-        let config = state.project_config.read().expect("project config lock poisoned");
+        let config = state
+            .project_config
+            .read()
+            .expect("project config lock poisoned");
         config.root_path.clone()
     };
     let absolute = Path::new(&root).join(file_path);

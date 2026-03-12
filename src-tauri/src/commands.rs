@@ -197,7 +197,10 @@ pub fn list_skills(state: State<'_, AppState>) -> Result<Vec<SkillManifest>, Str
 }
 
 #[tauri::command]
-pub fn install_skill(state: State<'_, AppState>, skill: SkillManifest) -> Result<SkillManifest, String> {
+pub fn install_skill(
+    state: State<'_, AppState>,
+    skill: SkillManifest,
+) -> Result<SkillManifest, String> {
     let conn = state.db.lock().map_err(|err| err.to_string())?;
     skill::install_skill(&conn, &skill)?;
     Ok(skill)
@@ -260,7 +263,8 @@ pub fn update_provider(
             if let Some(api_key) = patch.get("apiKey").and_then(|value| value.as_str()) {
                 current.api_key = api_key.into();
             }
-            if let Some(default_model) = patch.get("defaultModel").and_then(|value| value.as_str()) {
+            if let Some(default_model) = patch.get("defaultModel").and_then(|value| value.as_str())
+            {
                 current.default_model = default_model.into();
             }
             if let Some(is_enabled) = patch.get("isEnabled").and_then(|value| value.as_bool()) {
@@ -341,7 +345,9 @@ pub fn create_figure_brief(
     file_path: Option<String>,
     selected_text: String,
 ) -> Result<FigureBriefDraft, String> {
-    let section_ref = section_ref.or(file_path).unwrap_or_else(|| "active-section".into());
+    let section_ref = section_ref
+        .or(file_path)
+        .unwrap_or_else(|| "active-section".into());
     figure::create_brief(&state, &section_ref, &selected_text).map_err(|err| err.to_string())
 }
 
@@ -378,7 +384,9 @@ pub fn insert_figure_snippet(
     line: usize,
 ) -> Result<serde_json::Value, String> {
     figure::insert_figure_snippet(&state, &file_path, &asset_id, &caption, line)
-        .map(|(file_path, content)| serde_json::json!({ "filePath": file_path, "content": content }))
+        .map(
+            |(file_path, content)| serde_json::json!({ "filePath": file_path, "content": content }),
+        )
         .map_err(|err| err.to_string())
 }
 
@@ -409,7 +417,11 @@ pub fn get_usage_stats(state: State<'_, AppState>) -> Result<Vec<UsageRecord>, S
 }
 
 #[tauri::command]
-pub fn create_file(state: State<'_, AppState>, path: String, content: String) -> Result<(), String> {
+pub fn create_file(
+    state: State<'_, AppState>,
+    path: String,
+    content: String,
+) -> Result<(), String> {
     let config = state.project_config.read().map_err(|err| err.to_string())?;
     let full_path = Path::new(&config.root_path).join(&path);
     if let Some(parent) = full_path.parent() {

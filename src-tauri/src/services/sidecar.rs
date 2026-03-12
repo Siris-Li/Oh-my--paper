@@ -36,7 +36,9 @@ pub fn spawn_sidecar(state: &AppState, command: &str, payload: &str) -> Result<C
 
 pub fn run_sidecar(state: &AppState, command: &str, payload: &str) -> Result<Output> {
     let child = spawn_sidecar(state, command, payload)?;
-    child.wait_with_output().context("failed to wait for sidecar")
+    child
+        .wait_with_output()
+        .context("failed to wait for sidecar")
 }
 
 fn resolve_sidecar_entry(state: &AppState) -> Result<PathBuf> {

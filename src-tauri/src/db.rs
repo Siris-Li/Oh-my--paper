@@ -8,6 +8,10 @@ pub fn init_db(app_data_dir: &Path) -> SqlResult<Connection> {
     let conn = Connection::open(db_path)?;
 
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+
+    // Recreate profiles table without restrictive CHECK constraints if needed.
+    migrate_profiles_table(&conn)?;
+
     conn.execute_batch(include_str!("schema.sql"))?;
 
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM providers", [], |row| row.get(0))?;
@@ -15,9 +19,68 @@ pub fn init_db(app_data_dir: &Path) -> SqlResult<Connection> {
         seed_providers(&conn)?;
         seed_profiles(&conn)?;
         seed_skills(&conn)?;
+    } else {
+        migrate_profiles(&conn)?;
     }
 
     Ok(conn)
+}
+
+/// Drop and recreate the profiles table if it still has the old strict CHECK constraints.
+/// Detected by attempting to insert a 'chat' stage into a temp row.
+fn migrate_profiles_table(conn: &rusqlite::Connection) -> SqlResult<()> {
+    // Check if the profiles table exists at all first
+    let table_exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='profiles'",
+        [],
+        |row| row.get(0),
+    )?;
+    if table_exists == 0 {
+        return Ok(()); // will be created by schema.sql
+    }
+
+    // Probe whether the current table accepts 'chat' stage
+    let check_ok = conn.execute_batch(
+        "SAVEPOINT probe;
+         INSERT INTO profiles (id,label,stage,provider_id,model,output_mode,is_builtin)
+           VALUES ('__probe__','probe','chat','__none__','','chat',0);
+         DELETE FROM profiles WHERE id='__probe__';
+         RELEASE SAVEPOINT probe;",
+    );
+
+    if check_ok.is_ok() {
+        return Ok(()); // constraint already allows 'chat'
+    }
+
+    // Rollback the failed savepoint
+    let _ = conn.execute_batch("ROLLBACK TO SAVEPOINT probe; RELEASE SAVEPOINT probe;");
+
+    // Rebuild the table without the old CHECK constraints
+    conn.execute_batch(
+        "PRAGMA foreign_keys=OFF;
+         BEGIN;
+         CREATE TABLE profiles_new (
+             id                   TEXT PRIMARY KEY,
+             label                TEXT NOT NULL,
+             summary              TEXT NOT NULL DEFAULT '',
+             stage                TEXT NOT NULL DEFAULT 'chat',
+             provider_id          TEXT NOT NULL,
+             model                TEXT NOT NULL,
+             skill_ids_json       TEXT NOT NULL DEFAULT '[]',
+             tool_allowlist_json  TEXT NOT NULL DEFAULT '[]',
+             output_mode          TEXT NOT NULL DEFAULT 'chat',
+             sort_order           INTEGER NOT NULL DEFAULT 0,
+             is_builtin           INTEGER NOT NULL DEFAULT 0
+         );
+         INSERT INTO profiles_new SELECT id,label,summary,stage,provider_id,model,
+             skill_ids_json,tool_allowlist_json,output_mode,sort_order,is_builtin FROM profiles;
+         DROP TABLE profiles;
+         ALTER TABLE profiles_new RENAME TO profiles;
+         COMMIT;
+         PRAGMA foreign_keys=ON;",
+    )?;
+
+    Ok(())
 }
 
 fn seed_providers(conn: &Connection) -> SqlResult<()> {
@@ -63,68 +126,44 @@ fn seed_providers(conn: &Connection) -> SqlResult<()> {
 }
 
 fn seed_profiles(conn: &Connection) -> SqlResult<()> {
-    let profiles = vec![
-        (
-            "outline",
-            "Outline",
-            "Generate section structure",
-            "planning",
-            "openai-main",
-            "gpt-4.1",
-            r#"["academic-outline"]"#,
-            r#"["read_section","list_sections","insert_at_line"]"#,
-            "outline",
-        ),
-        (
-            "draft",
-            "Draft",
-            "Expand notes into academic prose",
-            "drafting",
-            "anthropic-main",
-            "claude-sonnet-4",
-            r#"["academic-draft"]"#,
-            r#"["read_section","apply_text_patch"]"#,
-            "rewrite",
-        ),
-        (
-            "polish",
-            "Polish",
-            "Tighten style and compress phrasing",
-            "revision",
-            "openrouter-lab",
-            "claude-3.7-sonnet",
-            r#"["academic-polish"]"#,
-            r#"["read_section","apply_text_patch"]"#,
-            "rewrite",
-        ),
-        (
-            "de_ai",
-            "De-AI",
-            "Remove AI writing artifacts",
-            "revision",
-            "openai-main",
-            "gpt-4.1-mini",
-            r#"["academic-de-ai"]"#,
-            r#"["read_section","apply_text_patch"]"#,
-            "rewrite",
-        ),
-        (
-            "review",
-            "Review",
-            "Critical review like a tough reviewer",
-            "submission",
-            "anthropic-main",
-            "claude-sonnet-4",
-            r#"["academic-review"]"#,
-            r#"["read_section","search_project","read_bib_entries"]"#,
-            "review",
-        ),
-    ];
+    let all_tools = r#"["read_section","list_sections","search_project","apply_text_patch","insert_at_line","read_bib_entries"]"#;
+    conn.execute(
+        "INSERT INTO profiles (id, label, summary, stage, provider_id, model, skill_ids_json, tool_allowlist_json, output_mode, is_builtin) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,1)",
+        params!["chat", "Chat", "General assistant", "chat", "anthropic-main", "claude-sonnet-4", "[]", all_tools, "chat"],
+    )?;
+    Ok(())
+}
 
-    for (id, label, summary, stage, provider, model, skills, tools, mode) in profiles {
+/// Replace legacy academic profiles with a single generic chat profile.
+fn migrate_profiles(conn: &Connection) -> SqlResult<()> {
+    let old_ids = ["outline", "draft", "polish", "de_ai", "review"];
+    let chat_exists: i64 =
+        conn.query_row("SELECT COUNT(*) FROM profiles WHERE id='chat'", [], |row| {
+            row.get(0)
+        })?;
+
+    // Remove old builtin profiles
+    for id in &old_ids {
+        conn.execute(
+            "DELETE FROM profiles WHERE id=?1 AND is_builtin=1",
+            params![id],
+        )?;
+    }
+
+    // Insert chat profile if not already present
+    if chat_exists == 0 {
+        // Pick the first enabled provider as default
+        let provider_id: String = conn
+            .query_row(
+                "SELECT id FROM providers WHERE is_enabled=1 ORDER BY sort_order LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| "anthropic-main".to_string());
+        let all_tools = r#"["read_section","list_sections","search_project","apply_text_patch","insert_at_line","read_bib_entries"]"#;
         conn.execute(
             "INSERT INTO profiles (id, label, summary, stage, provider_id, model, skill_ids_json, tool_allowlist_json, output_mode, is_builtin) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,1)",
-            params![id, label, summary, stage, provider, model, skills, tools, mode],
+            params!["chat", "Chat", "General assistant", "chat", provider_id, "", "[]", all_tools, "chat"],
         )?;
     }
 
