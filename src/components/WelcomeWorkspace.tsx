@@ -4,6 +4,7 @@ import type { WorkspaceEntry } from "../types";
 
 interface WelcomeWorkspaceProps {
   recentWorkspaces: WorkspaceEntry[];
+  isWindowDragEnabled?: boolean;
   onOpenProject: () => void;
   onCreateProject: () => void;
   onOpenRecentWorkspace: (rootPath: string) => void;
@@ -27,6 +28,7 @@ function WelcomeActivityIcon({
 
 export function WelcomeWorkspace({
   recentWorkspaces,
+  isWindowDragEnabled = false,
   onOpenProject,
   onCreateProject,
   onOpenRecentWorkspace,
@@ -79,6 +81,9 @@ export function WelcomeWorkspace({
       </aside>
 
       <section className="welcome-canvas">
+        {isWindowDragEnabled && (
+          <div className="welcome-canvas-drag-surface" data-tauri-drag-region="true" aria-hidden="true" />
+        )}
         <div className="welcome-center">
           <div className="welcome-kicker">Workspace</div>
           <h1 className="welcome-title">打开项目</h1>

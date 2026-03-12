@@ -2293,6 +2293,7 @@ function App() {
         className={`topbar ${hasProject ? "" : "topbar--welcome"} ${isMacOverlayWindow ? "topbar--overlay" : ""}`}
         data-tauri-drag-region={!hasProject && isMacOverlayWindow ? "true" : undefined}
       >
+        {isMacOverlayWindow && <div className="topbar-drag-surface" data-tauri-drag-region="true" aria-hidden="true" />}
         <div className="topbar-left">
           <span
             className={`brand-title ${hasProject ? "" : "brand-title--welcome"}`}
@@ -2356,6 +2357,7 @@ function App() {
       {!hasProject && (
         <WelcomeWorkspace
           recentWorkspaces={recentWorkspaces}
+          isWindowDragEnabled={isMacOverlayWindow}
           onOpenProject={() => void handleOpenExistingProject()}
           onCreateProject={() => void handleCreateNewProject()}
           onOpenRecentWorkspace={(rootPath) => void activateWorkspace(rootPath)}
