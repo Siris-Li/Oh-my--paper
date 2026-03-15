@@ -4,7 +4,7 @@ export type CompileStatus = "idle" | "running" | "success" | "failed" | "cancele
 export type AgentProfileId = string;
 export type FigureBriefStatus = "draft" | "ready" | "generated";
 export type AssetKind = "figure" | "table" | "diagram";
-export type DrawerTab = "latex" | "ai" | "logs" | "figures" | "skills" | "providers" | "usage";
+export type DrawerTab = "latex" | "ai" | "logs" | "figures" | "skills" | "providers" | "usage" | "collab";
 export type WorkspacePaneMode = "files" | "outline";
 export type ProjectFileType =
   | "latex"
@@ -233,6 +233,72 @@ export interface UsageRecord {
   createdAt: string;
 }
 
+export type CloudProjectRole = "owner" | "editor" | "viewer";
+
+export interface CloudProjectSummary {
+  id: string;
+  name: string;
+  rootMainFile: string;
+  role: CloudProjectRole;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CloudDocumentSummary {
+  id: string;
+  projectId: string;
+  path: string;
+  kind: "tex" | "bib" | "text";
+  latestVersion: number;
+  updatedAt: string;
+}
+
+export interface CollabMember {
+  clientId: number;
+  userId: string;
+  name: string;
+  color: string;
+  openFile?: string;
+}
+
+export interface WorkspaceCollabMetadata {
+  mode: "local" | "cloud";
+  cloudProjectId: string | null;
+  checkoutRoot: string;
+  linkedAt: string;
+}
+
+export interface CollabStatus {
+  enabled: boolean;
+  connected: boolean;
+  synced: boolean;
+  connectionError: string;
+  members: CollabMember[];
+}
+
+export interface ReviewComment {
+  id: string;
+  userId: string;
+  userName: string;
+  userColor: string;
+  filePath: string;
+  lineStart: number;
+  lineEnd: number;
+  text: string;
+  timestamp: string;
+  resolved: boolean;
+  replies: ReviewReply[];
+}
+
+export interface ReviewReply {
+  id: string;
+  userId: string;
+  userName: string;
+  userColor: string;
+  text: string;
+  timestamp: string;
+}
+
 export interface WorkspaceEntry {
   rootPath: string;
   label: string;
@@ -288,4 +354,5 @@ export interface WorkspaceSnapshot {
   compileResult: CompileResult;
   figureBriefs: FigureBriefDraft[];
   assets: GeneratedAsset[];
+  collab?: WorkspaceCollabMetadata | null;
 }

@@ -1,8 +1,6 @@
 import {
   type MouseEvent as ReactMouseEvent,
-  startTransition,
   useEffect,
-  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -17,35 +15,50 @@ import { Sidebar } from "./components/Sidebar";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { WelcomeWorkspace } from "./components/WelcomeWorkspace";
 import { WorkspaceMenuBar } from "./components/WorkspaceMenuBar";
+import { CollabLoginModal } from "./components/CollabLoginModal";
+import { createLocalAdapter } from "./lib/adapters";
+import { createCloudProject, joinCloudProject } from "./lib/collaboration/cloud-api";
+import {
+  readCollabAuthSession,
+  writeCollabAuthSession,
+  resolveCollabBaseUrls,
+  type CollabAuthSession,
+} from "./lib/collaboration/auth";
+import {
+  readCollabConfig,
+  writeCollabConfig,
+  type CollabConfig,
+} from "./lib/collaboration/collab-config";
+import { CommentStore } from "./lib/collaboration/comment-store";
+import { generateShareLink } from "./lib/collaboration/share";
+import { CollabDocManager } from "./lib/collaboration/doc-manager";
+import {
+  readWorkspaceCollabMetadata,
+  writeWorkspaceCollabMetadata,
+} from "./lib/collaboration/workspace-metadata";
 import { desktop, isTauriRuntime } from "./lib/desktop";
 import { resolvePdfSource } from "./lib/pdf-source";
-import {
-  buildProjectOutline,
-  findActiveHeading,
-  type OutlineHeading,
-  type OutlineNode,
-} from "./lib/outline";
-import { closePathTab, closeTextTab, findFirstTextPath, getNodeByPath } from "./lib/workspace";
+import { findActiveHeading } from "./lib/outline";
+import { closePathTab, closeTextTab, getNodeByPath } from "./lib/workspace";
+import { useAgentChat } from "./hooks/useAgentChat";
+import { useCollaborativeDoc } from "./hooks/useCollaborativeDoc";
+import { useCompilePipeline } from "./hooks/useCompilePipeline";
+import { useProjectOutline } from "./hooks/useProjectOutline";
+import { useStableCallback as useEffectEvent } from "./hooks/useStableCallback";
+import { useWorkspaceFiles } from "./hooks/useWorkspaceFiles";
 import type {
   AppMenuAction,
   AppMenuState,
-  AgentMessage,
-  AgentProfileId,
-  AgentSessionSummary,
-  AssetResource,
-  CompileEnvironmentStatus,
   DrawerTab,
   FigureBriefDraft,
   GeneratedAsset,
   LatexEngine,
-  ProjectFile,
   ProjectNode,
   ProviderConfig,
+  ReviewComment,
   SkillManifest,
-  StreamToolCall,
-  SyncHighlight,
   TestResult,
-  UsageRecord,
+  WorkspaceCollabMetadata,
   WorkspaceEntry,
   WorkspacePaneMode,
   WorkspaceSnapshot,
@@ -57,27 +70,6 @@ type PreviewSelection =
   | { kind: "unsupported"; path: string; title: string; description: string };
 
 type EditorJumpTarget = { path: string; line: number; nonce: number };
-
-function isTextNode(node: ProjectNode | null) {
-  return Boolean(node?.kind !== "directory" && node?.isText);
-}
-
-function pickActiveTextPath(snapshot: WorkspaceSnapshot, requestedPath: string, previousPath: string) {
-  const candidates = [requestedPath, previousPath, snapshot.activeFile, findFirstTextPath(snapshot.tree)];
-  return candidates.find((path) => path && isTextNode(getNodeByPath(snapshot.tree, path))) ?? "";
-}
-
-function sanitizeOpenTabs(snapshot: WorkspaceSnapshot, openTabs: string[], activePath: string) {
-  const nextTabs = Array.from(
-    new Set(openTabs.filter((path) => isTextNode(getNodeByPath(snapshot.tree, path)))),
-  );
-
-  if (activePath && !nextTabs.includes(activePath)) {
-    nextTabs.unshift(activePath);
-  }
-
-  return nextTabs;
-}
 
 function normalizeProjectPath(path: string) {
   return path.replaceAll("\\", "/");
@@ -99,7 +91,6 @@ function toProjectRelativePath(rootPath: string, filePath?: string) {
   return normalizedFile.startsWith(prefix) ? normalizedFile.slice(prefix.length) : "";
 }
 
-const COMPILE_DEBUG_LOG_LIMIT = 300;
 const RECENT_WORKSPACE_STORAGE_KEY = "viewerleaf:recent-workspaces:v1";
 const WINDOW_WORKSPACE_TABS_STORAGE_KEY = "viewerleaf:window-workspaces:v1";
 const AUTO_SAVE_STORAGE_KEY = "viewerleaf:auto-save:v1";
@@ -112,6 +103,11 @@ const TERMINAL_PANEL_DEFAULT_HEIGHT = 230;
 function workspaceLabelFromRoot(rootPath: string) {
   const normalized = normalizeProjectPath(rootPath).replace(/\/$/, "");
   return normalized.split("/").at(-1) || rootPath || "Untitled";
+}
+
+function formatDebugTimestamp(date: Date) {
+  const pad = (value: number, length = 2) => String(value).padStart(length, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
 }
 
 function toWorkspaceEntry(rootPath: string): WorkspaceEntry {
@@ -234,25 +230,6 @@ function upsertWorkspaceEntry(entries: WorkspaceEntry[], rootPath: string, max: 
   return [nextEntry, ...entries.filter((entry) => entry.rootPath !== rootPath)].slice(0, max);
 }
 
-function formatDebugTimestamp(date: Date) {
-  const pad = (value: number, length = 2) => String(value).padStart(length, "0");
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
-}
-
-function serializeDebugDetails(details: unknown) {
-  if (details == null) {
-    return "";
-  }
-  if (typeof details === "string") {
-    return details;
-  }
-  try {
-    return JSON.stringify(details);
-  } catch {
-    return String(details);
-  }
-}
-
 function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [bootstrapError, setBootstrapError] = useState("");
@@ -265,227 +242,281 @@ function App() {
   const [isAutoSaveEnabled, setIsAutoSaveEnabled] = useState(() =>
     readStoredBoolean(AUTO_SAVE_STORAGE_KEY, false),
   );
-  const [openTabs, setOpenTabs] = useState<string[]>([]);
-  const [openImageTabs, setOpenImageTabs] = useState<string[]>([]);
-  const [openFiles, setOpenFiles] = useState<Record<string, ProjectFile>>({});
-  const [dirtyPaths, setDirtyPaths] = useState<string[]>([]);
-  const [assetCache, setAssetCache] = useState<Record<string, AssetResource>>({});
-  const [activeFilePath, setActiveFilePath] = useState("");
-  const [highlightedPage, setHighlightedPage] = useState(1);
-  const [syncHighlights, setSyncHighlights] = useState<SyncHighlight[]>([]);
-  const [compilePreviewLoadError, setCompilePreviewLoadError] = useState("");
-  const [compilePdfData, setCompilePdfData] = useState<Uint8Array | null>(null);
-  const [compilePdfLoadedKey, setCompilePdfLoadedKey] = useState("");
-  const [isLoadingCompilePdf, setIsLoadingCompilePdf] = useState(false);
-  const [compileDebugLogLines, setCompileDebugLogLines] = useState<string[]>([]);
-  const [compileEnvironment, setCompileEnvironment] = useState<CompileEnvironmentStatus | null>(null);
-  const [isCheckingCompileEnvironment, setIsCheckingCompileEnvironment] = useState(false);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("ai");
   const [isTerminalVisible, setIsTerminalVisible] = useState(false);
   const [terminalPanelHeight, setTerminalPanelHeight] = useState(TERMINAL_PANEL_DEFAULT_HEIGHT);
   const [workspacePaneMode, setWorkspacePaneMode] = useState<WorkspacePaneMode>("files");
   const [cursorLine, setCursorLine] = useState(1);
   const [selectedText, setSelectedText] = useState("");
-  const [messages, setMessages] = useState<AgentMessage[]>([]);
-  const [agentSessions, setAgentSessions] = useState<AgentSessionSummary[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState("");
-  const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
-  const [activeProfileId, setActiveProfileId] = useState<AgentProfileId>("chat");
-  const [pendingPatch, setPendingPatch] = useState<{ filePath: string; content: string; summary: string } | null>(null);
   const [selectedBrief, setSelectedBrief] = useState<FigureBriefDraft | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<GeneratedAsset | null>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamThinkingText, setStreamThinkingText] = useState("");
-  const [streamText, setStreamText] = useState("");
-  const [streamToolCalls, setStreamToolCalls] = useState<StreamToolCall[]>([]);
-  const [streamError, setStreamError] = useState("");
-  const [loadingFilePath, setLoadingFilePath] = useState("");
   const [previewSelection, setPreviewSelection] = useState<PreviewSelection>({ kind: "compile" });
-  const [outlineHeadings, setOutlineHeadings] = useState<OutlineHeading[]>([]);
-  const [outlineTree, setOutlineTree] = useState<OutlineNode[]>([]);
-  const [outlineWarnings, setOutlineWarnings] = useState<string[]>([]);
-  const [outlineLoading, setOutlineLoading] = useState(false);
   const [editorJumpTarget, setEditorJumpTarget] = useState<EditorJumpTarget | null>(null);
-  const [editorImagePath, setEditorImagePath] = useState("");
-  const [editorImageUrl, setEditorImageUrl] = useState("");
-  const draftContentRef = useRef<Record<string, string>>({});
-  const pendingTextLoadsRef = useRef<Record<string, Promise<ProjectFile | null>>>({});
-  const streamBufferRef = useRef("");
-  const streamFlushTimerRef = useRef<number | null>(null);
-  const streamThinkingRef = useRef("");
-  const streamToolSeqRef = useRef(0);
-  const currentStreamSessionIdRef = useRef("");
-  const snapshotRef = useRef<WorkspaceSnapshot | null>(null);
+  const [collabRevision, setCollabRevision] = useState(0);
+  const [runtimeDebugLogLines, setRuntimeDebugLogLines] = useState<string[]>([]);
   const workspaceBodyRef = useRef<HTMLDivElement | null>(null);
 
-  const logCompileDebug = useEffectEvent(
-    (level: "info" | "warn" | "error", message: string, details?: unknown) => {
-      const timestamp = formatDebugTimestamp(new Date());
-      const detailText = serializeDebugDetails(details);
-      const line =
-        detailText.length > 0
-          ? `[${timestamp}] [${level.toUpperCase()}] ${message} ${detailText}`
-          : `[${timestamp}] [${level.toUpperCase()}] ${message}`;
-
-      setCompileDebugLogLines((current) => {
-        const next = [...current, line];
-        return next.length > COMPILE_DEBUG_LOG_LIMIT ? next.slice(next.length - COMPILE_DEBUG_LOG_LIMIT) : next;
-      });
-
-      if (level === "error") {
-        console.error(message, details);
-      } else if (level === "warn") {
-        console.warn(message, details);
-      } else {
-        console.info(message, details);
-      }
-    },
+  const { file: fileAdapter, project: projectAdapter, compile: compileAdapter } = useMemo(
+    () => createLocalAdapter(),
+    [],
   );
 
-  const flushStreamBuffer = useEffectEvent(() => {
-    const delta = streamBufferRef.current;
-    if (!delta) {
-      return;
+  const workspaceFiles = useWorkspaceFiles({
+    snapshot,
+    fileAdapter,
+  });
+  const {
+    openFiles,
+    openTabs,
+    openImageTabs,
+    dirtyPaths,
+    assetCache,
+    fileLoadErrors,
+    assetLoadErrors,
+    debugLogLines: workspaceDebugLogLines,
+    activeFilePath,
+    loadingFilePath,
+    editorImagePath,
+    editorImageUrl,
+    draftContentRef,
+    activeFile,
+    dirtyPathSet,
+    openImageTabSet,
+    editorTabs,
+    setOpenFiles,
+    setOpenTabs,
+    setDirtyPaths,
+    setAssetCache,
+    setActiveFilePath,
+    loadTextFile,
+    loadAsset,
+    saveOpenFiles,
+    replaceFileContent,
+    handleFileChange,
+    addDirtyPath,
+    openTextFile: openTextFileBase,
+    openImageFile: openImageFileBase,
+    closeImageTab: closeImageTabBase,
+    resetForSnapshot: resetWorkspaceFilesForSnapshot,
+  } = workspaceFiles;
+
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [collabConfigState, setCollabConfigState] = useState<CollabConfig | null>(() => readCollabConfig());
+  const [collabAuthRevision, setCollabAuthRevision] = useState(0);
+  const [activeDocComments, setActiveDocComments] = useState<ReviewComment[]>([]);
+
+  const collabAuthSession = useMemo(
+    () => readCollabAuthSession(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [snapshot?.collab?.cloudProjectId, snapshot?.projectConfig.rootPath, collabAuthRevision],
+  );
+  const collabManager = useMemo(() => {
+    const collabMetadata = snapshot?.collab;
+    const { wsBaseUrl } = resolveCollabBaseUrls();
+    if (!collabMetadata || collabMetadata.mode !== "cloud" || !collabMetadata.cloudProjectId || !collabAuthSession || !wsBaseUrl) {
+      return null;
     }
-    streamBufferRef.current = "";
-    setStreamText((current) => current + delta);
-  });
 
-  const queueStreamDelta = useEffectEvent((delta: string) => {
-    if (!delta) {
-      return;
-    }
-    streamBufferRef.current += delta;
-    if (streamFlushTimerRef.current !== null) {
-      return;
-    }
-    streamFlushTimerRef.current = window.setTimeout(() => {
-      streamFlushTimerRef.current = null;
-      flushStreamBuffer();
-    }, 16);
-  });
-
-  const clearStreamBuffer = useEffectEvent(() => {
-    if (streamFlushTimerRef.current !== null) {
-      window.clearTimeout(streamFlushTimerRef.current);
-      streamFlushTimerRef.current = null;
-    }
-    streamBufferRef.current = "";
-  });
-
-  const appendThinkingDelta = useEffectEvent((delta: string) => {
-    if (!delta) {
-      return;
-    }
-    streamThinkingRef.current += delta;
-    setStreamThinkingText(streamThinkingRef.current);
-  });
-
-  const clearThinkingText = useEffectEvent(() => {
-    streamThinkingRef.current = "";
-    setStreamThinkingText("");
-  });
-
-  const commitThinkingText = useEffectEvent(() => {
-    const content = streamThinkingRef.current;
-    if (!content) {
-      return;
-    }
-    setStreamText((current) => current + content);
-    clearThinkingText();
-  });
-
-  const resetStreamState = useEffectEvent(() => {
-    clearStreamBuffer();
-    clearThinkingText();
-    setStreamText("");
-    setStreamToolCalls([]);
-    setStreamError("");
-    streamToolSeqRef.current = 0;
-  });
-
-  const pushStreamToolStart = useEffectEvent((toolId: string, args: Record<string, unknown>) => {
-    const seq = streamToolSeqRef.current + 1;
-    streamToolSeqRef.current = seq;
-    setStreamToolCalls((current) => [
-      ...current,
-      {
-        id: `${Date.now()}-${seq}`,
-        toolId,
-        args,
-        status: "running",
+    return new CollabDocManager({
+      enabled: true,
+      projectId: collabMetadata.cloudProjectId,
+      authToken: collabAuthSession.token,
+      user: {
+        userId: collabAuthSession.userId,
+        name: collabAuthSession.name,
+        color: collabAuthSession.color,
       },
-    ]);
-  });
-
-  const pushStreamToolResult = useEffectEvent(
-    (toolId: string, output: string, status: "completed" | "error" = "completed") => {
-      setStreamToolCalls((current) => {
-        for (let index = current.length - 1; index >= 0; index -= 1) {
-          const item = current[index];
-          if (item.toolId !== toolId || item.status !== "running") {
-            continue;
-          }
-          const next = [...current];
-          next[index] = {
-            ...item,
-            output,
-            status,
-          };
-          return next;
-        }
-
-        const seq = streamToolSeqRef.current + 1;
-        streamToolSeqRef.current = seq;
-        return [
-          ...current,
-          {
-            id: `${Date.now()}-${seq}`,
-            toolId,
-            output,
-            status,
-          },
-        ];
-      });
-    },
-  );
+      fileAdapter,
+    });
+  }, [collabAuthSession, fileAdapter, snapshot?.collab]);
 
   useEffect(() => {
     return () => {
-      if (streamFlushTimerRef.current !== null) {
-        window.clearTimeout(streamFlushTimerRef.current);
-        streamFlushTimerRef.current = null;
-      }
+      collabManager?.destroy();
     };
-  }, []);
+  }, [collabManager]);
 
-  const activeFile = (() => {
-    if (!activeFilePath) {
-      return null;
+  useEffect(() => {
+    if (!collabManager) {
+      return;
     }
-    const file = openFiles[activeFilePath];
-    if (!file) {
-      return null;
-    }
-    const draftContent = draftContentRef.current[activeFilePath];
-    if (draftContent === undefined || draftContent === file.content) {
-      return file;
-    }
-    return { ...file, content: draftContent };
-  })();
+    const unsubscribe = collabManager.subscribe(() => {
+      setCollabRevision((current) => current + 1);
+    });
+    return unsubscribe;
+  }, [collabManager]);
 
-  const activeProfile = useMemo(
-    () => snapshot?.profiles.find((profile) => profile.id === activeProfileId) ?? null,
-    [activeProfileId, snapshot?.profiles],
+  useEffect(() => {
+    if (!collabManager) {
+      return;
+    }
+    void collabManager.syncProject(snapshot).catch((error) => {
+      console.warn("failed to sync collaborative project", error);
+    });
+  }, [collabManager, snapshot]);
+
+  useEffect(() => {
+    if (!collabManager) {
+      return;
+    }
+
+    setOpenFiles((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [path, file] of Object.entries(current)) {
+        const doc = collabManager.getDoc(path);
+        if (!doc) {
+          continue;
+        }
+        const content = doc.yText.toString();
+        draftContentRef.current[path] = content;
+        if (file.content !== content) {
+          next[path] = { ...file, content };
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [collabManager, collabRevision, draftContentRef, setOpenFiles]);
+
+  const replaceDocumentContent = useEffectEvent((filePath: string, content: string) => {
+    const collabDoc = collabManager?.getDoc(filePath);
+    if (collabDoc) {
+      collabDoc.yDoc.transact(() => {
+        collabDoc.yText.delete(0, collabDoc.yText.length);
+        collabDoc.yText.insert(0, content);
+      });
+    }
+    replaceFileContent(filePath, content);
+  });
+
+  const openTextFile = useEffectEvent((path: string, line?: number) => {
+    const result = openTextFileBase(path, line);
+    setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
+    if (line && result.jumpTarget) {
+      setCursorLine(line);
+      setEditorJumpTarget(result.jumpTarget);
+    }
+  });
+
+  const openImageFile = useEffectEvent((path: string) => {
+    openImageFileBase(path);
+    setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
+  });
+
+  const closeImageTab = useEffectEvent((path: string) => {
+    closeImageTabBase(path);
+  });
+
+  const compilePipeline = useCompilePipeline({
+    snapshot,
+    activeFilePath,
+    cursorLine,
+    dirtyPaths,
+    drawerTab,
+    compileAdapter,
+    fileAdapter,
+    saveOpenFiles,
+    openTextFile,
+    docManager: collabManager,
+  });
+  const {
+    compileEnvironment,
+    isCheckingCompileEnvironment,
+    refreshCompileEnvironment,
+  } = compilePipeline;
+
+  const outlineReadFile = useEffectEvent(async (path: string) => {
+    const collabDoc = collabManager?.getDoc(path);
+    if (collabDoc) {
+      const existing = openFiles[path];
+      return {
+        path,
+        language: existing?.language ?? (await fileAdapter.readFile(path)).language,
+        content: collabDoc.yText.toString(),
+      };
+    }
+    return fileAdapter.readFile(path);
+  });
+
+  const {
+    outlineHeadings,
+    outlineTree,
+    outlineWarnings,
+    outlineLoading,
+  } = useProjectOutline({
+    snapshot,
+    openFiles,
+    draftContentRef,
+    readFile: outlineReadFile,
+    revision: collabRevision,
+  });
+
+  const agentChat = useAgentChat({
+    snapshot,
+    activeFile,
+    selectedText,
+    cursorLine,
+    replaceFileContent: replaceDocumentContent,
+    addDirtyPath,
+    refreshWorkspace: async () => {},
+  });
+  const {
+    messages,
+    agentSessions,
+    activeSessionId,
+    usageRecords,
+    activeProfileId,
+    activeProfile,
+    isStreaming,
+    streamThinkingText,
+    streamText,
+    streamToolCalls,
+    streamError,
+    pendingPatch,
+    handleRunAgent: runAgentBase,
+    handleSendMessage: sendMessageBase,
+    handleNewSession: newSessionBase,
+    handleSelectSession: selectSessionBase,
+    handleApplyPatch: applyPatchBase,
+    handleDismissPatch,
+    resetForSnapshot: resetAgentChatForSnapshot,
+  } = agentChat;
+
+  const activeCollaborativeDoc = useCollaborativeDoc({
+    docPath: activeFile?.path ?? "",
+    projectId: snapshot?.collab?.cloudProjectId ?? null,
+    userId: collabAuthSession?.userId ?? null,
+    enabled: Boolean(collabManager && activeFile?.path && snapshot?.collab?.mode === "cloud"),
+    manager: collabManager,
+  });
+
+  const currentCollabStatus = useMemo(
+    () => ({
+      enabled: Boolean(snapshot?.collab?.cloudProjectId && activeCollaborativeDoc.yText),
+      connected: Boolean(activeCollaborativeDoc.provider),
+      synced: activeCollaborativeDoc.synced,
+      connectionError: activeCollaborativeDoc.connectionError,
+      members: activeCollaborativeDoc.members,
+    }),
+    [activeCollaborativeDoc, snapshot?.collab?.cloudProjectId],
   );
+
+  const commentStore = useMemo(() => {
+    const yDoc = activeCollaborativeDoc.yDoc;
+    return yDoc ? new CommentStore(yDoc) : null;
+  }, [activeCollaborativeDoc.yDoc]);
+
+  useEffect(() => {
+    if (!commentStore) {
+      setActiveDocComments([]);
+      return;
+    }
+    setActiveDocComments(commentStore.getComments());
+    return commentStore.subscribe(() => setActiveDocComments(commentStore.getComments()));
+  }, [commentStore]);
 
   const hasProject = Boolean(snapshot?.projectConfig.rootPath);
-  const dirtyPathSet = useMemo(() => new Set(dirtyPaths), [dirtyPaths]);
-  const openImageTabSet = useMemo(() => new Set(openImageTabs), [openImageTabs]);
-  const editorTabs = useMemo(
-    () => Array.from(new Set([...openTabs, ...openImageTabs])),
-    [openImageTabs, openTabs],
-  );
   const activeEditorTabPath = editorImagePath || activeFilePath;
   const focusedTreePath =
     editorImagePath || (previewSelection.kind === "compile" ? activeFilePath : previewSelection.path);
@@ -493,14 +524,12 @@ function App() {
     () => findActiveHeading(outlineHeadings, activeFilePath, cursorLine)?.id,
     [activeFilePath, cursorLine, outlineHeadings],
   );
-  const compilePreviewPath = useMemo(
-    () => toProjectRelativePath(snapshot?.projectConfig.rootPath ?? "", snapshot?.compileResult.pdfPath),
-    [snapshot?.compileResult.pdfPath, snapshot?.projectConfig.rootPath],
-  );
-  const compilePreviewAsset = compilePreviewPath ? assetCache[compilePreviewPath] : undefined;
+  const compilePreviewPath = compilePipeline.compilePreviewPath;
   const previewAsset = previewSelection.kind === "asset" ? assetCache[previewSelection.path] : undefined;
+  const previewAssetLoadError =
+    previewSelection.kind === "asset" ? assetLoadErrors[previewSelection.path] ?? "" : "";
   const editorImageAsset = editorImagePath ? assetCache[editorImagePath] : undefined;
-  const activeFileSyncPath = activeFile?.path ?? "";
+  const activeFileLoadError = activeFilePath ? fileLoadErrors[activeFilePath] ?? "" : "";
   const workspaceTargetDir = activeFilePath.includes("/")
     ? activeFilePath.slice(0, activeFilePath.lastIndexOf("/"))
     : "";
@@ -509,10 +538,6 @@ function App() {
     typeof window !== "undefined" &&
     isTauriRuntime() &&
     /mac/i.test(window.navigator.userAgent);
-
-  useEffect(() => {
-    snapshotRef.current = snapshot;
-  }, [snapshot]);
 
   useEffect(() => {
     writeStoredWorkspaceEntries(RECENT_WORKSPACE_STORAGE_KEY, recentWorkspaces);
@@ -575,54 +600,15 @@ function App() {
     void desktop.setWindowTitle(nextTitle);
   }, [activeFilePath, activeWorkspaceRoot, dirtyPaths.length, editorImagePath, previewSelection]);
 
-  const loadTextFile = useEffectEvent(async (path: string) => {
-    if (!path) {
-      return null;
-    }
-
-    const existing = openFiles[path];
-    if (existing) {
-      const draftContent = draftContentRef.current[path];
-      return draftContent === undefined || draftContent === existing.content
-        ? existing
-        : { ...existing, content: draftContent };
-    }
-
-    const pending = pendingTextLoadsRef.current[path];
-    if (pending) {
-      return pending;
-    }
-
-    setLoadingFilePath(path);
-    const request = (async () => {
-      try {
-        const file = await desktop.readFile(path);
-        draftContentRef.current[path] = file.content;
-        setOpenFiles((current) => ({ ...current, [path]: file }));
-        return file;
-      } finally {
-        delete pendingTextLoadsRef.current[path];
-        setLoadingFilePath((current) => (current === path ? "" : current));
-      }
-    })();
-
-    pendingTextLoadsRef.current[path] = request;
-    return request;
-  });
-
-  const loadAsset = useEffectEvent(async (path: string) => {
-    if (!path || assetCache[path]) {
-      return assetCache[path] ?? null;
-    }
-
-    try {
-      const asset = await desktop.readAsset(path);
-      setAssetCache((current) => ({ ...current, [path]: asset }));
-      return asset;
-    } catch (error) {
-      console.warn("failed to load asset", path, error);
-      return null;
-    }
+  const loadSnapshotWithCollab = useEffectEvent(async (loader: () => Promise<WorkspaceSnapshot>) => {
+    const nextSnapshot = await loader();
+    const collab = nextSnapshot.projectConfig.rootPath
+      ? await readWorkspaceCollabMetadata(fileAdapter)
+      : null;
+    return {
+      ...nextSnapshot,
+      collab,
+    } satisfies WorkspaceSnapshot;
   });
 
   const applySnapshot = useEffectEvent((
@@ -639,29 +625,6 @@ function App() {
     const rootChanged =
       options?.clearCaches ||
       nextSnapshot.projectConfig.rootPath !== (snapshot?.projectConfig.rootPath ?? "");
-    const nextActivePath = pickActiveTextPath(
-      nextSnapshot,
-      options?.activeFilePath ?? "",
-      activeFilePath,
-    );
-    const nextTabs = sanitizeOpenTabs(nextSnapshot, options?.openTabs ?? openTabs, nextActivePath);
-    const requestedImagePath = options?.editorImagePath ?? editorImagePath;
-    const nextImageTabs = Array.from(
-      new Set(
-        (options?.openImageTabs ?? openImageTabs).filter((path) => {
-          const node = getNodeByPath(nextSnapshot.tree, path);
-          return Boolean(node && node.kind !== "directory" && node.fileType === "image");
-        }),
-      ),
-    );
-    if (requestedImagePath) {
-      const node = getNodeByPath(nextSnapshot.tree, requestedImagePath);
-      if (node && node.kind !== "directory" && node.fileType === "image" && !nextImageTabs.includes(requestedImagePath)) {
-        nextImageTabs.unshift(requestedImagePath);
-      }
-    }
-    const nextEditorImagePath =
-      requestedImagePath && nextImageTabs.includes(requestedImagePath) ? requestedImagePath : "";
     const nextPreview = (() => {
       const requestedPreview = options?.previewSelection ?? previewSelection;
       if (requestedPreview.kind === "asset") {
@@ -680,47 +643,14 @@ function App() {
     })();
 
     setSnapshot(nextSnapshot);
-    setOpenTabs(nextTabs);
-    setOpenImageTabs(nextImageTabs);
-    setActiveFilePath(nextActivePath);
-    setHighlightedPage(1);
-    setSyncHighlights([]);
-    setCompilePdfData(null);
-    setCompilePdfLoadedKey("");
-    setCompilePreviewLoadError("");
-    setIsLoadingCompilePdf(false);
-    setCompileDebugLogLines([]);
-    setCompileEnvironment(null);
-    setIsCheckingCompileEnvironment(false);
-    setEditorImagePath(nextEditorImagePath);
     setPreviewSelection(nextPreview);
+    setEditorJumpTarget(null);
+    resetWorkspaceFilesForSnapshot({ nextSnapshot, options });
+    compilePipeline.resetForSnapshot();
     if (rootChanged) {
-      draftContentRef.current = {};
-      pendingTextLoadsRef.current = {};
-    } else {
-      draftContentRef.current = Object.fromEntries(
-        nextTabs
-          .map((path) => [path, draftContentRef.current[path]] as const)
-          .filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-      );
+      resetAgentChatForSnapshot();
+      setSelectedText("");
     }
-    setDirtyPaths((current) =>
-      rootChanged
-        ? []
-        : current.filter((path) => nextTabs.includes(path) && isTextNode(getNodeByPath(nextSnapshot.tree, path))),
-    );
-    setOpenFiles((current) =>
-      rootChanged
-        ? {}
-        : Object.fromEntries(Object.entries(current).filter(([path]) => nextTabs.includes(path))),
-    );
-    setAssetCache((current) =>
-      rootChanged
-        ? {}
-        : Object.fromEntries(
-          Object.entries(current).filter(([path]) => getNodeByPath(nextSnapshot.tree, path)),
-        ),
-    );
     setSelectedBrief((current) =>
       current ? nextSnapshot.figureBriefs.find((item) => item.id === current.id) ?? null : null,
     );
@@ -737,7 +667,7 @@ function App() {
     previewSelection?: PreviewSelection;
     clearCaches?: boolean;
   }) => {
-    const nextSnapshot = await desktop.openProject();
+    const nextSnapshot = await loadSnapshotWithCollab(() => projectAdapter.openProject());
     applySnapshot(nextSnapshot, options);
     return nextSnapshot;
   });
@@ -745,42 +675,13 @@ function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const nextSnapshot = await refreshWorkspace({ clearCaches: true });
-        const nextSessions = await desktop.listAgentSessions();
-        const initialSessionId = nextSessions[0]?.id ?? "";
-        const nextMessages = initialSessionId
-          ? await desktop.getAgentMessages(initialSessionId)
-          : [];
-        const nextUsage = await desktop.getUsageStats();
-        setAgentSessions(nextSessions);
-        setActiveSessionId(initialSessionId);
-        setMessages(nextMessages);
-        setUsageRecords(nextUsage);
-        // Auto-select first available profile if default doesn't exist
-        if (nextSnapshot && nextSnapshot.profiles.length > 0) {
-          const hasChat = nextSnapshot.profiles.some(p => p.id === "chat");
-          if (!hasChat) {
-            setActiveProfileId(nextSnapshot.profiles[0].id as AgentProfileId);
-          }
-        }
+        await refreshWorkspace({ clearCaches: true });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         setBootstrapError(message);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- useEffectEvent refs must not be deps
-  }, []);
-
-  useEffect(() => {
-    if (!snapshot || !activeFilePath || openFiles[activeFilePath]) {
-      return;
-    }
-    const node = getNodeByPath(snapshot.tree, activeFilePath);
-    if (node?.isText) {
-      void loadTextFile(activeFilePath);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadTextFile is useEffectEvent
-  }, [activeFilePath, openFiles, snapshot]);
+  }, [refreshWorkspace]);
 
   useEffect(() => {
     if (previewSelection.kind !== "asset") {
@@ -789,297 +690,10 @@ function App() {
     if (!assetCache[previewSelection.path]) {
       void loadAsset(previewSelection.path);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadAsset is useEffectEvent
-  }, [assetCache, previewSelection]);
+  }, [assetCache, loadAsset, previewSelection]);
 
-  useEffect(() => {
-    if (!editorImagePath || assetCache[editorImagePath]) {
-      return;
-    }
-    void loadAsset(editorImagePath);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadAsset is useEffectEvent
-  }, [assetCache, editorImagePath]);
-
-  useEffect(() => {
-    const currentCompilePdfKey = snapshot?.compileResult.pdfPath
-      ? `${snapshot.compileResult.pdfPath}:${snapshot.compileResult.timestamp}`
-      : "";
-
-    if (
-      previewSelection.kind !== "compile" ||
-      !snapshot?.compileResult.pdfPath ||
-      snapshot.compileResult.status === "running"
-    ) {
-      if (previewSelection.kind !== "compile" || snapshot?.compileResult.status === "running") {
-        setIsLoadingCompilePdf(false);
-      }
-      return;
-    }
-
-    if (compilePdfData !== null && compilePdfLoadedKey === currentCompilePdfKey) {
-      setIsLoadingCompilePdf(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    void (async () => {
-      const shouldRetry = snapshot.compileResult.status === "success";
-      const attempts = shouldRetry ? 8 : 1;
-      const fallbackAssetPath =
-        compilePreviewPath || (isTauriRuntime() ? snapshot.compileResult.pdfPath ?? "" : "");
-      setIsLoadingCompilePdf(true);
-      setCompilePreviewLoadError("");
-
-      logCompileDebug("info", "[pdf-preview] begin loading compile pdf", {
-        key: currentCompilePdfKey,
-        absolutePath: snapshot.compileResult.pdfPath,
-        relativePath: compilePreviewPath,
-        fallbackAssetPath,
-        attempts,
-      });
-
-      for (let attempt = 0; attempt < attempts; attempt += 1) {
-        const data = await desktop.readPdfBinary(snapshot.compileResult.pdfPath!);
-        if (cancelled) {
-          return;
-        }
-        if (data && data.length > 0) {
-          logCompileDebug("info", "[pdf-preview] loaded compile pdf via read_pdf_binary", {
-            key: currentCompilePdfKey,
-            bytes: data.length,
-            attempt: attempt + 1,
-          });
-          setCompilePdfData(new Uint8Array(data));
-          setCompilePdfLoadedKey(currentCompilePdfKey);
-          setCompilePreviewLoadError("");
-          setIsLoadingCompilePdf(false);
-          return;
-        }
-
-        if (fallbackAssetPath) {
-          const asset = await desktop.readAsset(fallbackAssetPath).catch((error) => {
-            logCompileDebug("warn", "[pdf-preview] readAsset fallback failed", {
-              key: currentCompilePdfKey,
-              fallbackAssetPath,
-              attempt: attempt + 1,
-              reason: error instanceof Error ? error.message : String(error),
-            });
-            return null;
-          });
-          const assetData = asset?.data instanceof Uint8Array ? asset.data : undefined;
-          if (assetData && assetData.length > 0) {
-            logCompileDebug("info", "[pdf-preview] loaded compile pdf via read_asset fallback", {
-              key: currentCompilePdfKey,
-              bytes: assetData.length,
-              attempt: attempt + 1,
-              fallbackAssetPath,
-            });
-            setCompilePdfData(new Uint8Array(assetData));
-            setCompilePdfLoadedKey(currentCompilePdfKey);
-            setCompilePreviewLoadError("");
-            setIsLoadingCompilePdf(false);
-            return;
-          }
-        }
-
-        logCompileDebug("info", "[pdf-preview] compile pdf not ready yet", {
-          key: currentCompilePdfKey,
-          attempt: attempt + 1,
-          fallbackAssetPath,
-        });
-
-        if (attempt < attempts - 1) {
-          await new Promise((resolve) => {
-            window.setTimeout(resolve, 180 * (attempt + 1));
-          });
-        }
-      }
-
-      if (cancelled) {
-        return;
-      }
-
-      setIsLoadingCompilePdf(false);
-      if (snapshot.compileResult.status === "success" && isTauriRuntime()) {
-        logCompileDebug("error", "[pdf-preview] failed to load compile pdf after retries", {
-          key: currentCompilePdfKey,
-          absolutePath: snapshot.compileResult.pdfPath,
-          relativePath: compilePreviewPath,
-          fallbackAssetPath,
-        });
-        setCompilePreviewLoadError(
-          "编译已经完成，但预览区暂时没有读到新的 PDF 文件。通常是编译输出刚被替换，或当前 PDF 仍被占用。",
-        );
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    compilePdfData,
-    compilePdfLoadedKey,
-    compilePreviewPath,
-    previewSelection.kind,
-    snapshot?.compileResult.pdfPath,
-    snapshot?.compileResult.status,
-    snapshot?.compileResult.timestamp,
-  ]);
-
-  useEffect(() => {
-    if (!editorImagePath || !editorImageAsset) {
-      setEditorImageUrl("");
-      return;
-    }
-    if (editorImageAsset.data instanceof Uint8Array && editorImageAsset.data.length > 0) {
-      const blob = new Blob([editorImageAsset.data as BlobPart], {
-        type: editorImageAsset.mimeType || "application/octet-stream",
-      });
-      const url = URL.createObjectURL(blob);
-      setEditorImageUrl(url);
-      return () => URL.revokeObjectURL(url);
-    }
-    setEditorImageUrl(
-      editorImageAsset.resourceUrl ?? desktop.resolveResourceUrl(editorImageAsset.absolutePath),
-    );
-  }, [editorImagePath, editorImageAsset]);
-
-  useEffect(() => {
-    if (!snapshot?.projectConfig.rootPath) {
-      setOutlineHeadings([]);
-      setOutlineTree([]);
-      setOutlineWarnings([]);
-      setOutlineLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      if (cancelled) {
-        return;
-      }
-
-      setOutlineLoading(true);
-
-      void (async () => {
-        try {
-          const result = await buildProjectOutline(snapshot.projectConfig.mainTex, async (path) => {
-            const draftContent = draftContentRef.current[path];
-            if (typeof draftContent === "string") {
-              return draftContent;
-            }
-            const openFile = openFiles[path];
-            if (openFile) {
-              return openFile.content;
-            }
-            const file = await desktop.readFile(path);
-            return file.content;
-          });
-
-          if (cancelled) {
-            return;
-          }
-
-          if (result.warnings.length > 0) {
-            console.warn("outline warnings", result.warnings);
-          }
-          setOutlineHeadings(result.headings);
-          setOutlineTree(result.tree);
-          setOutlineWarnings(result.warnings);
-        } catch (error) {
-          if (!cancelled) {
-            console.warn("failed to build outline", error);
-            setOutlineHeadings([]);
-            setOutlineTree([]);
-            setOutlineWarnings([
-              error instanceof Error ? error.message : String(error),
-            ]);
-          }
-        } finally {
-          if (!cancelled) {
-            setOutlineLoading(false);
-          }
-        }
-      })();
-    }, 280);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [openFiles, snapshot?.projectConfig.mainTex, snapshot?.projectConfig.rootPath]);
-
-  const refreshCompileEnvironment = useEffectEvent(async () => {
-    if (!snapshot?.projectConfig.rootPath) {
-      setCompileEnvironment(null);
-      return null;
-    }
-
-    setIsCheckingCompileEnvironment(true);
-    try {
-      const nextEnvironment = await desktop.getCompileEnvironment();
-      setCompileEnvironment(nextEnvironment);
-      return nextEnvironment;
-    } finally {
-      setIsCheckingCompileEnvironment(false);
-    }
-  });
-
-  useEffect(() => {
-    if (!hasProject) {
-      setCompileEnvironment(null);
-      setIsCheckingCompileEnvironment(false);
-      return;
-    }
-
-    if (drawerTab === "latex") {
-      void refreshCompileEnvironment();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshCompileEnvironment is useEffectEvent
-  }, [drawerTab, hasProject, snapshot?.projectConfig.rootPath]);
-
-  const performForwardSync = useEffectEvent(async (filePath: string, line: number) => {
-    if (snapshot?.compileResult.status !== "success") {
-      return;
-    }
-    try {
-      const location = await desktop.forwardSearch(filePath, line);
-      setHighlightedPage(location.page);
-      setSyncHighlights(location.highlights ?? []);
-    } catch (error) {
-      console.warn("forward sync failed", error);
-    }
-  });
-
-  useEffect(() => {
-    if (!snapshot?.projectConfig.forwardSync) {
-      return;
-    }
-    if (!activeFileSyncPath) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void performForwardSync(activeFileSyncPath, cursorLine);
-    }, 420);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- performForwardSync is useEffectEvent
-  }, [activeFileSyncPath, cursorLine, snapshot?.compileResult.status, snapshot?.projectConfig.forwardSync]);
-
-
-  const runCompile = useEffectEvent(async (filePath: string) => {
-    const compileWorkspaceRoot = snapshot?.projectConfig.rootPath ?? "";
-    const previousCompilePath = toProjectRelativePath(
-      compileWorkspaceRoot,
-      snapshot?.compileResult.pdfPath,
-    );
-
-    setCompileDebugLogLines((current) => {
-      const marker = `[${formatDebugTimestamp(new Date())}] [INFO] ===== compile requested =====`;
-      const next = [...current, marker];
-      return next.length > COMPILE_DEBUG_LOG_LIMIT ? next.slice(next.length - COMPILE_DEBUG_LOG_LIMIT) : next;
-    });
-
+  const executeCompile = useEffectEvent(async (filePath: string) => {
+    const previousCompilePath = toProjectRelativePath(activeWorkspaceRoot, snapshot?.compileResult.pdfPath);
     setSnapshot((current) =>
       current
         ? {
@@ -1095,34 +709,8 @@ function App() {
         }
         : current,
     );
-    setSyncHighlights([]);
-    setCompilePreviewLoadError("");
-    setIsLoadingCompilePdf(true);
-    logCompileDebug("info", "[compile] start", {
-      filePath,
-      previousStatus: snapshot?.compileResult.status,
-      previousPdfPath: snapshot?.compileResult.pdfPath,
-    });
-
-    const compileResult = await desktop.compileProject(filePath);
-    const nextCompilePath = toProjectRelativePath(compileWorkspaceRoot, compileResult.pdfPath);
-    const currentWorkspaceRoot = snapshotRef.current?.projectConfig.rootPath ?? "";
-
-    logCompileDebug("info", "[compile] result", {
-      status: compileResult.status,
-      pdfPath: compileResult.pdfPath,
-      diagnostics: compileResult.diagnostics.length,
-      timestamp: compileResult.timestamp,
-    });
-
-    if (currentWorkspaceRoot !== compileWorkspaceRoot) {
-      logCompileDebug("info", "[compile] stale result ignored after workspace switch", {
-        compileWorkspaceRoot,
-        currentWorkspaceRoot,
-      });
-      return compileResult;
-    }
-
+    const compileResult = await compilePipeline.runCompile(filePath);
+    const nextCompilePath = toProjectRelativePath(activeWorkspaceRoot, compileResult.pdfPath);
     if (previousCompilePath && previousCompilePath !== nextCompilePath) {
       setAssetCache((current) => {
         const next = { ...current };
@@ -1130,78 +718,8 @@ function App() {
         return next;
       });
     }
-
-    setSnapshot((current) =>
-      current
-        ? {
-          ...current,
-          compileResult,
-        }
-        : current,
-    );
+    setSnapshot((current) => (current ? { ...current, compileResult } : current));
     return compileResult;
-  });
-
-  const saveOpenFiles = useEffectEvent(async (paths: string[]) => {
-    const targets = Array.from(
-      new Set(
-        paths.filter((path) => {
-          const file = openFiles[path];
-          return Boolean(file && dirtyPathSet.has(path));
-        }),
-      ),
-    );
-
-    const savedContents: Array<{ path: string; content: string }> = [];
-
-    for (const path of targets) {
-      const file = openFiles[path];
-      if (!file) {
-        continue;
-      }
-      const content = draftContentRef.current[path] ?? file.content;
-      await desktop.saveFile(path, content);
-      savedContents.push({ path, content });
-    }
-
-    if (savedContents.length > 0) {
-      setOpenFiles((current) => {
-        let changed = false;
-        const next = { ...current };
-        for (const { path, content } of savedContents) {
-          const file = next[path];
-          if (!file || file.content === content) {
-            continue;
-          }
-          next[path] = { ...file, content };
-          changed = true;
-        }
-        return changed ? next : current;
-      });
-      setDirtyPaths((current) =>
-        current.filter((path) => !savedContents.some((saved) => saved.path === path)),
-      );
-    }
-
-    return savedContents.map((saved) => saved.path);
-  });
-
-  const resetWorkspaceUiState = useEffectEvent(() => {
-    draftContentRef.current = {};
-    pendingTextLoadsRef.current = {};
-    currentStreamSessionIdRef.current = "";
-    setOpenFiles({});
-    setDirtyPaths([]);
-    setAssetCache({});
-    setOpenImageTabs([]);
-    setEditorImagePath("");
-    setEditorImageUrl("");
-    setEditorJumpTarget(null);
-    setPendingPatch(null);
-    setMessages([]);
-    setActiveSessionId("");
-    setSelectedText("");
-    resetStreamState();
   });
 
   const saveDirtyFilesBeforeWorkspaceSwitch = useEffectEvent(async () => {
@@ -1213,7 +731,7 @@ function App() {
   });
 
   const applyFreshWorkspaceSnapshot = useEffectEvent((nextSnapshot: WorkspaceSnapshot) => {
-    resetWorkspaceUiState();
+    resetAgentChatForSnapshot();
     applySnapshot(nextSnapshot, {
       openTabs: [],
       openImageTabs: [],
@@ -1230,7 +748,7 @@ function App() {
 
     try {
       await saveDirtyFilesBeforeWorkspaceSwitch();
-      const nextSnapshot = await desktop.switchProject(rootPath);
+      const nextSnapshot = await loadSnapshotWithCollab(() => projectAdapter.switchProject(rootPath));
       applyFreshWorkspaceSnapshot(nextSnapshot);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1240,35 +758,11 @@ function App() {
     }
   });
 
-  function replaceFileContent(filePath: string, content: string) {
-    draftContentRef.current[filePath] = content;
-    setOpenFiles((current) => {
-      const file = current[filePath];
-      if (!file) {
-        return current;
-      }
-      return {
-        ...current,
-        [filePath]: {
-          ...file,
-          content,
-        },
-      };
-    });
-  }
-
-  function handleFileChange(content: string) {
+  const handleEditorChange = useEffectEvent((content: string) => {
     if (!activeFile) {
       return;
     }
-    draftContentRef.current[activeFile.path] = content;
-    setDirtyPaths((current) =>
-      current.includes(activeFile.path) ? current : [...current, activeFile.path],
-    );
-  }
-
-  const handleEditorChange = useEffectEvent((content: string) => {
-    handleFileChange(content);
+    handleFileChange(activeFile.path, content);
   });
 
   const handleEditorCursorChange = useEffectEvent((line: number, selection: string) => {
@@ -1283,7 +777,7 @@ function App() {
 
     if (snapshot.projectConfig.autoCompile) {
       await saveOpenFiles(dirtyPaths);
-      await runCompile(activeFile.path);
+      await executeCompile(activeFile.path);
       return;
     }
 
@@ -1298,7 +792,7 @@ function App() {
     await saveOpenFiles(dirtyPaths);
 
     if (snapshot.projectConfig.autoCompile && snapshot.compileResult.status !== "running") {
-      await runCompile(activeFilePath || snapshot.projectConfig.mainTex);
+      await executeCompile(activeFilePath || snapshot.projectConfig.mainTex);
     }
   });
 
@@ -1309,7 +803,7 @@ function App() {
 
     await saveOpenFiles(dirtyPaths);
     setPreviewSelection({ kind: "compile" });
-    await runCompile(activeFilePath || snapshot.projectConfig.mainTex);
+    await executeCompile(activeFilePath || snapshot.projectConfig.mainTex);
   });
 
   const handleInteractiveCompile = useEffectEvent(async () => {
@@ -1318,7 +812,7 @@ function App() {
     }
 
     try {
-      const environment = await refreshCompileEnvironment();
+      const environment = await compilePipeline.refreshCompileEnvironment();
       const selectedEngine = snapshot.projectConfig.engine as LatexEngine;
       const selectedEngineAvailable = environment?.availableEngines.includes(selectedEngine) ?? false;
 
@@ -1327,7 +821,7 @@ function App() {
         return;
       }
     } catch (error) {
-      logCompileDebug("warn", "[compile] failed to detect compile environment", {
+      compilePipeline.logCompileDebug("warn", "[compile] failed to detect compile environment", {
         reason: error instanceof Error ? error.message : String(error),
       });
       setDrawerTab("latex");
@@ -1348,8 +842,7 @@ function App() {
 
     window.addEventListener("keydown", handleKeydown);
     return () => window.removeEventListener("keydown", handleKeydown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleInteractiveCompile is useEffectEvent
-  }, []);
+  }, [handleInteractiveCompile]);
 
   const handleToggleTerminal = useEffectEvent(() => {
     setIsTerminalVisible((current) => !current);
@@ -1397,8 +890,7 @@ function App() {
 
     window.addEventListener("keydown", handleTerminalKeydown);
     return () => window.removeEventListener("keydown", handleTerminalKeydown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleToggleTerminal is useEffectEvent
-  }, []);
+  }, [handleToggleTerminal]);
 
   useEffect(() => {
     if (snapshot) {
@@ -1412,7 +904,7 @@ function App() {
       return;
     }
 
-    const projectConfig = await desktop.updateProjectConfig({
+    const projectConfig = await projectAdapter.updateProjectConfig({
       ...snapshot.projectConfig,
       autoCompile: enabled,
     });
@@ -1425,7 +917,7 @@ function App() {
       return;
     }
 
-    const projectConfig = await desktop.updateProjectConfig({
+    const projectConfig = await projectAdapter.updateProjectConfig({
       ...snapshot.projectConfig,
       engine,
     });
@@ -1439,12 +931,43 @@ function App() {
     }
 
     const timer = window.setTimeout(() => {
-      void handleSaveAllFiles();
+      void saveOpenFiles(dirtyPaths).then(() => {
+        if (snapshot.projectConfig.autoCompile) {
+          void executeCompile(activeFilePath || snapshot.projectConfig.mainTex);
+        }
+      });
     }, 900);
 
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSaveAllFiles is useEffectEvent
-  }, [dirtyPaths, isAutoSaveEnabled, snapshot?.projectConfig.autoCompile, snapshot?.compileResult.status]);
+  }, [activeFilePath, dirtyPaths, executeCompile, isAutoSaveEnabled, saveOpenFiles, snapshot]);
+
+  useEffect(() => {
+    function appendRuntimeLog(kind: "error" | "promise", message: string) {
+      const line = `[${formatDebugTimestamp(new Date())}] [${kind.toUpperCase()}] ${message}`;
+      setRuntimeDebugLogLines((current) => {
+        const next = [...current, line];
+        return next.length > 120 ? next.slice(next.length - 120) : next;
+      });
+    }
+
+    function handleError(event: ErrorEvent) {
+      appendRuntimeLog("error", event.error?.stack || event.message || "Unknown window error");
+    }
+
+    function handleUnhandledRejection(event: PromiseRejectionEvent) {
+      const reason = event.reason instanceof Error
+        ? event.reason.stack || event.reason.message
+        : String(event.reason);
+      appendRuntimeLog("promise", reason);
+    }
+
+    window.addEventListener("error", handleError);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    return () => {
+      window.removeEventListener("error", handleError);
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+    };
+  }, []);
 
   const handleEditorSave = useEffectEvent(() => {
     void handleSaveCurrentFile();
@@ -1458,46 +981,42 @@ function App() {
     if (!activeFile) {
       return;
     }
-    void performForwardSync(activeFile.path, cursorLine);
+    void compilePipeline.performForwardSync(activeFile.path, cursorLine);
+  });
+
+  const handleRunAgent = useEffectEvent(async () => {
+    setDrawerTab("ai");
+    await collabManager?.flushAll();
+    await runAgentBase();
   });
 
   const handleEditorRunAgent = useEffectEvent(() => {
     void handleRunAgent();
   });
 
-  function openTextFile(path: string, line?: number) {
-    setEditorImagePath("");
-    setEditorImageUrl("");
-    startTransition(() => {
-      setActiveFilePath(path);
-      setOpenTabs((current) => (current.includes(path) ? current : [...current, path]));
-      setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
-    });
-    if (line) {
-      setCursorLine(line);
-      setEditorJumpTarget((current) => ({
-        path,
-        line,
-        nonce: (current?.nonce ?? 0) + 1,
-      }));
+  const handleNewSession = useEffectEvent(() => {
+    setDrawerTab("ai");
+    newSessionBase();
+  });
+
+  const handleSelectSession = useEffectEvent(async (sessionId: string) => {
+    setDrawerTab("ai");
+    await selectSessionBase(sessionId);
+  });
+
+  const handleApplyPatch = useEffectEvent(async () => {
+    const patchFilePath = pendingPatch?.filePath;
+    await applyPatchBase();
+    if (patchFilePath) {
+      setDirtyPaths((current) => current.filter((path) => path !== patchFilePath));
     }
-    void loadTextFile(path);
-  }
+  });
 
-  function openImageFile(path: string) {
-    startTransition(() => {
-      setEditorImagePath(path);
-      setOpenImageTabs((current) => (current.includes(path) ? current : [...current, path]));
-      setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
-    });
-    void loadAsset(path);
-  }
-
-  function closeImageTab(path: string) {
-    const closed = closePathTab(openImageTabs, editorImagePath, path);
-    setOpenImageTabs(closed.openTabs);
-    setEditorImagePath(closed.activePath);
-  }
+  const handleSendMessage = useEffectEvent(async (text: string) => {
+    setDrawerTab("ai");
+    await collabManager?.flushAll();
+    await sendMessageBase(text);
+  });
 
   function handleOpenNode(node: ProjectNode) {
     if (node.kind === "directory") {
@@ -1508,24 +1027,18 @@ function App() {
       return;
     }
     if (node.isPreviewable) {
-      // If this is the compile output PDF, reuse the compile preview (already loaded)
       if (node.fileType === "pdf" && compilePreviewPath && node.path === compilePreviewPath) {
         setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
         return;
       }
-      // Images: show in editor area
       if (node.fileType === "image") {
         openImageFile(node.path);
         return;
       }
-      // Other previewable files (non-compile PDFs): show in preview area
       setPreviewSelection({ kind: "asset", path: node.path });
-      setHighlightedPage(1);
-      setSyncHighlights([]);
       void loadAsset(node.path);
       return;
     }
-    setSyncHighlights([]);
     setPreviewSelection({
       kind: "unsupported",
       path: node.path,
@@ -1534,281 +1047,11 @@ function App() {
     });
   }
 
-  function appendAssistantErrorMessage(message: string) {
-    setMessages((current) => [
-      ...current,
-      {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        profileId: activeProfileId,
-        content: `Error: ${message}`,
-        sessionId: activeSessionId || undefined,
-        timestamp: new Date().toISOString(),
-      },
-    ]);
-  }
-
-  async function handleNewSession() {
-    if (isStreaming) {
-      return;
-    }
-    setActiveSessionId("");
-    setMessages([]);
-    setPendingPatch(null);
-    resetStreamState();
-    setDrawerTab("ai");
-  }
-
-  async function handleSelectSession(sessionId: string) {
-    if (isStreaming || sessionId === activeSessionId) {
-      return;
-    }
-    setDrawerTab("ai");
-    setActiveSessionId(sessionId);
-    setPendingPatch(null);
-    resetStreamState();
-    const nextMessages = sessionId ? await desktop.getAgentMessages(sessionId) : [];
-    setMessages(nextMessages);
-  }
-
-  async function handleRunAgent() {
-    if (!activeFile || isStreaming) {
-      return;
-    }
-
-    setDrawerTab("ai");
-    setIsStreaming(true);
-    resetStreamState();
-    setPendingPatch(null);
-
-    let unlistenFn: (() => void | Promise<void>) | undefined;
-    const stopStream = () => {
-      const current = unlistenFn;
-      unlistenFn = undefined;
-      safelyDisposeListener(current);
-    };
-
-    unlistenFn = await desktop.onAgentStream((chunk) => {
-      switch (chunk.type) {
-        case "text_delta":
-          clearThinkingText();
-          queueStreamDelta(chunk.content);
-          break;
-        case "thinking_delta":
-          appendThinkingDelta(chunk.content);
-          break;
-        case "thinking_clear":
-          clearThinkingText();
-          break;
-        case "thinking_commit":
-          commitThinkingText();
-          break;
-        case "tool_call_start":
-          pushStreamToolStart(chunk.toolId, chunk.args);
-          break;
-        case "tool_call_result":
-          pushStreamToolResult(chunk.toolId, chunk.output, chunk.status ?? "completed");
-          break;
-        case "patch":
-          setPendingPatch({
-            filePath: chunk.filePath,
-            content: chunk.newContent,
-            summary: `Patch from agent for ${chunk.filePath}`,
-          });
-          break;
-        case "error":
-          clearThinkingText();
-          setStreamError(chunk.message);
-          flushStreamBuffer();
-          setIsStreaming(false);
-          stopStream();
-          break;
-        case "done":
-          flushStreamBuffer();
-          stopStream();
-          void Promise.all([
-            desktop.listAgentSessions(),
-            desktop.getUsageStats(),
-          ]).then(([nextSessions, nextUsage]) => {
-            setAgentSessions(nextSessions);
-            setUsageRecords(nextUsage);
-            const resolvedId = currentStreamSessionIdRef.current || nextSessions[0]?.id || "";
-            if (resolvedId) {
-              void desktop.getAgentMessages(resolvedId).then((nextMessages) => {
-                setMessages(nextMessages);
-                setActiveSessionId(resolvedId);
-                setIsStreaming(false);
-              });
-            } else {
-              setIsStreaming(false);
-            }
-          });
-          break;
-      }
-    });
-
-    try {
-      const result = await desktop.runAgent(
-        activeProfileId,
-        activeFile.path,
-        selectedText,
-        undefined,
-        activeSessionId || undefined,
-      );
-      // invoke returns immediately now; store session id for the done handler
-      const nextSessionId = result.sessionId ?? activeSessionId;
-      if (nextSessionId) {
-        currentStreamSessionIdRef.current = nextSessionId;
-      }
-      if (nextSessionId && nextSessionId !== activeSessionId) {
-        setActiveSessionId(nextSessionId);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error("runAgent failed", error);
-      clearThinkingText();
-      flushStreamBuffer();
-      setStreamError(message);
-      appendAssistantErrorMessage(message);
-      stopStream();
-      setIsStreaming(false);
-    }
-  }
-
-  async function handleApplyPatch() {
-    if (!pendingPatch) {
-      return;
-    }
-    await desktop.applyAgentPatch(pendingPatch.filePath, pendingPatch.content);
-    replaceFileContent(pendingPatch.filePath, pendingPatch.content);
-    setDirtyPaths((current) => current.filter((path) => path !== pendingPatch.filePath));
-    setPendingPatch(null);
-  }
-
-  function handleDismissPatch() {
-    setPendingPatch(null);
-  }
-
-  async function handleSendMessage(text: string) {
-    if (isStreaming) {
-      return;
-    }
-
-    setDrawerTab("ai");
-    setIsStreaming(true);
-    resetStreamState();
-    setPendingPatch(null);
-
-    // Optimistically add user message to UI
-    const userMsg = {
-      id: crypto.randomUUID(),
-      role: "user" as const,
-      profileId: activeProfileId,
-      content: text,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((current) => [...current, userMsg]);
-
-    let unlistenFn: (() => void | Promise<void>) | undefined;
-    const stopStream = () => {
-      const current = unlistenFn;
-      unlistenFn = undefined;
-      safelyDisposeListener(current);
-    };
-
-    unlistenFn = await desktop.onAgentStream((chunk) => {
-      switch (chunk.type) {
-        case "text_delta":
-          clearThinkingText();
-          queueStreamDelta(chunk.content);
-          break;
-        case "thinking_delta":
-          appendThinkingDelta(chunk.content);
-          break;
-        case "thinking_clear":
-          clearThinkingText();
-          break;
-        case "thinking_commit":
-          commitThinkingText();
-          break;
-        case "tool_call_start":
-          pushStreamToolStart(chunk.toolId, chunk.args);
-          break;
-        case "tool_call_result":
-          pushStreamToolResult(chunk.toolId, chunk.output, chunk.status ?? "completed");
-          break;
-        case "patch":
-          setPendingPatch({
-            filePath: chunk.filePath,
-            content: chunk.newContent,
-            summary: `Patch from agent for ${chunk.filePath}`,
-          });
-          break;
-        case "error":
-          clearThinkingText();
-          setStreamError(chunk.message);
-          flushStreamBuffer();
-          setIsStreaming(false);
-          stopStream();
-          break;
-        case "done":
-          flushStreamBuffer();
-          stopStream();
-          // Keep streaming bubble visible until DB messages are loaded
-          void Promise.all([
-            desktop.listAgentSessions(),
-            desktop.getUsageStats(),
-          ]).then(([nextSessions, nextUsage]) => {
-            setAgentSessions(nextSessions);
-            setUsageRecords(nextUsage);
-            const resolvedId = currentStreamSessionIdRef.current || nextSessions[0]?.id || "";
-            if (resolvedId) {
-              void desktop.getAgentMessages(resolvedId).then((nextMessages) => {
-                setMessages(nextMessages);
-                setActiveSessionId(resolvedId);
-                setIsStreaming(false);
-              });
-            } else {
-              setIsStreaming(false);
-            }
-          });
-          break;
-      }
-    });
-
-    try {
-      const result = await desktop.runAgent(
-        activeProfileId,
-        activeFile?.path ?? "",
-        selectedText,
-        text,
-        activeSessionId || undefined,
-      );
-      // invoke returns immediately; store session_id for the done handler
-      const nextSessionId = result.sessionId ?? activeSessionId;
-      if (nextSessionId) {
-        currentStreamSessionIdRef.current = nextSessionId;
-      }
-      if (nextSessionId && nextSessionId !== activeSessionId) {
-        setActiveSessionId(nextSessionId);
-        // Do NOT fetch messages here — assistant reply isn't in DB yet while streaming
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error("runAgent failed", error);
-      clearThinkingText();
-      flushStreamBuffer();
-      setStreamError(message);
-      appendAssistantErrorMessage(message);
-      stopStream();
-      setIsStreaming(false);
-    }
-  }
-
   async function handleCreateBrief() {
     if (!activeFile) {
       return;
     }
+    await collabManager?.flushAll();
     const brief = await desktop.createFigureBrief(activeFile.path, selectedText);
     setSnapshot((current) =>
       current
@@ -1865,39 +1108,9 @@ function App() {
       "Workflow overview of ViewerLeaf.",
       cursorLine + 1,
     );
-    replaceFileContent(result.filePath, result.content);
+    replaceDocumentContent(result.filePath, result.content);
     setDirtyPaths((current) => current.filter((path) => path !== result.filePath));
   }
-
-  const handlePageJump = useEffectEvent(async (page: number) => {
-    setHighlightedPage(page);
-    setSyncHighlights([]);
-    if (previewSelection.kind !== "compile" || snapshot?.compileResult.status !== "success") {
-      return;
-    }
-    try {
-      const location = await desktop.reverseSearch(page);
-      openTextFile(location.filePath, location.line);
-    } catch (error) {
-      console.warn("reverse sync failed", error);
-    }
-  });
-
-  const handleDoubleClickPage = useEffectEvent(async (page: number, h: number, v: number) => {
-    if (previewSelection.kind !== "compile" || snapshot?.compileResult.status !== "success") {
-      return;
-    }
-
-    setHighlightedPage(page);
-    setSyncHighlights([]);
-
-    try {
-      const location = await desktop.reverseSearch(page, h, v);
-      openTextFile(location.filePath, location.line);
-    } catch (error) {
-      console.warn("reverse sync failed", error);
-    }
-  });
 
   async function handleAddProvider(provider: ProviderConfig) {
     await desktop.addProvider(provider);
@@ -1926,16 +1139,16 @@ function App() {
       ),
     );
 
-    const activeProfile =
+    const targetProfile =
       currentSnapshot.profiles.find((profile) => profile.id === activeProfileId) ??
       currentSnapshot.profiles[0];
-    if (activeProfile && targetProvider) {
-      const nextModel = targetProvider.defaultModel?.trim() || activeProfile.model;
+    if (targetProfile && targetProvider) {
+      const nextModel = targetProvider.defaultModel?.trim() || targetProfile.model;
       const needsUpdate =
-        activeProfile.providerId !== providerId || activeProfile.model !== nextModel;
+        targetProfile.providerId !== providerId || targetProfile.model !== nextModel;
       if (needsUpdate) {
         await desktop.updateProfile({
-          ...activeProfile,
+          ...targetProfile,
           providerId,
           model: nextModel,
         });
@@ -1976,7 +1189,7 @@ function App() {
 
   async function handleCreateFile(parentDir: string, fileName: string) {
     const targetPath = parentDir ? `${parentDir}/${fileName}` : fileName;
-    await desktop.createFile(targetPath, "");
+    await fileAdapter.createFile(targetPath, "");
     await refreshWorkspace({
       activeFilePath: targetPath,
       openTabs: [...openTabs, targetPath],
@@ -1989,7 +1202,7 @@ function App() {
 
   async function handleCreateFolder(parentDir: string, folderName: string) {
     const targetPath = parentDir ? `${parentDir}/${folderName}` : folderName;
-    await desktop.createFolder(targetPath);
+    await fileAdapter.createFolder(targetPath);
     await refreshWorkspace({
       activeFilePath,
       openTabs,
@@ -2040,7 +1253,8 @@ function App() {
     });
     setDirtyPaths((current) => current.filter((item) => !isSamePathOrChild(item, path)));
 
-    await desktop.deleteFile(path);
+    collabManager?.closeDoc(path);
+    await fileAdapter.deleteFile(path);
     await refreshWorkspace({
       activeFilePath: closed.activePath,
       openTabs: closed.openTabs,
@@ -2102,7 +1316,8 @@ function App() {
       current.map((path) => (isSamePathOrChild(path, oldPath) ? path.replace(oldPath, newPath) : path)),
     );
 
-    await desktop.renameFile(oldPath, newPath);
+    collabManager?.closeDoc(oldPath);
+    await fileAdapter.renameFile(oldPath, newPath);
     await refreshWorkspace({
       activeFilePath: nextActive,
       openTabs: nextTabs,
@@ -2143,7 +1358,7 @@ function App() {
     }
 
     await saveDirtyFilesBeforeWorkspaceSwitch();
-    const nextSnapshot = await desktop.switchProject(selectedDir);
+    const nextSnapshot = await loadSnapshotWithCollab(() => projectAdapter.switchProject(selectedDir));
     applyFreshWorkspaceSnapshot(nextSnapshot);
   }
 
@@ -2167,9 +1382,134 @@ function App() {
     }
 
     await saveDirtyFilesBeforeWorkspaceSwitch();
-    const nextSnapshot = await desktop.createProject(parentDir, projectName.trim());
+    const nextSnapshot = await loadSnapshotWithCollab(() => projectAdapter.createProject(parentDir, projectName.trim()));
     applyFreshWorkspaceSnapshot(nextSnapshot);
   }
+
+  async function handleCreateCloudProject() {
+    if (!snapshot || !collabAuthSession) {
+      setLoginModalOpen(true);
+      return;
+    }
+    const { httpBaseUrl } = resolveCollabBaseUrls();
+    if (!httpBaseUrl) {
+      window.alert("请先在云协作面板中配置服务器地址。");
+      setDrawerTab("collab");
+      return;
+    }
+    const defaultName = workspaceLabelFromRoot(snapshot.projectConfig.rootPath);
+    const projectName = window.prompt("输入云项目名称", defaultName);
+    if (!projectName?.trim()) {
+      return;
+    }
+
+    const result = await createCloudProject(collabAuthSession.token, projectName.trim(), snapshot.projectConfig.mainTex);
+    const collab: WorkspaceCollabMetadata = {
+      mode: "cloud",
+      cloudProjectId: result.projectId,
+      checkoutRoot: snapshot.projectConfig.rootPath,
+      linkedAt: new Date().toISOString(),
+    };
+    await writeWorkspaceCollabMetadata(fileAdapter, collab);
+    setSnapshot((current) => (current ? { ...current, collab } : current));
+  }
+
+  async function handleLinkCloudProject() {
+    if (!snapshot || !collabAuthSession) {
+      setLoginModalOpen(true);
+      return;
+    }
+    const { httpBaseUrl } = resolveCollabBaseUrls();
+    if (!httpBaseUrl) {
+      window.alert("请先在云协作面板中配置服务器地址。");
+      setDrawerTab("collab");
+      return;
+    }
+    const cloudProjectId = window.prompt("输入要关联的 Cloud project ID");
+    if (!cloudProjectId?.trim()) {
+      return;
+    }
+
+    const collab: WorkspaceCollabMetadata = {
+      mode: "cloud",
+      cloudProjectId: cloudProjectId.trim(),
+      checkoutRoot: snapshot.projectConfig.rootPath,
+      linkedAt: new Date().toISOString(),
+    };
+    await writeWorkspaceCollabMetadata(fileAdapter, collab);
+    try {
+      await joinCloudProject(collabAuthSession.token, cloudProjectId.trim());
+    } catch {
+      // Project might not exist on server yet, or user is already a member
+    }
+    setSnapshot((current) => (current ? { ...current, collab } : current));
+  }
+
+  function handleCollabLogin(session: CollabAuthSession) {
+    writeCollabAuthSession(session);
+    setCollabAuthRevision((n) => n + 1);
+    setLoginModalOpen(false);
+  }
+
+  function handleCollabLogout() {
+    writeCollabAuthSession(null);
+    setCollabAuthRevision((n) => n + 1);
+  }
+
+  function handleSaveCollabConfig(config: CollabConfig) {
+    writeCollabConfig(config);
+    setCollabConfigState(config);
+  }
+
+  function handleCopyShareLink() {
+    const projectId = snapshot?.collab?.cloudProjectId;
+    if (!projectId) return;
+    const { httpBaseUrl } = resolveCollabBaseUrls();
+    if (!httpBaseUrl) return;
+    const link = generateShareLink(projectId, httpBaseUrl);
+    navigator.clipboard.writeText(link).then(() => {
+      window.alert(`分享链接已复制:\n${link}`);
+    });
+  }
+
+  const handleAddComment = useEffectEvent((lineStart: number, lineEnd: number, selectedText: string) => {
+    if (!commentStore || !collabAuthSession || !activeFile) return;
+    const text = window.prompt("输入批注内容：", selectedText ? `关于 "${selectedText.slice(0, 30)}…"` : "");
+    if (!text?.trim()) return;
+    commentStore.addComment({
+      userId: collabAuthSession.userId,
+      userName: collabAuthSession.name,
+      userColor: collabAuthSession.color,
+      filePath: activeFile.path,
+      lineStart,
+      lineEnd,
+      text: text.trim(),
+    });
+  });
+
+  const handleResolveComment = useEffectEvent((id: string) => {
+    commentStore?.resolveComment(id);
+  });
+
+  const handleReplyComment = useEffectEvent((id: string, text: string) => {
+    if (!commentStore || !collabAuthSession) return;
+    commentStore.addReply(id, {
+      userId: collabAuthSession.userId,
+      userName: collabAuthSession.name,
+      userColor: collabAuthSession.color,
+      text,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  const handleDeleteComment = useEffectEvent((id: string) => {
+    commentStore?.deleteComment(id);
+  });
+
+  const handleJumpToCommentLine = useEffectEvent((line: number) => {
+    if (!activeFile) return;
+    setEditorJumpTarget({ path: activeFile.path, line, nonce: Date.now() });
+  });
 
   async function handleCloseWorkspaceTab(rootPath: string) {
     const nextTabs = workspaceTabs.filter((entry) => entry.rootPath !== rootPath);
@@ -2263,7 +1603,7 @@ function App() {
         return {
           kind: "unsupported",
           title: node.name,
-          description: "正在加载预览资源…",
+          description: previewAssetLoadError || "正在加载预览资源…",
         };
       }
       if (node.fileType === "pdf") {
@@ -2273,7 +1613,7 @@ function App() {
           return {
             kind: "unsupported",
             title: node.name,
-            description: "正在加载预览资源…",
+            description: previewAssetLoadError || "正在加载预览资源…",
           };
         }
         return {
@@ -2282,9 +1622,10 @@ function App() {
           fileData,
           fileUrl: undefined,
           isLoading: false,
-          highlightedPage,
+          onDebug: compilePipeline.logCompileDebug,
+          highlightedPage: compilePipeline.highlightedPage,
           highlights: undefined,
-          onPageJump: setHighlightedPage,
+          onPageJump: () => undefined,
           onDoubleClickPage: undefined,
         };
       }
@@ -2292,7 +1633,7 @@ function App() {
         return {
           kind: "unsupported",
           title: node.name,
-          description: "正在加载预览资源…",
+          description: previewAssetLoadError || "正在加载预览资源…",
         };
       }
       if (node.fileType === "image") {
@@ -2316,18 +1657,17 @@ function App() {
         description: previewSelection.description,
       };
     }
-    const compileFileData = compilePreviewAsset?.data instanceof Uint8Array ? compilePreviewAsset.data : undefined;
+
     const inlineCompileData =
-      compilePdfData ??
-      compileFileData ??
+      compilePipeline.compilePdfData ??
       (snapshot.compileResult.pdfData instanceof Uint8Array ? snapshot.compileResult.pdfData : undefined);
     const hasCompileSource = Boolean(resolvePdfSource(inlineCompileData, undefined, false));
 
-    if (!hasCompileSource && compilePreviewLoadError) {
+    if (!hasCompileSource && compilePipeline.compilePreviewLoadError) {
       return {
         kind: "unsupported",
         title: "PDF 预览",
-        description: compilePreviewLoadError,
+        description: compilePipeline.compilePreviewLoadError,
       };
     }
 
@@ -2337,35 +1677,26 @@ function App() {
       fileData: inlineCompileData,
       fileUrl: undefined,
       reloadKey:
-        compilePdfLoadedKey ||
+        compilePipeline.compilePdfLoadedKey ||
         `${snapshot.compileResult.timestamp}:${snapshot.compileResult.pdfPath ?? ""}`,
       isLoading:
         snapshot.compileResult.status === "running" ||
-        (isLoadingCompilePdf && !hasCompileSource),
-      onDebug: logCompileDebug,
-      highlightedPage,
-      highlights: syncHighlights,
-      onPageJump: handlePageJump,
-      onDoubleClickPage: handleDoubleClickPage,
+        (compilePipeline.isLoadingCompilePdf && !hasCompileSource),
+      onDebug: compilePipeline.logCompileDebug,
+      highlightedPage: compilePipeline.highlightedPage,
+      highlights: compilePipeline.syncHighlights,
+      onPageJump: (page) => {
+        void compilePipeline.handlePageJump(page);
+      },
+      onDoubleClickPage: (page, h, v) => {
+        void compilePipeline.handleDoubleClickPage(page, h, v);
+      },
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- handlePageJump / handleDoubleClickPage are useEffectEvent
-  }, [
-    previewAsset,
-    compilePreviewAsset,
-    compilePreviewPath,
-    compilePdfData,
-    compilePdfLoadedKey,
-    highlightedPage,
-    previewSelection,
-    snapshot,
-    compilePreviewLoadError,
-    isLoadingCompilePdf,
-    syncHighlights,
-  ]);
+  }, [compilePipeline, previewAsset, previewAssetLoadError, previewSelection, snapshot]);
 
   const frontendCompileDebugLog = useMemo(
-    () => compileDebugLogLines.join("\n"),
-    [compileDebugLogLines],
+    () => compilePipeline.compileDebugLogLines.join("\n"),
+    [compilePipeline.compileDebugLogLines],
   );
   const mergedCompileLog = useMemo(() => {
     const sections: string[] = [];
@@ -2373,11 +1704,17 @@ function App() {
     if (backendLog) {
       sections.push(backendLog);
     }
+    if (runtimeDebugLogLines.length > 0) {
+      sections.push(`=== Runtime Errors ===\n${runtimeDebugLogLines.join("\n")}`);
+    }
+    if (workspaceDebugLogLines.length > 0) {
+      sections.push(`=== Workspace Debug ===\n${workspaceDebugLogLines.join("\n")}`);
+    }
     if (frontendCompileDebugLog) {
       sections.push(`=== Frontend Debug ===\n${frontendCompileDebugLog}`);
     }
     return sections.join("\n\n");
-  }, [frontendCompileDebugLog, snapshot?.compileResult.logOutput]);
+  }, [frontendCompileDebugLog, runtimeDebugLogLines, snapshot?.compileResult.logOutput, workspaceDebugLogLines]);
 
   const outlineNode = useMemo(() => {
     if (outlineLoading) {
@@ -2544,6 +1881,18 @@ function App() {
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"></path><path d="M7 14l4-4 3 3 5-7"></path></svg>
             </button>
+            <button
+              className={`activity-icon hover-spring ${drawerTab === "collab" ? "is-active" : ""}`}
+              onClick={() => setDrawerTab("collab")}
+              title="云协作与审阅"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </button>
 
             <div style={{ flex: 1 }}></div>
 
@@ -2611,6 +1960,22 @@ function App() {
             isStreaming={isStreaming}
             onSendMessage={handleSendMessage}
             onDismissPatch={handleDismissPatch}
+            collabAuthSession={collabAuthSession}
+            collabConfig={collabConfigState}
+            cloudCollab={snapshot.collab ?? null}
+            collabStatus={currentCollabStatus}
+            activeFilePath={activeFilePath}
+            onOpenLoginModal={() => setLoginModalOpen(true)}
+            onLogout={handleCollabLogout}
+            onSaveCollabConfig={handleSaveCollabConfig}
+            onCreateCloudProject={() => void handleCreateCloudProject()}
+            onLinkCloudProject={() => void handleLinkCloudProject()}
+            onCopyShareLink={handleCopyShareLink}
+            comments={activeDocComments}
+            onResolveComment={handleResolveComment}
+            onReplyComment={handleReplyComment}
+            onDeleteComment={handleDeleteComment}
+            onJumpToCommentLine={handleJumpToCommentLine}
           />
 
           <div className="workspace-body" ref={workspaceBodyRef}>
@@ -2757,10 +2122,19 @@ function App() {
                       onRunAgent={handleEditorRunAgent}
                       onCompile={handleEditorCompile}
                       onForwardSync={handleEditorForwardSync}
+                      yText={activeCollaborativeDoc.yText}
+                      awareness={activeCollaborativeDoc.awareness}
+                      collabStatus={currentCollabStatus}
+                      comments={activeDocComments}
+                      onAddComment={handleAddComment}
                     />
                   ) : (
                     <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>
-                      {loadingFilePath ? "正在加载文件…" : "选择一个文本文件开始编辑"}
+                      {loadingFilePath
+                        ? "正在加载文件…"
+                        : activeFileLoadError
+                          ? `文件加载失败：${activeFileLoadError}`
+                          : "选择一个文本文件开始编辑"}
                     </div>
                   )}
                 </div>
@@ -2794,6 +2168,14 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {loginModalOpen && (
+        <CollabLoginModal
+          currentSession={collabAuthSession}
+          onSave={handleCollabLogin}
+          onClose={() => setLoginModalOpen(false)}
+        />
       )}
     </div>
   );

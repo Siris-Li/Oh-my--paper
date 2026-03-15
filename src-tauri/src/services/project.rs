@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 use crate::models::{
     AssetResource, FigureBriefDraft, GeneratedAsset, ProjectConfig, ProjectFile, ProjectNode,
@@ -85,14 +85,33 @@ fn mime_type_for_path(path: &str) -> String {
     }
 }
 
-fn should_ignore_path(rel: &str) -> bool {
-    rel.is_empty()
-        || rel == "."
-        || rel.starts_with(".git/")
-        || rel.starts_with("node_modules/")
-        || rel.starts_with("dist/")
-        || rel.starts_with("src-tauri/target/")
-        || rel.starts_with(".viewerleaf/")
+fn should_ignore_entry(entry: &DirEntry, root: &Path) -> bool {
+    if entry.path() == root {
+        return false;
+    }
+
+    let name = entry.file_name().to_string_lossy();
+    if name == ".DS_Store" {
+        return true;
+    }
+
+    if !entry.file_type().is_dir() {
+        return false;
+    }
+
+    // Prune hidden/cache/tooling directories before WalkDir descends into them.
+    name.starts_with('.')
+        || matches!(
+            name.as_ref(),
+            "%OUTDIR%"
+                | "__pycache__"
+                | "build"
+                | "coverage"
+                | "dist"
+                | "node_modules"
+                | "target"
+                | "venv"
+        )
 }
 
 fn build_tree(nodes: &[ProjectNode]) -> Vec<ProjectNode> {
@@ -208,6 +227,7 @@ fn collect_file_nodes(root: &Path) -> Vec<ProjectNode> {
 
     for entry in WalkDir::new(root)
         .into_iter()
+        .filter_entry(|entry| !should_ignore_entry(entry, root))
         .filter_map(|entry| entry.ok())
     {
         let path = entry.path();
@@ -217,7 +237,7 @@ fn collect_file_nodes(root: &Path) -> Vec<ProjectNode> {
             .to_string_lossy()
             .replace('\\', "/");
 
-        if should_ignore_path(&rel) {
+        if rel.is_empty() || rel == "." {
             continue;
         }
 

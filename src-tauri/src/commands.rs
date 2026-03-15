@@ -16,36 +16,61 @@ use crate::services::{
 use crate::state::AppState;
 
 #[tauri::command]
-pub fn open_project(state: State<'_, AppState>) -> Result<WorkspaceSnapshot, String> {
-    project::load_project_snapshot(&state).map_err(|err| err.to_string())
+pub async fn open_project(app_handle: AppHandle) -> Result<WorkspaceSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        project::load_project_snapshot(&state).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]
-pub fn read_file(state: State<'_, AppState>, path: String) -> Result<ProjectFile, String> {
-    project::read_file(&state, &path).map_err(|err| err.to_string())
+pub async fn read_file(app_handle: AppHandle, path: String) -> Result<ProjectFile, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        project::read_file(&state, &path).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]
-pub fn read_asset(state: State<'_, AppState>, path: String) -> Result<AssetResource, String> {
-    project::read_asset(&state, &path).map_err(|err| err.to_string())
+pub async fn read_asset(app_handle: AppHandle, path: String) -> Result<AssetResource, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        project::read_asset(&state, &path).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]
-pub fn switch_project(
-    state: State<'_, AppState>,
+pub async fn switch_project(
+    app_handle: AppHandle,
     root_path: String,
 ) -> Result<WorkspaceSnapshot, String> {
-    project::switch_project(&state, Path::new(&root_path)).map_err(|err| err.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        project::switch_project(&state, Path::new(&root_path)).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]
-pub fn create_project(
-    state: State<'_, AppState>,
+pub async fn create_project(
+    app_handle: AppHandle,
     parent_dir: String,
     project_name: String,
 ) -> Result<WorkspaceSnapshot, String> {
-    project::create_project(&state, Path::new(&parent_dir), &project_name)
-        .map_err(|err| err.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        project::create_project(&state, Path::new(&parent_dir), &project_name)
+            .map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]
@@ -76,22 +101,32 @@ pub fn sync_app_menu(
 }
 
 #[tauri::command]
-pub fn save_file(
-    state: State<'_, AppState>,
+pub async fn save_file(
+    app_handle: AppHandle,
     file_path: String,
     content: String,
 ) -> Result<bool, String> {
-    project::save_file(&state, &file_path, &content)
-        .map(|_| true)
-        .map_err(|err| err.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        project::save_file(&state, &file_path, &content)
+            .map(|_| true)
+            .map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]
-pub fn update_project_config(
-    state: State<'_, AppState>,
+pub async fn update_project_config(
+    app_handle: AppHandle,
     config: ProjectConfig,
 ) -> Result<ProjectConfig, String> {
-    project::update_project_config(&state, &config).map_err(|err| err.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        project::update_project_config(&state, &config).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]
@@ -487,9 +522,12 @@ pub fn delete_file(state: State<'_, AppState>, path: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub fn read_pdf_binary(path: String) -> Result<Vec<u8>, String> {
-    let bytes = std::fs::read(&path).map_err(|e| format!("failed to read PDF at {path}: {e}"))?;
-    Ok(bytes)
+pub async fn read_pdf_binary(path: String) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::read(&path).map_err(|e| format!("failed to read PDF at {path}: {e}"))
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]

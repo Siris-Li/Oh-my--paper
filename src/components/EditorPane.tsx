@@ -9,10 +9,14 @@ import {
   keymap,
   lineNumbers,
 } from "@codemirror/view";
+import { yCollab } from "y-codemirror.next";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import type { Awareness } from "y-protocols/awareness";
+import * as Y from "yjs";
 
 import { latex } from "../editor/languages/latex";
-import type { ProjectFile } from "../types";
+import { commentGutter, setCommentMarkers } from "../editor/extensions/comment-gutter";
+import type { CollabStatus, ProjectFile, ReviewComment } from "../types";
 import CodeMirrorView from "./source-editor/CodeMirrorView";
 
 interface EditorPaneProps {
@@ -26,6 +30,11 @@ interface EditorPaneProps {
   onRunAgent?: () => void;
   onCompile?: () => void;
   onForwardSync?: () => void;
+  yText?: Y.Text | null;
+  awareness?: Awareness | null;
+  collabStatus?: CollabStatus | null;
+  comments?: ReviewComment[];
+  onAddComment?: (lineStart: number, lineEnd: number, selectedText: string) => void;
 }
 
 function wrapSelection(view: EditorView, before: string, after: string) {
@@ -73,10 +82,16 @@ function EditorPaneInner({
   onRunAgent,
   onCompile,
   onForwardSync,
+  yText,
+  awareness,
+  collabStatus,
+  comments,
+  onAddComment,
 }: EditorPaneProps) {
   const activePathRef = useRef(file.path);
   const applyingExternalChangeRef = useRef(false);
   const [lineCount, setLineCount] = useState(() => file.content.split("\n").length);
+  const isCollaborative = Boolean(yText && awareness);
 
   const onChangeRef = useRef(onChange);
   const onCursorChangeRef = useRef(onCursorChange);
@@ -84,6 +99,7 @@ function EditorPaneInner({
   const onRunAgentRef = useRef(onRunAgent);
   const onCompileRef = useRef(onCompile);
   const onForwardSyncRef = useRef(onForwardSync);
+  const onAddCommentRef = useRef(onAddComment);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -92,7 +108,8 @@ function EditorPaneInner({
     onRunAgentRef.current = onRunAgent;
     onCompileRef.current = onCompile;
     onForwardSyncRef.current = onForwardSync;
-  }, [onChange, onCursorChange, onSave, onRunAgent, onCompile, onForwardSync]);
+    onAddCommentRef.current = onAddComment;
+  }, [onChange, onCursorChange, onSave, onRunAgent, onCompile, onForwardSync, onAddComment]);
 
   const extensions = useMemo(() => {
     const customKeymap = keymap.of([
@@ -149,6 +166,17 @@ function EditorPaneInner({
           return true;
         },
       },
+      {
+        key: "Mod-Shift-m",
+        run: (view) => {
+          const { from, to } = view.state.selection.main;
+          const lineStart = view.state.doc.lineAt(from).number;
+          const lineEnd = view.state.doc.lineAt(to).number;
+          const selectedText = view.state.sliceDoc(from, to);
+          onAddCommentRef.current?.(lineStart, lineEnd, selectedText);
+          return true;
+        },
+      },
     ]);
 
     return [
@@ -162,47 +190,48 @@ function EditorPaneInner({
       search({ top: true }),
       keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, ...searchKeymap]),
       customKeymap,
+      commentGutter(),
+      ...(isCollaborative && yText && awareness
+        ? [yCollab(yText, awareness, { undoManager: new Y.UndoManager(yText) })]
+        : []),
     ];
-  }, []);
+  }, [awareness, isCollaborative, yText]);
 
-  const viewRef = useRef<EditorView | null>(null);
-  if (viewRef.current === null) {
-    let view: EditorView;
+  const view = useMemo(() => {
+    let nextView: EditorView;
     const initialState = EditorState.create({
-      doc: file.content,
+      doc: isCollaborative && yText ? yText.toString() : file.content,
       extensions,
     });
 
-    view = new EditorView({
+    nextView = new EditorView({
       state: initialState,
       dispatchTransactions: (transactions: readonly Transaction[]) => {
-        view.update(transactions);
+        nextView.update(transactions);
 
         const docChanged = transactions.some((transaction) => transaction.docChanged);
         const selectionChanged =
           docChanged || transactions.some((transaction) => transaction.selection);
 
         if (docChanged) {
-          setLineCount(view.state.doc.lines);
+          setLineCount(nextView.state.doc.lines);
         }
 
-        if (docChanged && !applyingExternalChangeRef.current) {
-          onChangeRef.current(view.state.doc.toString());
+        if (!isCollaborative && docChanged && !applyingExternalChangeRef.current) {
+          onChangeRef.current(nextView.state.doc.toString());
         }
 
         if (selectionChanged) {
-          const main = view.state.selection.main;
-          const line = view.state.doc.lineAt(main.head).number;
-          const selectedText = view.state.sliceDoc(main.from, main.to);
+          const main = nextView.state.selection.main;
+          const line = nextView.state.doc.lineAt(main.head).number;
+          const selectedText = nextView.state.sliceDoc(main.from, main.to);
           onCursorChangeRef.current(line, selectedText);
         }
       },
     });
 
-    viewRef.current = view;
-  }
-
-  const view = viewRef.current;
+    return nextView;
+  }, [extensions, isCollaborative, yText]);
 
   useEffect(() => {
     setLineCount(view.state.doc.lines);
@@ -213,6 +242,11 @@ function EditorPaneInner({
   }, [view]);
 
   useEffect(() => {
+    if (isCollaborative) {
+      activePathRef.current = file.path;
+      return;
+    }
+
     const pathChanged = activePathRef.current !== file.path;
     const currentText = view.state.doc.toString();
     const contentChanged = currentText !== file.content;
@@ -237,7 +271,7 @@ function EditorPaneInner({
     }
 
     setLineCount(view.state.doc.lines);
-  }, [file.content, file.path, view]);
+  }, [file.content, file.path, isCollaborative, view]);
 
   useEffect(() => {
     if (!targetLine) {
@@ -253,6 +287,14 @@ function EditorPaneInner({
     });
     view.focus();
   }, [targetLine, targetNonce, view]);
+
+  useEffect(() => {
+    if (!comments) return;
+    const markers = comments
+      .filter((c) => !c.resolved && c.filePath === file.path)
+      .map((c) => ({ line: c.lineStart, color: c.userColor }));
+    view.dispatch({ effects: setCommentMarkers.of(markers) });
+  }, [comments, file.path, view]);
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -270,8 +312,16 @@ function EditorPaneInner({
         <span>
           源码路径: {file.path}
           {isDirty && <span style={{ color: "var(--danger)", marginLeft: 8 }}>● 未保存</span>}
+          {collabStatus?.enabled && (
+            <span style={{ color: "var(--text-secondary)", marginLeft: 8 }}>
+              · {collabStatus.synced ? "协作已同步" : collabStatus.connectionError ? "协作异常" : "协作连接中"}
+            </span>
+          )}
         </span>
-        <span>{file.language} · 共 {lineCount} 行</span>
+        <span>
+          {file.language} · 共 {lineCount} 行
+          {collabStatus?.enabled && ` · ${collabStatus.members.length + 1} 人`}
+        </span>
       </div>
       <div style={{ flex: 1, overflow: "hidden" }}>
         <CodeMirrorView view={view} />
@@ -293,7 +343,14 @@ function areEditorPanePropsEqual(previous: EditorPaneProps, next: EditorPaneProp
     previous.onSave === next.onSave &&
     previous.onRunAgent === next.onRunAgent &&
     previous.onCompile === next.onCompile &&
-    previous.onForwardSync === next.onForwardSync
+    previous.onForwardSync === next.onForwardSync &&
+    previous.yText === next.yText &&
+    previous.awareness === next.awareness &&
+    previous.comments === next.comments &&
+    previous.collabStatus?.enabled === next.collabStatus?.enabled &&
+    previous.collabStatus?.synced === next.collabStatus?.synced &&
+    previous.collabStatus?.connectionError === next.collabStatus?.connectionError &&
+    previous.collabStatus?.members.length === next.collabStatus?.members.length
   );
 }
 

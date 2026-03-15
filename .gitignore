@@ -52,3 +52,8 @@ sidecar/node_modules
 # ViewerLeaf opencode runtime data
 .viewerleaf/opencode-home/
 .viewerleaf/opencode-session-map.json
+
+# Cloudflare worker files
+workers/.wrangler
+workers/.dev.vars*
+!workers/.dev.vars.example

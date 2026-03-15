@@ -1,0 +1,83 @@
+import type { CloudDocumentSummary, CloudProjectSummary } from "../../types";
+import { resolveCollabBaseUrls } from "./auth";
+
+function authHeaders(token: string) {
+  return {
+    authorization: `Bearer ${token}`,
+  };
+}
+
+async function parseJson<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `request failed: ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+export async function listCloudProjects(token: string): Promise<CloudProjectSummary[]> {
+  const { httpBaseUrl } = resolveCollabBaseUrls();
+  const response = await fetch(`${httpBaseUrl}/api/projects`, {
+    headers: authHeaders(token),
+  });
+  const payload = await parseJson<{ projects: CloudProjectSummary[] }>(response);
+  return payload.projects;
+}
+
+export async function createCloudProject(token: string, name: string, rootMainFile = "main.tex") {
+  const { httpBaseUrl } = resolveCollabBaseUrls();
+  const response = await fetch(`${httpBaseUrl}/api/projects`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(token),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ name, rootMainFile }),
+  });
+  return parseJson<{ projectId: string; name: string; rootMainFile: string }>(response);
+}
+
+export async function listCloudDocuments(token: string, projectId: string): Promise<CloudDocumentSummary[]> {
+  const { httpBaseUrl } = resolveCollabBaseUrls();
+  const response = await fetch(`${httpBaseUrl}/api/projects/${projectId}/documents`, {
+    headers: authHeaders(token),
+  });
+  const payload = await parseJson<{ documents: CloudDocumentSummary[] }>(response);
+  return payload.documents;
+}
+
+export async function ensureCloudDocument(token: string, projectId: string, path: string) {
+  const { httpBaseUrl } = resolveCollabBaseUrls();
+  const response = await fetch(`${httpBaseUrl}/api/projects/${projectId}/documents`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(token),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ path }),
+  });
+  await parseJson<{ ok: boolean }>(response);
+}
+
+export async function fetchDocumentSnapshot(token: string, projectId: string, path: string) {
+  const { httpBaseUrl } = resolveCollabBaseUrls();
+  const url = new URL(`${httpBaseUrl}/api/projects/${projectId}/documents/snapshot`);
+  url.searchParams.set("path", path);
+  const response = await fetch(url.toString(), {
+    headers: authHeaders(token),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+export async function joinCloudProject(token: string, projectId: string) {
+  const { httpBaseUrl } = resolveCollabBaseUrls();
+  const response = await fetch(`${httpBaseUrl}/api/projects/${projectId}/join`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+  return parseJson<{ ok: boolean; role: string }>(response);
+}
+

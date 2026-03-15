@@ -2,10 +2,14 @@ import clsx from "clsx";
 import { useState } from "react";
 
 import { ChatPanel } from "./ChatPanel";
+import { CommentPanel } from "./CommentPanel";
 import { ProviderCard, ProviderEditModal } from "./ProviderCard";
+import type { CollabAuthSession } from "../lib/collaboration/auth";
+import type { CollabConfig } from "../lib/collaboration/collab-config";
 import type {
   AgentMessage,
   AgentSessionSummary,
+  CollabStatus,
   CompileEnvironmentStatus,
   DrawerTab,
   FigureBriefDraft,
@@ -13,10 +17,12 @@ import type {
   LatexEngine,
   ProjectConfig,
   ProviderConfig,
+  ReviewComment,
   SkillManifest,
   StreamToolCall,
   TestResult,
   UsageRecord,
+  WorkspaceCollabMetadata,
 } from "../types";
 
 interface SidebarProps {
@@ -65,6 +71,24 @@ interface SidebarProps {
   isStreaming?: boolean;
   onSendMessage: (text: string) => void;
   onDismissPatch: () => void;
+  // Collab props
+  collabAuthSession: CollabAuthSession | null;
+  collabConfig: CollabConfig | null;
+  cloudCollab: WorkspaceCollabMetadata | null;
+  collabStatus: CollabStatus;
+  activeFilePath: string;
+  onOpenLoginModal: () => void;
+  onLogout: () => void;
+  onSaveCollabConfig: (config: CollabConfig) => void;
+  onCreateCloudProject: () => void;
+  onLinkCloudProject: () => void;
+  onCopyShareLink: () => void;
+  // Comment props
+  comments: ReviewComment[];
+  onResolveComment: (id: string) => void;
+  onReplyComment: (id: string, text: string) => void;
+  onDeleteComment: (id: string) => void;
+  onJumpToCommentLine: (line: number) => void;
 }
 
 function skillEnabled(skill: SkillManifest) {
@@ -156,6 +180,22 @@ export function Sidebar({
   isStreaming,
   onSendMessage,
   onDismissPatch,
+  collabAuthSession,
+  collabConfig: collabConfigProp,
+  cloudCollab,
+  collabStatus,
+  activeFilePath,
+  onOpenLoginModal,
+  onLogout,
+  onSaveCollabConfig,
+  onCreateCloudProject,
+  onLinkCloudProject,
+  onCopyShareLink,
+  comments,
+  onResolveComment,
+  onReplyComment,
+  onDeleteComment,
+  onJumpToCommentLine,
 }: SidebarProps) {
   // Provider form state (blank by default — no presets)
   const [providerForm, setProviderForm] = useState({
@@ -168,6 +208,11 @@ export function Sidebar({
   const [providerActionState, setProviderActionState] = useState<Record<string, string>>({});
   const [isSubmittingProvider, setIsSubmittingProvider] = useState(false);
   const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
+  const [collabConfigForm, setCollabConfigForm] = useState({
+    httpBaseUrl: collabConfigProp?.httpBaseUrl ?? "",
+    wsBaseUrl: collabConfigProp?.wsBaseUrl ?? "",
+    teamLabel: collabConfigProp?.teamLabel ?? "",
+  });
   const availableEngineSet = new Set<LatexEngine>(compileEnvironment?.availableEngines ?? []);
   const selectedEngineAvailable = availableEngineSet.has(projectConfig.engine as LatexEngine);
   const providerLabelById = new Map(
@@ -628,6 +673,135 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
             <pre className="log-surface" style={{ flex: 1, minHeight: 0 }}>
               {compileLog || "无日志输出"}
             </pre>
+          </div>
+        </>
+      )}
+
+      {tab === "collab" && (
+        <>
+          <div className="sidebar-header">云协作</div>
+          <div className="sidebar-content sidebar-stack">
+            {/* Card 1: Identity */}
+            <div className="card">
+              <div className="card-header">身份</div>
+              {collabAuthSession ? (
+                <div className="collab-identity-row">
+                  <span className="collab-color-dot" style={{ background: collabAuthSession.color }} />
+                  <span style={{ fontWeight: 500 }}>{collabAuthSession.name}</span>
+                  {collabAuthSession.email && (
+                    <span className="text-subtle text-xs">{collabAuthSession.email}</span>
+                  )}
+                  <span style={{ flex: 1 }} />
+                  <button className="link-btn" onClick={onOpenLoginModal}>编辑</button>
+                  <button className="link-btn" onClick={onLogout}>退出</button>
+                </div>
+              ) : (
+                <button className="btn-primary" style={{ width: "100%" }} onClick={onOpenLoginModal}>
+                  登录 / 设置身份
+                </button>
+              )}
+            </div>
+
+            {/* Card 2: Server config */}
+            <div className="card">
+              <div className="card-header">服务器配置</div>
+              <div className="collab-config-field">
+                <label>HTTP URL</label>
+                <input
+                  className="sidebar-input"
+                  value={collabConfigForm.httpBaseUrl}
+                  onChange={(e) => setCollabConfigForm((s) => ({ ...s, httpBaseUrl: e.target.value }))}
+                  placeholder="http://localhost:8787"
+                />
+              </div>
+              <div className="collab-config-field">
+                <label>WebSocket URL</label>
+                <input
+                  className="sidebar-input"
+                  value={collabConfigForm.wsBaseUrl}
+                  onChange={(e) => setCollabConfigForm((s) => ({ ...s, wsBaseUrl: e.target.value }))}
+                  placeholder="ws://localhost:8787"
+                />
+              </div>
+              <div className="collab-config-field">
+                <label>团队名称（选填）</label>
+                <input
+                  className="sidebar-input"
+                  value={collabConfigForm.teamLabel}
+                  onChange={(e) => setCollabConfigForm((s) => ({ ...s, teamLabel: e.target.value }))}
+                  placeholder="我的团队"
+                />
+              </div>
+              <button
+                className="btn-primary"
+                style={{ width: "100%", marginTop: 8 }}
+                onClick={() => {
+                  if (!collabConfigForm.httpBaseUrl.trim() || !collabConfigForm.wsBaseUrl.trim()) return;
+                  onSaveCollabConfig({
+                    httpBaseUrl: collabConfigForm.httpBaseUrl.trim(),
+                    wsBaseUrl: collabConfigForm.wsBaseUrl.trim(),
+                    teamLabel: collabConfigForm.teamLabel.trim(),
+                  });
+                }}
+                disabled={!collabConfigForm.httpBaseUrl.trim() || !collabConfigForm.wsBaseUrl.trim()}
+              >
+                保存配置
+              </button>
+            </div>
+
+            {/* Card 3: Cloud project */}
+            <div className="card">
+              <div className="card-header">云项目</div>
+              {cloudCollab?.mode === "cloud" && cloudCollab.cloudProjectId ? (
+                <div className="sidebar-stack-compact">
+                  <div className="collab-identity-row">
+                    <span
+                      className={clsx(
+                        "status-badge",
+                        collabStatus.connected ? "success" : "failed",
+                      )}
+                    >
+                      {collabStatus.connected
+                        ? collabStatus.synced ? "已同步" : "连接中"
+                        : "未连接"}
+                    </span>
+                    <span className="text-subtle text-xs" style={{ wordBreak: "break-all" }}>
+                      {cloudCollab.cloudProjectId.slice(0, 8)}…
+                    </span>
+                  </div>
+                  {collabStatus.members.length > 0 && (
+                    <div className="text-subtle text-xs">
+                      在线: {collabStatus.members.map((m) => m.name).join(", ")}
+                    </div>
+                  )}
+                  <button className="btn-secondary" style={{ width: "100%", marginTop: 8 }} onClick={onCopyShareLink}>
+                    复制分享链接
+                  </button>
+                </div>
+              ) : (
+                <div className="sidebar-stack-compact">
+                  <div className="text-subtle text-xs">当前项目尚未关联到云端。</div>
+                  <button className="btn-primary" style={{ width: "100%" }} onClick={onCreateCloudProject}>
+                    创建云协作项目
+                  </button>
+                  <button className="btn-secondary" style={{ width: "100%" }} onClick={onLinkCloudProject}>
+                    关联已有项目
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Card 4: Comments */}
+            <CommentPanel
+              comments={comments}
+              activeFilePath={activeFilePath}
+              collabEnabled={cloudCollab?.mode === "cloud"}
+              currentUserId={collabAuthSession?.userId ?? ""}
+              onResolve={onResolveComment}
+              onReply={onReplyComment}
+              onDelete={onDeleteComment}
+              onJumpToLine={onJumpToCommentLine}
+            />
           </div>
         </>
       )}

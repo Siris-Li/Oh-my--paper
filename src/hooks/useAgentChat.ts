@@ -1,0 +1,543 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { desktop } from "../lib/desktop";
+import { useStableCallback as useEffectEvent } from "./useStableCallback";
+import type {
+  AgentMessage,
+  AgentProfile,
+  AgentProfileId,
+  AgentSessionSummary,
+  ProjectFile,
+  StreamToolCall,
+  UsageRecord,
+  WorkspaceSnapshot,
+} from "../types";
+
+function safelyDisposeListener(listener?: (() => void | Promise<void>) | null) {
+  if (!listener) {
+    return;
+  }
+
+  try {
+    const result = listener();
+    if (result && typeof (result as Promise<unknown>).then === "function") {
+      void (result as Promise<unknown>).catch((error) => {
+        console.warn("failed to dispose listener", error);
+      });
+    }
+  } catch (error) {
+    console.warn("failed to dispose listener", error);
+  }
+}
+
+interface UseAgentChatParams {
+  snapshot: WorkspaceSnapshot | null;
+  activeFile: ProjectFile | null;
+  selectedText: string;
+  cursorLine: number;
+  replaceFileContent: (path: string, content: string) => void;
+  addDirtyPath: (path: string) => void;
+  refreshWorkspace: () => Promise<void>;
+}
+
+export interface AgentChatState {
+  messages: AgentMessage[];
+  agentSessions: AgentSessionSummary[];
+  activeSessionId: string;
+  usageRecords: UsageRecord[];
+  activeProfileId: AgentProfileId;
+  activeProfile: AgentProfile | null;
+  isStreaming: boolean;
+  streamThinkingText: string;
+  streamText: string;
+  streamToolCalls: StreamToolCall[];
+  streamError: string;
+  pendingPatch: { filePath: string; content: string; summary: string } | null;
+  setActiveProfileId: (profileId: AgentProfileId) => void;
+  handleRunAgent: () => Promise<void>;
+  handleSendMessage: (text: string) => Promise<void>;
+  handleNewSession: () => void;
+  handleSelectSession: (sessionId: string) => Promise<void>;
+  handleApplyPatch: () => Promise<void>;
+  handleDismissPatch: () => void;
+  resetForSnapshot: () => void;
+}
+
+export function useAgentChat({
+  snapshot,
+  activeFile,
+  selectedText,
+  cursorLine: _cursorLine,
+  replaceFileContent,
+  addDirtyPath: _addDirtyPath,
+  refreshWorkspace: _refreshWorkspace,
+}: UseAgentChatParams): AgentChatState {
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [agentSessions, setAgentSessions] = useState<AgentSessionSummary[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState("");
+  const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<AgentProfileId>("chat");
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamThinkingText, setStreamThinkingText] = useState("");
+  const [streamText, setStreamText] = useState("");
+  const [streamToolCalls, setStreamToolCalls] = useState<StreamToolCall[]>([]);
+  const [streamError, setStreamError] = useState("");
+  const [pendingPatch, setPendingPatch] = useState<{ filePath: string; content: string; summary: string } | null>(
+    null,
+  );
+
+  const streamBufferRef = useRef("");
+  const streamFlushTimerRef = useRef<number | null>(null);
+  const streamThinkingRef = useRef("");
+  const streamToolSeqRef = useRef(0);
+  const currentStreamSessionIdRef = useRef("");
+  const didBootstrapRef = useRef(false);
+
+  const activeProfile = useMemo(
+    () => snapshot?.profiles.find((profile) => profile.id === activeProfileId) ?? null,
+    [activeProfileId, snapshot?.profiles],
+  );
+
+  const flushStreamBuffer = useEffectEvent(() => {
+    const delta = streamBufferRef.current;
+    if (!delta) {
+      return;
+    }
+    streamBufferRef.current = "";
+    setStreamText((current) => current + delta);
+  });
+
+  const queueStreamDelta = useEffectEvent((delta: string) => {
+    if (!delta) {
+      return;
+    }
+    streamBufferRef.current += delta;
+    if (streamFlushTimerRef.current !== null) {
+      return;
+    }
+    streamFlushTimerRef.current = window.setTimeout(() => {
+      streamFlushTimerRef.current = null;
+      flushStreamBuffer();
+    }, 16);
+  });
+
+  const clearStreamBuffer = useEffectEvent(() => {
+    if (streamFlushTimerRef.current !== null) {
+      window.clearTimeout(streamFlushTimerRef.current);
+      streamFlushTimerRef.current = null;
+    }
+    streamBufferRef.current = "";
+  });
+
+  const appendThinkingDelta = useEffectEvent((delta: string) => {
+    if (!delta) {
+      return;
+    }
+    streamThinkingRef.current += delta;
+    setStreamThinkingText(streamThinkingRef.current);
+  });
+
+  const clearThinkingText = useEffectEvent(() => {
+    streamThinkingRef.current = "";
+    setStreamThinkingText("");
+  });
+
+  const commitThinkingText = useEffectEvent(() => {
+    const content = streamThinkingRef.current;
+    if (!content) {
+      return;
+    }
+    setStreamText((current) => current + content);
+    clearThinkingText();
+  });
+
+  const resetStreamState = useEffectEvent(() => {
+    clearStreamBuffer();
+    clearThinkingText();
+    setStreamText("");
+    setStreamToolCalls([]);
+    setStreamError("");
+    streamToolSeqRef.current = 0;
+  });
+
+  const pushStreamToolStart = useEffectEvent((toolId: string, args: Record<string, unknown>) => {
+    const seq = streamToolSeqRef.current + 1;
+    streamToolSeqRef.current = seq;
+    setStreamToolCalls((current) => [
+      ...current,
+      {
+        id: `${Date.now()}-${seq}`,
+        toolId,
+        args,
+        status: "running",
+      },
+    ]);
+  });
+
+  const pushStreamToolResult = useEffectEvent(
+    (toolId: string, output: string, status: "completed" | "error" = "completed") => {
+      setStreamToolCalls((current) => {
+        for (let index = current.length - 1; index >= 0; index -= 1) {
+          const item = current[index];
+          if (item.toolId !== toolId || item.status !== "running") {
+            continue;
+          }
+          const next = [...current];
+          next[index] = {
+            ...item,
+            output,
+            status,
+          };
+          return next;
+        }
+
+        const seq = streamToolSeqRef.current + 1;
+        streamToolSeqRef.current = seq;
+        return [
+          ...current,
+          {
+            id: `${Date.now()}-${seq}`,
+            toolId,
+            output,
+            status,
+          },
+        ];
+      });
+    },
+  );
+
+  const appendAssistantErrorMessage = useEffectEvent((message: string) => {
+    setMessages((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        profileId: activeProfileId,
+        content: `Error: ${message}`,
+        sessionId: activeSessionId || undefined,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+  });
+
+  const bootstrapSessions = useEffectEvent(async () => {
+    const [nextSessions, nextUsage] = await Promise.all([
+      desktop.listAgentSessions(),
+      desktop.getUsageStats(),
+    ]);
+    const initialSessionId = nextSessions[0]?.id ?? "";
+    const nextMessages = initialSessionId ? await desktop.getAgentMessages(initialSessionId) : [];
+    setAgentSessions(nextSessions);
+    setActiveSessionId(initialSessionId);
+    setMessages(nextMessages);
+    setUsageRecords(nextUsage);
+  });
+
+  const resetForSnapshot = useEffectEvent(() => {
+    currentStreamSessionIdRef.current = "";
+    setMessages([]);
+    setActiveSessionId("");
+    setPendingPatch(null);
+    resetStreamState();
+  });
+
+  useEffect(() => {
+    if (!snapshot || didBootstrapRef.current) {
+      return;
+    }
+
+    didBootstrapRef.current = true;
+    void bootstrapSessions().catch((error) => {
+      console.warn("failed to bootstrap agent sessions", error);
+    });
+  }, [bootstrapSessions, snapshot]);
+
+  useEffect(() => {
+    if (!snapshot?.profiles.length) {
+      return;
+    }
+
+    if (snapshot.profiles.some((profile) => profile.id === activeProfileId)) {
+      return;
+    }
+
+    const defaultProfile = snapshot.profiles.some((profile) => profile.id === "chat")
+      ? "chat"
+      : snapshot.profiles[0].id;
+    setActiveProfileId(defaultProfile as AgentProfileId);
+  }, [activeProfileId, snapshot?.profiles]);
+
+  useEffect(() => {
+    return () => {
+      if (streamFlushTimerRef.current !== null) {
+        window.clearTimeout(streamFlushTimerRef.current);
+        streamFlushTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleNewSession = useEffectEvent(() => {
+    if (isStreaming) {
+      return;
+    }
+    setActiveSessionId("");
+    setMessages([]);
+    setPendingPatch(null);
+    resetStreamState();
+  });
+
+  const handleSelectSession = useEffectEvent(async (sessionId: string) => {
+    if (isStreaming || sessionId === activeSessionId) {
+      return;
+    }
+    setActiveSessionId(sessionId);
+    setPendingPatch(null);
+    resetStreamState();
+    setMessages(sessionId ? await desktop.getAgentMessages(sessionId) : []);
+  });
+
+  const handleRunAgent = useEffectEvent(async () => {
+    if (!activeFile || isStreaming) {
+      return;
+    }
+
+    setIsStreaming(true);
+    resetStreamState();
+    setPendingPatch(null);
+
+    let unlistenFn: (() => void | Promise<void>) | undefined;
+    const stopStream = () => {
+      const current = unlistenFn;
+      unlistenFn = undefined;
+      safelyDisposeListener(current);
+    };
+
+    unlistenFn = await desktop.onAgentStream((chunk) => {
+      switch (chunk.type) {
+        case "text_delta":
+          clearThinkingText();
+          queueStreamDelta(chunk.content);
+          break;
+        case "thinking_delta":
+          appendThinkingDelta(chunk.content);
+          break;
+        case "thinking_clear":
+          clearThinkingText();
+          break;
+        case "thinking_commit":
+          commitThinkingText();
+          break;
+        case "tool_call_start":
+          pushStreamToolStart(chunk.toolId, chunk.args);
+          break;
+        case "tool_call_result":
+          pushStreamToolResult(chunk.toolId, chunk.output, chunk.status ?? "completed");
+          break;
+        case "patch":
+          setPendingPatch({
+            filePath: chunk.filePath,
+            content: chunk.newContent,
+            summary: `Patch from agent for ${chunk.filePath}`,
+          });
+          break;
+        case "error":
+          clearThinkingText();
+          setStreamError(chunk.message);
+          flushStreamBuffer();
+          setIsStreaming(false);
+          stopStream();
+          break;
+        case "done":
+          flushStreamBuffer();
+          stopStream();
+          void Promise.all([desktop.listAgentSessions(), desktop.getUsageStats()]).then(([nextSessions, nextUsage]) => {
+            setAgentSessions(nextSessions);
+            setUsageRecords(nextUsage);
+            const resolvedId = currentStreamSessionIdRef.current || nextSessions[0]?.id || "";
+            if (resolvedId) {
+              void desktop.getAgentMessages(resolvedId).then((nextMessages) => {
+                setMessages(nextMessages);
+                setActiveSessionId(resolvedId);
+                setIsStreaming(false);
+              });
+            } else {
+              setIsStreaming(false);
+            }
+          });
+          break;
+      }
+    });
+
+    try {
+      const result = await desktop.runAgent(
+        activeProfileId,
+        activeFile.path,
+        selectedText,
+        undefined,
+        activeSessionId || undefined,
+      );
+      const nextSessionId = result.sessionId ?? activeSessionId;
+      if (nextSessionId) {
+        currentStreamSessionIdRef.current = nextSessionId;
+      }
+      if (nextSessionId && nextSessionId !== activeSessionId) {
+        setActiveSessionId(nextSessionId);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("runAgent failed", error);
+      clearThinkingText();
+      flushStreamBuffer();
+      setStreamError(message);
+      appendAssistantErrorMessage(message);
+      stopStream();
+      setIsStreaming(false);
+    }
+  });
+
+  const handleApplyPatch = useEffectEvent(async () => {
+    if (!pendingPatch) {
+      return;
+    }
+    await desktop.applyAgentPatch(pendingPatch.filePath, pendingPatch.content);
+    replaceFileContent(pendingPatch.filePath, pendingPatch.content);
+    setPendingPatch(null);
+  });
+
+  const handleDismissPatch = useEffectEvent(() => {
+    setPendingPatch(null);
+  });
+
+  const handleSendMessage = useEffectEvent(async (text: string) => {
+    if (isStreaming) {
+      return;
+    }
+
+    setIsStreaming(true);
+    resetStreamState();
+    setPendingPatch(null);
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        role: "user",
+        profileId: activeProfileId,
+        content: text,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+
+    let unlistenFn: (() => void | Promise<void>) | undefined;
+    const stopStream = () => {
+      const current = unlistenFn;
+      unlistenFn = undefined;
+      safelyDisposeListener(current);
+    };
+
+    unlistenFn = await desktop.onAgentStream((chunk) => {
+      switch (chunk.type) {
+        case "text_delta":
+          clearThinkingText();
+          queueStreamDelta(chunk.content);
+          break;
+        case "thinking_delta":
+          appendThinkingDelta(chunk.content);
+          break;
+        case "thinking_clear":
+          clearThinkingText();
+          break;
+        case "thinking_commit":
+          commitThinkingText();
+          break;
+        case "tool_call_start":
+          pushStreamToolStart(chunk.toolId, chunk.args);
+          break;
+        case "tool_call_result":
+          pushStreamToolResult(chunk.toolId, chunk.output, chunk.status ?? "completed");
+          break;
+        case "patch":
+          setPendingPatch({
+            filePath: chunk.filePath,
+            content: chunk.newContent,
+            summary: `Patch from agent for ${chunk.filePath}`,
+          });
+          break;
+        case "error":
+          clearThinkingText();
+          setStreamError(chunk.message);
+          flushStreamBuffer();
+          setIsStreaming(false);
+          stopStream();
+          break;
+        case "done":
+          flushStreamBuffer();
+          stopStream();
+          void Promise.all([desktop.listAgentSessions(), desktop.getUsageStats()]).then(([nextSessions, nextUsage]) => {
+            setAgentSessions(nextSessions);
+            setUsageRecords(nextUsage);
+            const resolvedId = currentStreamSessionIdRef.current || nextSessions[0]?.id || "";
+            if (resolvedId) {
+              void desktop.getAgentMessages(resolvedId).then((nextMessages) => {
+                setMessages(nextMessages);
+                setActiveSessionId(resolvedId);
+                setIsStreaming(false);
+              });
+            } else {
+              setIsStreaming(false);
+            }
+          });
+          break;
+      }
+    });
+
+    try {
+      const result = await desktop.runAgent(
+        activeProfileId,
+        activeFile?.path ?? "",
+        selectedText,
+        text,
+        activeSessionId || undefined,
+      );
+      const nextSessionId = result.sessionId ?? activeSessionId;
+      if (nextSessionId) {
+        currentStreamSessionIdRef.current = nextSessionId;
+      }
+      if (nextSessionId && nextSessionId !== activeSessionId) {
+        setActiveSessionId(nextSessionId);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("runAgent failed", error);
+      clearThinkingText();
+      flushStreamBuffer();
+      setStreamError(message);
+      appendAssistantErrorMessage(message);
+      stopStream();
+      setIsStreaming(false);
+    }
+  });
+
+  return {
+    messages,
+    agentSessions,
+    activeSessionId,
+    usageRecords,
+    activeProfileId,
+    activeProfile,
+    isStreaming,
+    streamThinkingText,
+    streamText,
+    streamToolCalls,
+    streamError,
+    pendingPatch,
+    setActiveProfileId,
+    handleRunAgent,
+    handleSendMessage,
+    handleNewSession,
+    handleSelectSession,
+    handleApplyPatch,
+    handleDismissPatch,
+    resetForSnapshot,
+  };
+}

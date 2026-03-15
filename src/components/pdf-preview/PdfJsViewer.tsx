@@ -94,14 +94,18 @@ function PdfJsViewerInner({
   }, []);
 
   useEffect(() => {
+    if (!pdfJsWrapper) {
+      return;
+    }
+
+    debug("info", "PDFJSWrapper instance ready");
     return () => {
       highlightRendererRef.current?.clear();
       highlightRendererRef.current = null;
-      if (pdfJsWrapper) {
-        void pdfJsWrapper.destroy();
-      }
+      debug("warn", "destroying PDFJSWrapper instance");
+      void pdfJsWrapper.destroy();
     };
-  }, [pdfJsWrapper]);
+  }, [debug, pdfJsWrapper]);
 
   useEffect(() => {
     if (!pdfJsWrapper) {
@@ -142,6 +146,10 @@ function PdfJsViewerInner({
       return;
     }
     lastLoadSignatureRef.current = signature;
+    debug("info", "accepted new PDF source signature", {
+      signature,
+      reloadKey,
+    });
 
     if (!source) {
       if (isLoading) {

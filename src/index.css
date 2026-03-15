@@ -2709,3 +2709,53 @@ button {
   padding: 12px 20px 16px;
   border-top: 1px solid var(--border-light);
 }
+
+/* Collab tab styles */
+.collab-identity-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; flex-wrap: wrap; }
+.collab-color-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.collab-config-field { margin-bottom: 8px; }
+.collab-config-field label { display: block; font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px; }
+.collab-color-picker { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.collab-color-swatch {
+  width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent;
+  cursor: pointer; transition: border-color 0.15s;
+}
+.collab-color-swatch:hover { border-color: var(--text-secondary); }
+.collab-color-swatch.is-active { border-color: var(--text-primary); box-shadow: 0 0 0 2px var(--bg-app); }
+.collab-color-input { width: 24px; height: 24px; border: none; padding: 0; cursor: pointer; border-radius: 50%; }
+.link-btn {
+  background: none; border: none; color: var(--accent-primary); font-size: 12px;
+  cursor: pointer; padding: 2px 4px;
+}
+.link-btn:hover { text-decoration: underline; }
+
+/* Comment panel styles */
+.comment-card {
+  padding: 10px; border-left: 3px solid; border-radius: var(--radius-sm);
+  background: var(--bg-surface); margin-bottom: 8px;
+}
+.comment-card.comment-resolved { opacity: 0.6; }
+.comment-author { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+.comment-line-ref {
+  display: inline-block; font-size: 11px; color: var(--accent-primary);
+  cursor: pointer; background: none; border: none; padding: 2px 0; text-align: left;
+}
+.comment-line-ref:hover { text-decoration: underline; }
+.comment-text { font-size: 13px; color: var(--text-primary); margin: 6px 0; white-space: pre-wrap; }
+.comment-reply { padding-left: 12px; border-left: 2px solid var(--border-light); margin-top: 6px; }
+.comment-reply-form { margin-top: 6px; }
+.comment-actions { display: flex; gap: 8px; font-size: 11px; margin-top: 4px; }
+.comment-actions button { color: var(--text-tertiary); cursor: pointer; background: none; border: none; padding: 2px 0; }
+.comment-actions button:hover { color: var(--text-primary); }
+.comment-resolved-toggle {
+  font-size: 12px; color: var(--text-tertiary); cursor: pointer;
+  margin-top: 12px; background: none; border: none; padding: 4px 0; width: 100%; text-align: left;
+}
+.comment-resolved-toggle:hover { color: var(--text-primary); }
+
+/* Comment gutter */
+.cm-comment-gutter { width: 14px; }
+.cm-comment-dot {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; margin: 3px; cursor: pointer;
+}
