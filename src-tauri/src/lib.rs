@@ -11,9 +11,7 @@ use std::sync::{Mutex, RwLock};
 
 use tauri::Manager;
 
-use state::{
-    default_compile_result, empty_project_config, load_project_config, AppState,
-};
+use state::{default_compile_result, empty_project_config, load_project_config, AppState};
 
 enum LaunchWorkspace {
     Empty,
@@ -29,7 +27,7 @@ pub fn run() {
         .on_menu_event(|app, event| desktop_menu::handle_menu_event(app, event))
         .setup(|app| {
             #[cfg(target_os = "macos")]
-            desktop_menu::install_dock_menu().expect("failed to install Dock menu");
+            desktop_menu::install_dock_menu(app.handle()).expect("failed to install Dock menu");
 
             let app_data_dir = app
                 .path()

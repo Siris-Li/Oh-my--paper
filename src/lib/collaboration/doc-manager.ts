@@ -70,6 +70,11 @@ export interface ManagedCollabDocHandle {
   subscribe(listener: () => void): () => void;
 }
 
+export interface CollabManagerEvent {
+  kind: "content" | "connection" | "presence";
+  path: string;
+}
+
 interface ManagedDocInternal extends ManagedCollabDocHandle {
   mirrorFlushTimer: number | null;
   stateFlushTimer: number | null;
@@ -87,7 +92,7 @@ interface CollabDocManagerOptions {
 export class CollabDocManager {
   private readonly options: CollabDocManagerOptions;
   private readonly docs = new Map<string, ManagedDocInternal>();
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new Set<(event: CollabManagerEvent) => void>();
 
   constructor(options: CollabDocManagerOptions) {
     this.options = options;
@@ -98,12 +103,6 @@ export class CollabDocManager {
       snapshot && this.options.enabled && this.options.projectId
         ? new Set(collectTextPaths(snapshot.tree))
         : new Set<string>();
-
-    for (const path of nextPaths) {
-      if (!this.docs.has(path)) {
-        await this.openDoc(path);
-      }
-    }
 
     for (const path of Array.from(this.docs.keys())) {
       if (!nextPaths.has(path)) {
@@ -191,7 +190,7 @@ export class CollabDocManager {
       },
     };
 
-    const notify = () => {
+    const notify = (kind: CollabManagerEvent["kind"]) => {
       const states = Array.from(awareness.getStates().entries());
       managed.members = states
         .filter(([clientId, state]) => clientId !== awareness.clientID && state?.user)
@@ -206,7 +205,7 @@ export class CollabDocManager {
         listener();
       }
       for (const listener of this.listeners) {
-        listener();
+        listener({ kind, path });
       }
     };
 
@@ -217,22 +216,22 @@ export class CollabDocManager {
       }
       managed.synced = true;
       managed.connectionError = "";
-      notify();
+      notify("connection");
     });
     provider.on("status", (connected) => {
       if (!connected) {
         managed.synced = false;
       }
-      notify();
+      notify("connection");
     });
     provider.on("connection-error", (error) => {
       managed.connectionError = error.message;
       managed.synced = false;
-      notify();
+      notify("connection");
     });
 
     awareness.on("change", () => {
-      notify();
+      notify("presence");
     });
 
     yDoc.on("update", (_update: Uint8Array, origin: unknown) => {
@@ -260,12 +259,12 @@ export class CollabDocManager {
         });
       }, LOCAL_STATE_FLUSH_MS);
 
-      notify();
+      notify("content");
     });
 
     this.docs.set(path, managed);
     provider.connect();
-    notify();
+    notify("connection");
     return managed;
   }
 
@@ -277,7 +276,7 @@ export class CollabDocManager {
     doc.destroy();
     this.docs.delete(path);
     for (const listener of this.listeners) {
-      listener();
+      listener({ kind: "connection", path });
     }
   }
 
@@ -289,7 +288,7 @@ export class CollabDocManager {
     return Array.from(this.docs.keys());
   }
 
-  subscribe(listener: () => void) {
+  subscribe(listener: (event: CollabManagerEvent) => void) {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);

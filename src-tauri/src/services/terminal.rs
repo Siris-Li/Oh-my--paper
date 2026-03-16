@@ -135,7 +135,11 @@ fn get_session(state: &AppState, session_id: &str) -> Result<Arc<TerminalSession
         .ok_or_else(|| anyhow!("terminal session not found"))
 }
 
-fn spawn_output_thread(window: &WebviewWindow, session_id: String, mut reader: Box<dyn Read + Send>) {
+fn spawn_output_thread(
+    window: &WebviewWindow,
+    session_id: String,
+    mut reader: Box<dyn Read + Send>,
+) {
     let app_handle = window.app_handle().clone();
     let window_label = window.label().to_string();
 

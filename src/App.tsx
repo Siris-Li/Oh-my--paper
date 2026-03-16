@@ -433,8 +433,10 @@ function App() {
     if (!collabManager) {
       return;
     }
-    const unsubscribe = collabManager.subscribe(() => {
-      setCollabRevision((current) => current + 1);
+    const unsubscribe = collabManager.subscribe((event) => {
+      if (event.kind === "content") {
+        setCollabRevision((current) => current + 1);
+      }
     });
     return unsubscribe;
   }, [collabManager]);
@@ -447,6 +449,29 @@ function App() {
       console.warn("failed to sync collaborative project", error);
     });
   }, [collabManager, snapshot]);
+
+  useEffect(() => {
+    if (!collabManager) {
+      return;
+    }
+
+    const expectedPaths = new Set(openTabs);
+    if (activeFilePath) {
+      expectedPaths.add(activeFilePath);
+    }
+
+    for (const path of expectedPaths) {
+      void collabManager.openDoc(path).catch((error) => {
+        console.warn("failed to open collaborative doc", path, error);
+      });
+    }
+
+    for (const path of collabManager.getAllConnectedPaths()) {
+      if (!expectedPaths.has(path)) {
+        collabManager.closeDoc(path);
+      }
+    }
+  }, [activeFilePath, collabManager, openTabs]);
 
   useEffect(() => {
     if (!collabManager) {

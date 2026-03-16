@@ -1,5 +1,7 @@
 use std::path::Path;
 use std::process::Command;
+#[cfg(target_os = "macos")]
+use std::sync::{LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::menu::{
@@ -36,6 +38,17 @@ pub struct AppMenuState {
     pub recent_workspaces: Vec<WorkspaceMenuEntry>,
 }
 
+impl Default for AppMenuState {
+    fn default() -> Self {
+        Self {
+            auto_save: false,
+            compile_on_save: false,
+            active_workspace_root: String::new(),
+            recent_workspaces: Vec::new(),
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MenuActionPayload {
@@ -45,24 +58,20 @@ pub struct MenuActionPayload {
 }
 
 pub fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    build_menu_with_state(
-        app,
-        &AppMenuState {
-            auto_save: false,
-            compile_on_save: false,
-            active_workspace_root: String::new(),
-            recent_workspaces: Vec::new(),
-        },
-    )
+    build_menu_with_state(app, &AppMenuState::default())
 }
 
 pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
-    match event.id().as_ref() {
+    handle_menu_event_id(app, event.id().as_ref());
+}
+
+fn handle_menu_event_id<R: Runtime>(app: &AppHandle<R>, id: &str) {
+    match id {
         MENU_NEW_WINDOW => {
             let _ = launch_workspace_window(None);
         }
         MENU_OPEN_PROJECT => {
-            emit_menu_action(
+            let _ = emit_menu_action(
                 app,
                 MenuActionPayload {
                     action: "open-project".to_string(),
@@ -72,7 +81,7 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
             );
         }
         MENU_OPEN_PROJECT_NEW_WINDOW => {
-            emit_menu_action(
+            let _ = emit_menu_action(
                 app,
                 MenuActionPayload {
                     action: "open-project-new-window".to_string(),
@@ -82,7 +91,7 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
             );
         }
         MENU_NEW_PROJECT => {
-            emit_menu_action(
+            let _ = emit_menu_action(
                 app,
                 MenuActionPayload {
                     action: "new-project".to_string(),
@@ -92,7 +101,7 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
             );
         }
         MENU_CLEAR_RECENT => {
-            emit_menu_action(
+            let _ = emit_menu_action(
                 app,
                 MenuActionPayload {
                     action: "clear-recent-workspaces".to_string(),
@@ -102,7 +111,7 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
             );
         }
         MENU_SAVE => {
-            emit_menu_action(
+            let _ = emit_menu_action(
                 app,
                 MenuActionPayload {
                     action: "save-current".to_string(),
@@ -112,7 +121,7 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
             );
         }
         MENU_SAVE_ALL => {
-            emit_menu_action(
+            let _ = emit_menu_action(
                 app,
                 MenuActionPayload {
                     action: "save-all".to_string(),
@@ -123,7 +132,7 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
         }
         MENU_AUTO_SAVE => {
             let checked = read_check_item_state(app, MENU_AUTO_SAVE);
-            emit_menu_action(
+            let _ = emit_menu_action(
                 app,
                 MenuActionPayload {
                     action: "toggle-auto-save".to_string(),
@@ -134,7 +143,7 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
         }
         MENU_COMPILE_ON_SAVE => {
             let checked = read_check_item_state(app, MENU_COMPILE_ON_SAVE);
-            emit_menu_action(
+            let _ = emit_menu_action(
                 app,
                 MenuActionPayload {
                     action: "toggle-compile-on-save".to_string(),
@@ -144,15 +153,18 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
             );
         }
         _ => {
-            if let Some(root_path) = decode_recent_menu_id(event.id().as_ref()) {
-                emit_menu_action(
+            if let Some(root_path) = decode_recent_menu_id(id) {
+                let delivered = emit_menu_action(
                     app,
                     MenuActionPayload {
                         action: "open-recent-workspace".to_string(),
                         checked: None,
-                        root_path: Some(root_path),
+                        root_path: Some(root_path.clone()),
                     },
                 );
+                if !delivered {
+                    let _ = launch_workspace_window(Some(&root_path));
+                }
             }
         }
     }
@@ -161,6 +173,8 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
 pub fn sync_menu_state<R: Runtime>(app: &AppHandle<R>, state: &AppMenuState) -> tauri::Result<()> {
     let menu = build_menu_with_state(app, state)?;
     let _ = app.set_menu(menu)?;
+    #[cfg(target_os = "macos")]
+    sync_dock_menu_state(state);
     Ok(())
 }
 
@@ -182,17 +196,17 @@ pub fn launch_workspace_window(root_path: Option<&str>) -> anyhow::Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-pub fn install_dock_menu() -> anyhow::Result<()> {
+pub fn install_dock_menu<R: Runtime>(app: &AppHandle<R>) -> anyhow::Result<()> {
     use objc2::runtime::{AnyObject, ProtocolObject};
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSApplication, NSApplicationDelegate};
 
     let mtm = MainThreadMarker::new()
         .ok_or_else(|| anyhow::anyhow!("Dock menu must be installed on the main thread"))?;
-    let app = NSApplication::sharedApplication(mtm);
-    let delegate: objc2::rc::Retained<ProtocolObject<dyn NSApplicationDelegate>> =
-        app.delegate()
-            .ok_or_else(|| anyhow::anyhow!("NSApplication delegate is unavailable"))?;
+    let ns_app = NSApplication::sharedApplication(mtm);
+    let delegate: objc2::rc::Retained<ProtocolObject<dyn NSApplicationDelegate>> = ns_app
+        .delegate()
+        .ok_or_else(|| anyhow::anyhow!("NSApplication delegate is unavailable"))?;
     let delegate_object: &AnyObject = AsRef::<AnyObject>::as_ref(&delegate);
     let selector = objc2::sel!(applicationDockMenu:);
     let dock_menu_imp: unsafe extern "C-unwind" fn(
@@ -216,18 +230,26 @@ pub fn install_dock_menu() -> anyhow::Result<()> {
         );
     }
 
+    let app_handle = app.clone();
+    muda::MenuEvent::set_event_handler(Some(move |event: muda::MenuEvent| {
+        handle_menu_event_id(&app_handle, event.id().as_ref());
+    }));
+
     DOCK_MENU.with(|slot| {
-        *slot.borrow_mut() = Some(build_dock_menu()?);
+        *slot.borrow_mut() = Some(build_dock_menu(&dock_menu_state_snapshot())?);
         Ok::<(), anyhow::Error>(())
     })?;
 
     Ok(())
 }
 
-fn emit_menu_action<R: Runtime>(app: &AppHandle<R>, payload: MenuActionPayload) {
+fn emit_menu_action<R: Runtime>(app: &AppHandle<R>, payload: MenuActionPayload) -> bool {
     if let Some(window) = focused_window(app).or_else(|| app.get_webview_window("main")) {
         let _ = window.emit(MENU_ACTION_EVENT, payload);
+        return true;
     }
+
+    false
 }
 
 fn focused_window<R: Runtime>(app: &AppHandle<R>) -> Option<tauri::WebviewWindow<R>> {
@@ -474,10 +496,45 @@ thread_local! {
 }
 
 #[cfg(target_os = "macos")]
-fn build_dock_menu() -> anyhow::Result<muda::Menu> {
+static DOCK_MENU_STATE: LazyLock<Mutex<AppMenuState>> =
+    LazyLock::new(|| Mutex::new(AppMenuState::default()));
+
+#[cfg(target_os = "macos")]
+fn sync_dock_menu_state(state: &AppMenuState) {
+    if let Ok(mut current) = DOCK_MENU_STATE.lock() {
+        *current = state.clone();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn dock_menu_state_snapshot() -> AppMenuState {
+    DOCK_MENU_STATE
+        .lock()
+        .map(|state| state.clone())
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "macos")]
+fn build_dock_menu(state: &AppMenuState) -> anyhow::Result<muda::Menu> {
     let menu = muda::Menu::new();
+
+    for workspace in &state.recent_workspaces {
+        let label = if state.active_workspace_root == workspace.root_path {
+            format!("{} (当前窗口)", workspace.label)
+        } else {
+            workspace.label.clone()
+        };
+        let item = muda::MenuItem::with_id(recent_menu_id(&workspace.root_path), label, true, None);
+        menu.append(&item)?;
+    }
+
+    if !state.recent_workspaces.is_empty() {
+        menu.append(&muda::PredefinedMenuItem::separator())?;
+    }
+
     let new_window = muda::MenuItem::with_id(MENU_NEW_WINDOW, "新建窗口", true, None);
     menu.append(&new_window)?;
+
     Ok(menu)
 }
 
@@ -491,6 +548,10 @@ unsafe extern "C-unwind" fn dock_menu_for_application(
     use objc2::rc::Retained;
 
     DOCK_MENU.with(|slot| {
+        if let Ok(menu) = build_dock_menu(&dock_menu_state_snapshot()) {
+            *slot.borrow_mut() = Some(menu);
+        }
+
         let menu = slot.borrow();
         menu.as_ref()
             .and_then(|menu| unsafe { Retained::retain(menu.ns_menu().cast()) })
