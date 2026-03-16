@@ -141,20 +141,36 @@ fn spawn_output_thread(window: &WebviewWindow, session_id: String, mut reader: B
 
     thread::spawn(move || {
         let mut buffer = [0_u8; 8192];
+        let mut utf8_buffer: Vec<u8> = Vec::new();
 
         loop {
             match reader.read(&mut buffer) {
-                Ok(0) => break,
+                Ok(0) => {
+                    if !utf8_buffer.is_empty() {
+                        let tail = String::from_utf8_lossy(&utf8_buffer).into_owned();
+                        emit_terminal_event(
+                            &app_handle,
+                            &window_label,
+                            TerminalEvent::Output {
+                                session_id: session_id.clone(),
+                                data: tail,
+                            },
+                        );
+                    }
+                    break;
+                }
                 Ok(size) => {
-                    let data = String::from_utf8_lossy(&buffer[..size]).into_owned();
-                    emit_terminal_event(
-                        &app_handle,
-                        &window_label,
-                        TerminalEvent::Output {
-                            session_id: session_id.clone(),
-                            data,
-                        },
-                    );
+                    let data = decode_utf8_stream_chunk(&mut utf8_buffer, &buffer[..size]);
+                    if !data.is_empty() {
+                        emit_terminal_event(
+                            &app_handle,
+                            &window_label,
+                            TerminalEvent::Output {
+                                session_id: session_id.clone(),
+                                data,
+                            },
+                        );
+                    }
                 }
                 Err(error) => {
                     emit_terminal_event(
@@ -170,6 +186,51 @@ fn spawn_output_thread(window: &WebviewWindow, session_id: String, mut reader: B
             }
         }
     });
+}
+
+fn decode_utf8_stream_chunk(buffered: &mut Vec<u8>, incoming: &[u8]) -> String {
+    buffered.extend_from_slice(incoming);
+
+    let mut output = String::new();
+    let mut cursor = 0;
+
+    while cursor < buffered.len() {
+        match std::str::from_utf8(&buffered[cursor..]) {
+            Ok(valid) => {
+                output.push_str(valid);
+                cursor = buffered.len();
+                break;
+            }
+            Err(error) => {
+                let valid_up_to = error.valid_up_to();
+                if valid_up_to > 0 {
+                    let end = cursor + valid_up_to;
+                    if let Ok(valid) = std::str::from_utf8(&buffered[cursor..end]) {
+                        output.push_str(valid);
+                    }
+                    cursor = end;
+                }
+
+                match error.error_len() {
+                    Some(error_len) => {
+                        // Keep stream alive for malformed bytes instead of dropping output.
+                        output.push('\u{FFFD}');
+                        cursor = (cursor + error_len.max(1)).min(buffered.len());
+                    }
+                    None => {
+                        // Incomplete UTF-8 sequence at chunk boundary; keep it for next read.
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if cursor > 0 {
+        buffered.drain(0..cursor);
+    }
+
+    output
 }
 
 fn spawn_exit_thread(

@@ -2179,6 +2179,19 @@ function App() {
             <div className="topbar-right">
               <span className="topbar-metric">诊断结果 <strong>{snapshot.compileResult.diagnostics.length} 项</strong></span>
               <button
+                className={`topbar-terminal-btn hover-spring ${isTerminalVisible ? "is-active" : ""}`}
+                onClick={() => setIsTerminalVisible((current) => !current)}
+                type="button"
+                title={isTerminalVisible ? "隐藏终端" : "打开终端"}
+                aria-label={isTerminalVisible ? "隐藏终端" : "打开终端"}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                  <polyline points="7 9 11 12 7 15"></polyline>
+                  <line x1="13" y1="15" x2="17" y2="15"></line>
+                </svg>
+              </button>
+              <button
                 className="compile-launch-btn hover-spring"
                 onClick={() => void handleInteractiveCompile()}
                 type="button"
@@ -2266,14 +2279,6 @@ function App() {
             </button>
 
             <div style={{ flex: 1 }}></div>
-
-            <button
-              className={`activity-icon hover-spring ${isTerminalVisible ? "is-active" : ""}`}
-              onClick={() => setIsTerminalVisible((current) => !current)}
-              title="终端"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg>
-            </button>
 
             <button
               className={`activity-icon hover-spring ${drawerTab === "logs" ? "is-active" : ""}`}

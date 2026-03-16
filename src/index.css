@@ -161,6 +161,7 @@ button {
 
 .topbar-right {
   flex: 0 0 auto;
+  gap: 10px;
 }
 
 .topbar-toggle {
@@ -233,6 +234,36 @@ button {
   width: 15px;
   height: 15px;
   margin-left: 1px;
+}
+
+.topbar-terminal-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  background: #ffffff;
+  color: #4b5563;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.topbar-terminal-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.topbar-terminal-btn:hover {
+  color: #111827;
+  border-color: rgba(100, 116, 139, 0.5);
+  background: #f8fafc;
+}
+
+.topbar-terminal-btn.is-active {
+  color: #115e59;
+  border-color: rgba(45, 212, 191, 0.7);
+  background: rgba(240, 253, 250, 0.98);
 }
 
 .topbar-menubar {
@@ -1505,19 +1536,19 @@ button {
   height: 0;
   overflow: hidden;
   border-top: 1px solid transparent;
-  background: var(--bg-surface);
-  transition: height 0.16s ease, border-color 0.16s ease;
+  background: #ffffff;
+  transition: height 0.2s ease, border-color 0.2s ease;
 }
 
 .terminal-panel-shell.is-visible {
-  border-top-color: var(--border-light);
+  border-top-color: #d9e2ec;
 }
 
 .terminal-panel-resize-handle {
   height: 6px;
   cursor: row-resize;
   position: relative;
-  background: linear-gradient(180deg, rgba(16, 163, 127, 0.06), transparent);
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.18), transparent);
 }
 
 .terminal-panel-resize-handle::after {
@@ -1529,41 +1560,41 @@ button {
   height: 2px;
   border-radius: 999px;
   transform: translateX(-50%);
-  background: rgba(100, 110, 126, 0.34);
+  background: rgba(100, 110, 126, 0.42);
 }
 
 .terminal-panel {
   height: calc(100% - 6px);
   display: flex;
   flex-direction: column;
-  background: #0b1120;
+  background: #ffffff;
 }
 
 .terminal-panel-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 38px;
+  min-height: 40px;
   padding: 0 12px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(15, 23, 42, 0.96);
+  border-bottom: 1px solid #e5e7eb;
+  background: #ffffff;
 }
 
 .terminal-panel-tab {
   flex: 0 0 auto;
   padding: 6px 0;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #f8fafc;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #111827;
 }
 
 .terminal-panel-meta {
   min-width: 0;
   flex: 1 1 auto;
   font-size: 12px;
-  color: #94a3b8;
+  color: #6b7280;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1577,9 +1608,9 @@ button {
 }
 
 .terminal-panel-btn {
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(30, 41, 59, 0.92);
-  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  background: #f8fafc;
+  color: #334155;
   padding: 4px 9px;
   border-radius: var(--radius-sm);
   font-size: 11px;
@@ -1588,9 +1619,9 @@ button {
 }
 
 .terminal-panel-btn:hover:not(:disabled) {
-  background: rgba(51, 65, 85, 0.96);
-  color: #f8fafc;
-  border-color: rgba(52, 211, 153, 0.24);
+  background: #ffffff;
+  color: #0f172a;
+  border-color: rgba(100, 116, 139, 0.48);
 }
 
 .terminal-panel-btn:disabled {
@@ -1602,7 +1633,7 @@ button {
   flex: 1;
   min-height: 0;
   position: relative;
-  background: #0f172a;
+  background: #ffffff;
 }
 
 .terminal-canvas,
@@ -1628,33 +1659,33 @@ button {
   padding: 18px;
   pointer-events: none;
   background:
-    radial-gradient(circle at top, rgba(52, 211, 153, 0.14), transparent 48%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(15, 23, 42, 0.58));
+    radial-gradient(circle at top, rgba(59, 130, 246, 0.08), transparent 56%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.72));
 }
 
 .terminal-panel-overlay-label {
   max-width: min(100%, 720px);
   padding: 10px 14px;
-  border: 1px solid rgba(52, 211, 153, 0.18);
+  border: 1px solid rgba(148, 163, 184, 0.4);
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.86);
-  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.92);
+  color: #475569;
   font-size: 12px;
   font-family: var(--mono);
   letter-spacing: 0.01em;
   text-align: center;
-  box-shadow: 0 16px 40px rgba(2, 6, 23, 0.3);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.08);
 }
 
 .terminal-canvas .xterm {
   height: 100%;
   padding: 10px 12px 12px;
-  background: #0f172a;
+  background: #ffffff;
 }
 
 .terminal-canvas .xterm-viewport {
   overflow-y: auto !important;
-  background: #0f172a;
+  background: #ffffff;
 }
 
 .preview-header {
