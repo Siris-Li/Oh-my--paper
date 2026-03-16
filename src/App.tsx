@@ -16,7 +16,6 @@ import { ProjectSidebar } from "./components/ProjectSidebar";
 import { Sidebar } from "./components/Sidebar";
 import { SyncSidebar } from "./components/SyncSidebar";
 import { TerminalPanel } from "./components/TerminalPanel";
-import { WorkspaceSyncBar } from "./components/WorkspaceSyncBar";
 import { WelcomeWorkspace } from "./components/WelcomeWorkspace";
 import { WorkspaceMenuBar } from "./components/WorkspaceMenuBar";
 import { CollabLoginModal } from "./components/CollabLoginModal";
@@ -173,6 +172,25 @@ function decodeCollabTextSnapshot(update: Uint8Array) {
   } finally {
     doc.destroy();
   }
+}
+
+function collectTextPathsFromTree(nodes: WorkspaceSnapshot["tree"]) {
+  const result: string[] = [];
+
+  function visit(currentNodes: WorkspaceSnapshot["tree"]) {
+    for (const node of currentNodes) {
+      if (node.kind === "directory") {
+        visit(node.children ?? []);
+        continue;
+      }
+      if (node.isText) {
+        result.push(node.path);
+      }
+    }
+  }
+
+  visit(nodes);
+  return result;
 }
 
 function formatDebugTimestamp(date: Date) {
@@ -1876,7 +1894,14 @@ function App() {
     return resolvedProject;
   }
 
-  async function hydrateCloudProjectWorkspace(token: string, projectId: string, rootMainFile: string) {
+  async function hydrateCloudProjectWorkspace(
+    token: string,
+    projectId: string,
+    rootMainFile: string,
+    options?: {
+      additionalSyncedPaths?: Iterable<string>;
+    },
+  ) {
     await ensureCloudDocument(token, projectId, rootMainFile);
     const documents = await listCloudDocuments(token, projectId);
 
@@ -1886,7 +1911,9 @@ function App() {
       await fileAdapter.saveFile(document.path, content);
     }
 
-    await seedCollabSyncBaseline(fileAdapter, projectId, documents);
+    await seedCollabSyncBaseline(fileAdapter, projectId, documents, {
+      additionalSyncedPaths: options?.additionalSyncedPaths,
+    });
   }
 
   async function handleCreateCloudProject() {
@@ -1997,6 +2024,14 @@ function App() {
 
     try {
       await joinCloudProject(collabAuthSession.token, cloudProjectId, resolvedProject.role);
+      const project = await getCloudProject(collabAuthSession.token, cloudProjectId);
+      const rootMainFile = project.rootMainFile?.trim() || "main.tex";
+      const existingLocalTextPaths = collectTextPathsFromTree(snapshot.tree);
+
+      await saveDirtyFilesBeforeWorkspaceSwitch();
+      await hydrateCloudProjectWorkspace(collabAuthSession.token, cloudProjectId, rootMainFile, {
+        additionalSyncedPaths: existingLocalTextPaths,
+      });
 
       const collab: WorkspaceCollabMetadata = {
         mode: "cloud",
@@ -2005,13 +2040,20 @@ function App() {
         linkedAt: new Date().toISOString(),
       };
       await writeWorkspaceCollabMetadata(fileAdapter, collab);
-      setSnapshot((current) => (current ? { ...current, collab } : current));
-      setLastManualCollabSyncAt("");
+      await refreshWorkspace({
+        activeFilePath,
+        openTabs,
+        openImageTabs,
+        editorImagePath,
+        previewSelection,
+      });
+      const linkedAt = new Date().toISOString();
+      setLastManualCollabSyncAt(linkedAt);
       setCollabSyncError("");
       setCollabProjectModal(null);
       setCollabNotice({
         tone: "success",
-        text: `云项目已关联：${cloudProjectId}。如需覆盖本地，请先拉取待更新文件；如需上传本地，请推送待同步文件。`,
+        text: `云项目已关联并完成首次拉取：${project.name || cloudProjectId}`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2060,6 +2102,10 @@ function App() {
           ...createdSnapshot.projectConfig,
           mainTex: rootMainFile,
         });
+      }
+
+      for (const node of createdSnapshot.tree) {
+        await fileAdapter.deleteFile(node.path);
       }
 
       const collab: WorkspaceCollabMetadata = {
@@ -2815,6 +2861,10 @@ function App() {
           ) : drawerTab === "sync" ? (
             <SyncSidebar
               projectId={snapshot.collab?.cloudProjectId ?? null}
+              workspaceLabel={workspaceLabelFromRoot(snapshot.projectConfig.rootPath)}
+              linkedAt={snapshot.collab?.linkedAt ?? ""}
+              notice={collabNotice}
+              lastSyncAt={lastManualCollabSyncAt}
               role={currentCollabStatus.role}
               collabStatus={currentCollabStatus}
               busyAction={collabBusyAction}
@@ -2903,20 +2953,6 @@ function App() {
 
           <div className="workspace-body" ref={workspaceBodyRef}>
             <div className="workspace-main">
-              <WorkspaceSyncBar
-                projectId={snapshot.collab?.cloudProjectId ?? null}
-                role={currentCollabStatus.role}
-                collabStatus={currentCollabStatus}
-                pendingPushCount={collabWorkspaceSyncSummary.pendingPushCount}
-                pendingPullCount={collabWorkspaceSyncSummary.pendingPullCount}
-                conflictCount={collabWorkspaceSyncSummary.conflictCount}
-                onPush={() => void handleSyncCloudWorkspace()}
-                onPull={() => void handlePullCloudWorkspace()}
-                onOpenShareModal={handleOpenShareLinkModal}
-                onCreateProject={() => void handleCreateCloudProject()}
-                onLinkProject={() => void handleLinkCloudProject()}
-              />
-
               <div className="workspace-main-content" ref={editorPreviewSplitRef}>
                 <div className="editor-area">
                   <div className="editor-tabs" onWheel={handleEditorTabsWheel}>

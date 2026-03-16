@@ -9,6 +9,10 @@ type SyncChangeEntry = {
 
 interface SyncSidebarProps {
   projectId: string | null;
+  workspaceLabel: string;
+  linkedAt: string;
+  notice: { tone: "success" | "error"; text: string } | null;
+  lastSyncAt: string;
   role: CloudProjectRole | null;
   collabStatus: CollabStatus;
   busyAction: "save-config" | "create-project" | "link-project" | "unlink-project" | "sync-project" | "pull-project" | null;
@@ -20,6 +24,14 @@ interface SyncSidebarProps {
   onLinkProject: () => void;
   onOpenCollabSettings: () => void;
 }
+
+type SyncGraphEntry = {
+  id: string;
+  title: string;
+  subtitle: string;
+  badge?: string;
+  tone: "neutral" | "push" | "pull" | "conflict" | "success" | "error";
+};
 
 function roleLabel(role: CloudProjectRole | null) {
   if (role === "owner") return "所有者";
@@ -36,8 +48,39 @@ function stateLabel(state: CollabFileSyncState) {
   return "冲突";
 }
 
+function formatTimestamp(value: string) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function summarizeEntries(entries: SyncChangeEntry[]) {
+  if (entries.length === 0) {
+    return "当前没有文件。";
+  }
+  const preview = entries.slice(0, 2).map((entry) => entry.path);
+  if (entries.length <= 2) {
+    return preview.join(" · ");
+  }
+  return `${preview.join(" · ")} +${entries.length - 2}`;
+}
+
 export function SyncSidebar({
   projectId,
+  workspaceLabel,
+  linkedAt,
+  notice,
+  lastSyncAt,
   role,
   collabStatus,
   busyAction,
@@ -53,6 +96,79 @@ export function SyncSidebar({
   const pendingPull = changes.filter((entry) => entry.state === "pending-pull");
   const conflicts = changes.filter((entry) => entry.state === "conflict");
   const hasCloudProject = Boolean(projectId);
+  const graphEntries: SyncGraphEntry[] = hasCloudProject
+    ? [
+      {
+        id: "head",
+        title: workspaceLabel || "当前工作区",
+        subtitle: `当前权限：${roleLabel(role)} · ${projectId?.slice(0, 8)}…`,
+        badge: "HEAD",
+        tone: "neutral",
+      },
+      ...(notice
+        ? [{
+          id: "notice",
+          title: notice.tone === "error" ? "最近一次操作失败" : "最近一次操作",
+          subtitle: notice.text,
+          badge: notice.tone === "error" ? "ERR" : "OK",
+          tone: notice.tone === "error" ? "error" : "success",
+        } satisfies SyncGraphEntry]
+        : []),
+      ...(pendingPush.length > 0
+        ? [{
+          id: "push",
+          title: `待推送 ${pendingPush.length} 个文件`,
+          subtitle: summarizeEntries(pendingPush),
+          badge: "PUSH",
+          tone: "push",
+        } satisfies SyncGraphEntry]
+        : []),
+      ...(pendingPull.length > 0
+        ? [{
+          id: "pull",
+          title: `待拉取 ${pendingPull.length} 个文件`,
+          subtitle: summarizeEntries(pendingPull),
+          badge: "PULL",
+          tone: "pull",
+        } satisfies SyncGraphEntry]
+        : []),
+      ...(conflicts.length > 0
+        ? [{
+          id: "conflict",
+          title: `冲突 ${conflicts.length} 个文件`,
+          subtitle: summarizeEntries(conflicts),
+          badge: "CONFLICT",
+          tone: "conflict",
+        } satisfies SyncGraphEntry]
+        : pendingPush.length === 0 && pendingPull.length === 0
+          ? [{
+            id: "synced",
+            title: "当前工作区与云端一致",
+            subtitle: lastSyncAt ? `最近同步：${formatTimestamp(lastSyncAt)}` : "还没有新的待同步文件。",
+            badge: "SYNC",
+            tone: "success",
+          } satisfies SyncGraphEntry]
+          : []),
+      ...(lastSyncAt
+        ? [{
+          id: "last-sync",
+          title: "最近一次手动同步",
+          subtitle: formatTimestamp(lastSyncAt),
+          badge: "SYNC",
+          tone: "success",
+        } satisfies SyncGraphEntry]
+        : []),
+      ...(linkedAt
+        ? [{
+          id: "linked",
+          title: "已关联云项目",
+          subtitle: formatTimestamp(linkedAt),
+          badge: "LINK",
+          tone: "neutral",
+        } satisfies SyncGraphEntry]
+        : []),
+    ]
+    : [];
 
   return (
     <aside className="primary-sidebar sync-sidebar">
@@ -136,6 +252,32 @@ export function SyncSidebar({
               </button>
             </div>
 
+            <div className="sync-section sync-graph-section">
+              <div className="sync-section-header">
+                <span>同步图</span>
+                <span className="text-subtle text-xs">{graphEntries.length} 个节点</span>
+              </div>
+              <div className="sync-graph-list">
+                {graphEntries.map((entry, index) => (
+                  <div key={entry.id} className="sync-graph-item">
+                    <div className="sync-graph-rail" aria-hidden="true">
+                      <span className={clsx("sync-graph-node", `is-${entry.tone}`)} />
+                      {index < graphEntries.length - 1 && <span className="sync-graph-line" />}
+                    </div>
+                    <div className="sync-graph-card">
+                      <div className="sync-graph-top">
+                        <div className="sync-graph-title">{entry.title}</div>
+                        {entry.badge && (
+                          <span className={clsx("sync-graph-badge", `is-${entry.tone}`)}>{entry.badge}</span>
+                        )}
+                      </div>
+                      <div className="sync-graph-subtitle">{entry.subtitle}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="sync-section">
               <div className="sync-section-header">
                 <span>变更</span>
@@ -146,9 +288,12 @@ export function SyncSidebar({
                 <div className="sync-section-empty">当前没有待同步文件。</div>
               ) : (
                 <div className="sync-change-list">
-                  {changes.map((entry) => (
+                  {changes.map((entry, index) => (
                     <div key={`${entry.state}:${entry.path}`} className="sync-change-item">
-                      <span className={`tree-collab-dot is-${entry.state}`} aria-hidden="true"></span>
+                      <div className="sync-change-rail" aria-hidden="true">
+                        <span className={`sync-change-node is-${entry.state}`}></span>
+                        {index < changes.length - 1 && <span className="sync-change-line" />}
+                      </div>
                       <span className="sync-change-path">{entry.path}</span>
                       <span
                         className={clsx(

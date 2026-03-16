@@ -85,13 +85,25 @@ export async function seedCollabSyncBaseline(
   fileAdapter: FileAdapter,
   projectId: string,
   documents: CloudDocumentSummary[],
+  options?: {
+    additionalSyncedPaths?: Iterable<string>;
+  },
 ) {
   await ensureCollabPersistenceDirectories(fileAdapter, projectId);
-  const versions = Object.fromEntries(
+  const versionEntries = new Map<string, number>(
     documents
       .filter((document) => document.kind === "text")
-      .map((document) => [document.path, document.latestVersion] as const)
-      .sort(([left], [right]) => left.localeCompare(right)),
+      .map((document) => [document.path, document.latestVersion] as const),
+  );
+  for (const path of options?.additionalSyncedPaths ?? []) {
+    const normalizedPath = path.trim();
+    if (!normalizedPath || versionEntries.has(normalizedPath)) {
+      continue;
+    }
+    versionEntries.set(normalizedPath, 0);
+  }
+  const versions = Object.fromEntries(
+    Array.from(versionEntries.entries()).sort(([left], [right]) => left.localeCompare(right)),
   );
   await Promise.all([
     fileAdapter.saveFile(

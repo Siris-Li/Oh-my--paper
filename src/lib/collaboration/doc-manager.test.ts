@@ -301,4 +301,84 @@ describe("CollabDocManager", () => {
 
     expect(summary.byPath["main.tex"]).toBe("synced");
   });
+
+  it("can seed baseline entries for existing local-only files during first link", async () => {
+    const memory = new Map<string, string>();
+    const fileAdapter = {
+      readFile: vi.fn(async (path: string) => {
+        const content = memory.get(path);
+        if (content === undefined) {
+          throw new Error("missing");
+        }
+        return {
+          path,
+          language: "json",
+          content,
+        };
+      }),
+      saveFile: vi.fn(async (path: string, content: string) => {
+        memory.set(path, content);
+      }),
+      readAsset: vi.fn(),
+      readPdfBinary: vi.fn(async () => null),
+      createFile: vi.fn(async () => undefined),
+      createFolder: vi.fn(async () => undefined),
+      deleteFile: vi.fn(async () => undefined),
+      renameFile: vi.fn(async () => undefined),
+    };
+
+    shared.listCloudDocuments.mockResolvedValue([
+      {
+        id: "doc-1",
+        projectId: "project-1",
+        path: "main.tex",
+        kind: "text",
+        latestVersion: 4,
+        updatedAt: "2026-03-16T00:00:00.000Z",
+      },
+    ]);
+
+    await seedCollabSyncBaseline(fileAdapter as never, "project-1", await shared.listCloudDocuments(), {
+      additionalSyncedPaths: ["notes/local-draft.tex"],
+    });
+
+    const manager = new CollabDocManager({
+      enabled: true,
+      projectId: "project-1",
+      authToken: "token",
+      user: {
+        userId: "user-1",
+        name: "donk",
+        color: "#4f8cff",
+      },
+      fileAdapter: fileAdapter as never,
+      realtimeSyncEnabled: false,
+    });
+
+    const snapshot = {
+      tree: [
+        {
+          id: "file-main",
+          name: "main.tex",
+          path: "main.tex",
+          kind: "file",
+          isText: true,
+          fileType: "latex",
+        },
+        {
+          id: "file-notes",
+          name: "local-draft.tex",
+          path: "notes/local-draft.tex",
+          kind: "file",
+          isText: true,
+          fileType: "latex",
+        },
+      ],
+    } as const;
+
+    const summary = await manager.getWorkspaceSyncSummary(snapshot as never);
+
+    expect(summary.byPath["main.tex"]).toBe("synced");
+    expect(summary.byPath["notes/local-draft.tex"]).toBe("synced");
+  });
 });

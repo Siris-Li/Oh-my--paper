@@ -3447,6 +3447,10 @@ button {
   overflow: hidden;
 }
 
+.sync-graph-section {
+  padding-bottom: 14px;
+}
+
 .sync-section-header {
   display: flex;
   align-items: center;
@@ -3468,12 +3472,192 @@ button {
   flex-direction: column;
 }
 
+.sync-graph-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0 14px 2px;
+}
+
+.sync-graph-item {
+  display: flex;
+  gap: 10px;
+}
+
+.sync-graph-rail {
+  position: relative;
+  flex: 0 0 22px;
+  display: flex;
+  justify-content: center;
+}
+
+.sync-graph-node {
+  position: relative;
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  margin-top: 6px;
+  border-radius: 999px;
+  border: 2px solid #9db2cc;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px #f6f9fc;
+}
+
+.sync-graph-node.is-neutral {
+  border-color: #6b7c93;
+  background: #eef3f8;
+}
+
+.sync-graph-node.is-push {
+  border-color: #d4a11d;
+  background: #fff4cf;
+}
+
+.sync-graph-node.is-pull {
+  border-color: #2d6cdf;
+  background: #eaf2ff;
+}
+
+.sync-graph-node.is-conflict,
+.sync-graph-node.is-error {
+  border-color: #d14343;
+  background: #fff0f0;
+}
+
+.sync-graph-node.is-success {
+  border-color: #1f9d55;
+  background: #edfdf3;
+}
+
+.sync-graph-line {
+  position: absolute;
+  top: 20px;
+  bottom: -8px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, #8db3e6 0%, #c6d8f0 100%);
+  border-radius: 999px;
+}
+
+.sync-graph-card {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid #e5edf6;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+}
+
+.sync-graph-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sync-graph-title {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sync-graph-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.sync-graph-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #d7e0eb;
+  background: #f3f7fb;
+  color: #5d6b7e;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.sync-graph-badge.is-push {
+  background: #fff8e1;
+  border-color: #f4d48d;
+  color: #9a6700;
+}
+
+.sync-graph-badge.is-pull {
+  background: #eff6ff;
+  border-color: #bed6ff;
+  color: #1257c4;
+}
+
+.sync-graph-badge.is-conflict,
+.sync-graph-badge.is-error {
+  background: #fff1f1;
+  border-color: #f3c2c0;
+  color: #b42318;
+}
+
+.sync-graph-badge.is-success {
+  background: #edfdf3;
+  border-color: #bce6cb;
+  color: #0d7a3b;
+}
+
 .sync-change-item {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
   border-top: 1px solid #edf2f7;
+}
+
+.sync-change-rail {
+  position: relative;
+  flex: 0 0 18px;
+  align-self: stretch;
+  display: flex;
+  justify-content: center;
+}
+
+.sync-change-node {
+  position: relative;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: #c8d4e2;
+  box-shadow: 0 0 0 3px #ffffff;
+}
+
+.sync-change-node.is-pending-push {
+  background: #d4a11d;
+}
+
+.sync-change-node.is-pending-pull {
+  background: #2d6cdf;
+}
+
+.sync-change-node.is-conflict {
+  background: #d14343;
+}
+
+.sync-change-line {
+  position: absolute;
+  top: 16px;
+  bottom: -11px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: #d7e2ef;
+  border-radius: 999px;
 }
 
 .sync-change-path {
