@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ChatPanel } from "./ChatPanel";
 import { CommentPanel } from "./CommentPanel";
@@ -75,6 +75,8 @@ interface SidebarProps {
   collabAuthSession: CollabAuthSession | null;
   collabConfig: CollabConfig | null;
   cloudCollab: WorkspaceCollabMetadata | null;
+  collabBusyAction: "save-config" | "create-project" | "link-project" | null;
+  collabNotice: { tone: "success" | "error"; text: string } | null;
   collabStatus: CollabStatus;
   activeFilePath: string;
   onOpenLoginModal: () => void;
@@ -183,6 +185,8 @@ export function Sidebar({
   collabAuthSession,
   collabConfig: collabConfigProp,
   cloudCollab,
+  collabBusyAction,
+  collabNotice,
   collabStatus,
   activeFilePath,
   onOpenLoginModal,
@@ -221,6 +225,14 @@ export function Sidebar({
 
   const totalInputTokens = usageRecords.reduce((sum, item) => sum + item.inputTokens, 0);
   const totalOutputTokens = usageRecords.reduce((sum, item) => sum + item.outputTokens, 0);
+
+  useEffect(() => {
+    setCollabConfigForm({
+      httpBaseUrl: collabConfigProp?.httpBaseUrl ?? "",
+      wsBaseUrl: collabConfigProp?.wsBaseUrl ?? "",
+      teamLabel: collabConfigProp?.teamLabel ?? "",
+    });
+  }, [collabConfigProp]);
 
   async function handleAddProvider() {
     if (!providerForm.name.trim() || !providerForm.baseUrl.trim() || !providerForm.defaultModel.trim()) return;
@@ -743,10 +755,22 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
                     teamLabel: collabConfigForm.teamLabel.trim(),
                   });
                 }}
-                disabled={!collabConfigForm.httpBaseUrl.trim() || !collabConfigForm.wsBaseUrl.trim()}
+                disabled={
+                  !collabConfigForm.httpBaseUrl.trim() ||
+                  !collabConfigForm.wsBaseUrl.trim() ||
+                  collabBusyAction === "save-config"
+                }
               >
-                保存配置
+                {collabBusyAction === "save-config" ? "保存中..." : "保存配置"}
               </button>
+              {collabNotice && (
+                <div
+                  className={clsx("collab-notice", collabNotice.tone === "error" && "is-error")}
+                  role="status"
+                >
+                  {collabNotice.text}
+                </div>
+              )}
             </div>
 
             {/* Card 3: Cloud project */}
@@ -781,11 +805,21 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
               ) : (
                 <div className="sidebar-stack-compact">
                   <div className="text-subtle text-xs">当前项目尚未关联到云端。</div>
-                  <button className="btn-primary" style={{ width: "100%" }} onClick={onCreateCloudProject}>
-                    创建云协作项目
+                  <button
+                    className="btn-primary"
+                    style={{ width: "100%" }}
+                    onClick={onCreateCloudProject}
+                    disabled={collabBusyAction === "create-project" || collabBusyAction === "link-project"}
+                  >
+                    {collabBusyAction === "create-project" ? "创建中..." : "创建云协作项目"}
                   </button>
-                  <button className="btn-secondary" style={{ width: "100%" }} onClick={onLinkCloudProject}>
-                    关联已有项目
+                  <button
+                    className="btn-secondary"
+                    style={{ width: "100%" }}
+                    onClick={onLinkCloudProject}
+                    disabled={collabBusyAction === "create-project" || collabBusyAction === "link-project"}
+                  >
+                    {collabBusyAction === "link-project" ? "关联中..." : "关联已有项目"}
                   </button>
                 </div>
               )}

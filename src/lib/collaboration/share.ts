@@ -1,14 +1,55 @@
-export function generateShareLink(projectId: string, httpBaseUrl: string): string {
-  return `${httpBaseUrl}/join/${projectId}`;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export interface ProjectReference {
+  projectId: string;
+  httpBaseUrl?: string;
+  wsBaseUrl?: string;
 }
 
-export function parseShareLink(link: string): { projectId: string } | null {
+function deriveWsBaseUrl(httpBaseUrl: string) {
+  const url = new URL(httpBaseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString().replace(/\/$/, "");
+}
+
+export function generateShareLink(projectId: string, httpBaseUrl: string): string {
+  return new URL(`/join/${projectId}`, httpBaseUrl).toString();
+}
+
+export function parseShareLink(link: string): ProjectReference | null {
   try {
     const url = new URL(link);
-    const match = url.pathname.match(/\/join\/([a-f0-9-]+)/);
-    if (!match) return null;
-    return { projectId: match[1] };
+    const match = url.pathname.match(/^\/join\/([^/]+)\/?$/i);
+    const projectId = match?.[1]?.trim();
+    if (!projectId || !UUID_PATTERN.test(projectId)) {
+      return null;
+    }
+    const httpBaseUrl = url.origin.replace(/\/$/, "");
+    return {
+      projectId,
+      httpBaseUrl,
+      wsBaseUrl: deriveWsBaseUrl(httpBaseUrl),
+    };
   } catch {
     return null;
   }
+}
+
+export function parseProjectReference(value: string): ProjectReference | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const shared = parseShareLink(trimmed);
+  if (shared) {
+    return shared;
+  }
+
+  if (!UUID_PATTERN.test(trimmed)) {
+    return null;
+  }
+
+  return { projectId: trimmed };
 }

@@ -52,6 +52,10 @@ function persistencePath(projectId: string, docPath: string) {
   return `.viewerleaf/collab/${projectId}/${safe}.json`;
 }
 
+function isEmptyDocSnapshot(update: Uint8Array | null | undefined) {
+  return Boolean(update && update.length === 2 && update[0] === 0 && update[1] === 0);
+}
+
 export interface ManagedCollabDocHandle {
   path: string;
   yDoc: Y.Doc;
@@ -121,13 +125,14 @@ export class CollabDocManager {
     const yDoc = new Y.Doc();
     const yText = yDoc.getText("content");
     const awareness = new Awareness(yDoc);
+    let shouldUploadLocalSeed = false;
 
     const persistedUpdate = await this.readPersistedState(path);
     if (persistedUpdate?.length) {
       Y.applyUpdate(yDoc, persistedUpdate, LOCAL_PERSISTENCE_ORIGIN);
     } else {
       const remoteSnapshot = await this.fetchRemoteSnapshot(path);
-      if (remoteSnapshot?.length) {
+      if (remoteSnapshot?.length && !isEmptyDocSnapshot(remoteSnapshot)) {
         Y.applyUpdate(yDoc, remoteSnapshot, LOCAL_PERSISTENCE_ORIGIN);
       } else {
         try {
@@ -136,6 +141,7 @@ export class CollabDocManager {
             yDoc.transact(() => {
               yText.insert(0, localFile.content);
             }, LOCAL_PERSISTENCE_ORIGIN);
+            shouldUploadLocalSeed = true;
           }
         } catch (error) {
           console.warn("failed to seed collaborative doc from local content", path, error);
@@ -205,6 +211,10 @@ export class CollabDocManager {
     };
 
     provider.on("sync", () => {
+      if (shouldUploadLocalSeed) {
+        provider.sendDocumentUpdate(Y.encodeStateAsUpdate(yDoc));
+        shouldUploadLocalSeed = false;
+      }
       managed.synced = true;
       managed.connectionError = "";
       notify();

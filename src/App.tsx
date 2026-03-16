@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import * as Y from "yjs";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import { EditorPane } from "./components/EditorPane";
@@ -16,8 +17,17 @@ import { TerminalPanel } from "./components/TerminalPanel";
 import { WelcomeWorkspace } from "./components/WelcomeWorkspace";
 import { WorkspaceMenuBar } from "./components/WorkspaceMenuBar";
 import { CollabLoginModal } from "./components/CollabLoginModal";
+import { CollabProjectModal } from "./components/CollabProjectModal";
 import { createLocalAdapter } from "./lib/adapters";
-import { createCloudProject, joinCloudProject } from "./lib/collaboration/cloud-api";
+import {
+  createCloudProject,
+  ensureCloudDocument,
+  fetchDocumentSnapshot,
+  getCloudProject,
+  joinCloudProject,
+  listCloudDocuments,
+  listCloudProjects,
+} from "./lib/collaboration/cloud-api";
 import {
   readCollabAuthSession,
   writeCollabAuthSession,
@@ -30,7 +40,7 @@ import {
   type CollabConfig,
 } from "./lib/collaboration/collab-config";
 import { CommentStore } from "./lib/collaboration/comment-store";
-import { generateShareLink } from "./lib/collaboration/share";
+import { generateShareLink, parseProjectReference } from "./lib/collaboration/share";
 import { CollabDocManager } from "./lib/collaboration/doc-manager";
 import {
   readWorkspaceCollabMetadata,
@@ -49,6 +59,7 @@ import { useWorkspaceFiles } from "./hooks/useWorkspaceFiles";
 import type {
   AppMenuAction,
   AppMenuState,
+  CloudProjectSummary,
   DrawerTab,
   FigureBriefDraft,
   GeneratedAsset,
@@ -70,6 +81,15 @@ type PreviewSelection =
   | { kind: "unsupported"; path: string; title: string; description: string };
 
 type EditorJumpTarget = { path: string; line: number; nonce: number };
+type CollabBusyAction = "save-config" | "create-project" | "link-project";
+type CollabNotice = {
+  tone: "success" | "error";
+  text: string;
+};
+type CollabProjectModalState =
+  | { mode: "create"; defaultValue: string }
+  | { mode: "link"; defaultValue: string };
+type CollabLoginMode = "edit" | "bootstrap";
 
 function normalizeProjectPath(path: string) {
   return path.replaceAll("\\", "/");
@@ -103,6 +123,24 @@ const TERMINAL_PANEL_DEFAULT_HEIGHT = 230;
 function workspaceLabelFromRoot(rootPath: string) {
   const normalized = normalizeProjectPath(rootPath).replace(/\/$/, "");
   return normalized.split("/").at(-1) || rootPath || "Untitled";
+}
+
+function sanitizeProjectFolderName(name: string) {
+  return name
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/^\.+|\.+$/g, "");
+}
+
+function decodeCollabTextSnapshot(update: Uint8Array) {
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, update);
+    return doc.getText("content").toString();
+  } finally {
+    doc.destroy();
+  }
 }
 
 function formatDebugTimestamp(date: Date) {
@@ -301,19 +339,70 @@ function App() {
   } = workspaceFiles;
 
   const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [collabLoginMode, setCollabLoginMode] = useState<CollabLoginMode>("edit");
   const [collabConfigState, setCollabConfigState] = useState<CollabConfig | null>(() => readCollabConfig());
   const [collabAuthRevision, setCollabAuthRevision] = useState(0);
   const [activeDocComments, setActiveDocComments] = useState<ReviewComment[]>([]);
+  const [collabBusyAction, setCollabBusyAction] = useState<CollabBusyAction | null>(null);
+  const [collabNotice, setCollabNotice] = useState<CollabNotice | null>(null);
+  const [collabProjectModal, setCollabProjectModal] = useState<CollabProjectModalState | null>(null);
+  const [availableCloudProjects, setAvailableCloudProjects] = useState<CloudProjectSummary[]>([]);
+  const [isLoadingCloudProjects, setIsLoadingCloudProjects] = useState(false);
+  const [pendingCloudProjectReference, setPendingCloudProjectReference] = useState<string | null>(null);
+  const [authorizedCollabProjectId, setAuthorizedCollabProjectId] = useState<string | null>(null);
 
   const collabAuthSession = useMemo(
     () => readCollabAuthSession(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [snapshot?.collab?.cloudProjectId, snapshot?.projectConfig.rootPath, collabAuthRevision],
   );
+  const activeCollabProjectId =
+    snapshot?.collab?.mode === "cloud" ? snapshot.collab.cloudProjectId : null;
+
+  useEffect(() => {
+    if (!activeCollabProjectId || !collabAuthSession) {
+      setAuthorizedCollabProjectId(null);
+      return;
+    }
+
+    let cancelled = false;
+    setAuthorizedCollabProjectId(null);
+
+    void joinCloudProject(collabAuthSession.token, activeCollabProjectId)
+      .then(() => {
+        if (!cancelled) {
+          setAuthorizedCollabProjectId(activeCollabProjectId);
+        }
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        setAuthorizedCollabProjectId(null);
+        setCollabNotice({
+          tone: "error",
+          text: `当前身份无法访问该云项目：${message}`,
+        });
+        window.alert(`云协作身份校验失败:\n${message}`);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCollabProjectId, collabAuthSession]);
+
   const collabManager = useMemo(() => {
     const collabMetadata = snapshot?.collab;
     const { wsBaseUrl } = resolveCollabBaseUrls();
-    if (!collabMetadata || collabMetadata.mode !== "cloud" || !collabMetadata.cloudProjectId || !collabAuthSession || !wsBaseUrl) {
+    if (
+      !collabMetadata ||
+      collabMetadata.mode !== "cloud" ||
+      !collabMetadata.cloudProjectId ||
+      !collabAuthSession ||
+      !wsBaseUrl ||
+      authorizedCollabProjectId !== collabMetadata.cloudProjectId
+    ) {
       return null;
     }
 
@@ -328,7 +417,7 @@ function App() {
       },
       fileAdapter,
     });
-  }, [collabAuthSession, fileAdapter, snapshot?.collab]);
+  }, [authorizedCollabProjectId, collabAuthSession, fileAdapter, snapshot?.collab]);
 
   useEffect(() => {
     return () => {
@@ -1386,8 +1475,80 @@ function App() {
     applyFreshWorkspaceSnapshot(nextSnapshot);
   }
 
+  async function refreshAvailableCloudProjects() {
+    if (!collabAuthSession) {
+      setAvailableCloudProjects([]);
+      return;
+    }
+
+    setIsLoadingCloudProjects(true);
+    try {
+      const projects = await listCloudProjects(collabAuthSession.token);
+      setAvailableCloudProjects(projects);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAvailableCloudProjects([]);
+      setCollabNotice({
+        tone: "error",
+        text: `读取项目列表失败：${message}`,
+      });
+    } finally {
+      setIsLoadingCloudProjects(false);
+    }
+  }
+
+  function resolveProjectReference(projectReference: string) {
+    const resolvedProject = parseProjectReference(projectReference);
+    if (!resolvedProject) {
+      setCollabNotice({
+        tone: "error",
+        text: "请输入有效的 Project ID 或分享链接。",
+      });
+      return null;
+    }
+
+    if (resolvedProject.httpBaseUrl && resolvedProject.wsBaseUrl) {
+      const nextConfig: CollabConfig = {
+        httpBaseUrl: resolvedProject.httpBaseUrl,
+        wsBaseUrl: resolvedProject.wsBaseUrl,
+        teamLabel: collabConfigState?.teamLabel?.trim() || new URL(resolvedProject.httpBaseUrl).host,
+      };
+      if (
+        collabConfigState?.httpBaseUrl !== nextConfig.httpBaseUrl ||
+        collabConfigState?.wsBaseUrl !== nextConfig.wsBaseUrl ||
+        collabConfigState?.teamLabel !== nextConfig.teamLabel
+      ) {
+        writeCollabConfig(nextConfig);
+        setCollabConfigState(nextConfig);
+      }
+    }
+
+    const { httpBaseUrl } = resolveCollabBaseUrls();
+    if (!httpBaseUrl) {
+      setCollabNotice({
+        tone: "error",
+        text: "这台电脑还没有协作服务器配置。请粘贴完整分享链接，而不是只填 Project ID。",
+      });
+      return null;
+    }
+
+    return resolvedProject;
+  }
+
+  async function hydrateCloudProjectWorkspace(token: string, projectId: string, rootMainFile: string) {
+    await ensureCloudDocument(token, projectId, rootMainFile);
+    const documents = await listCloudDocuments(token, projectId);
+
+    for (const document of documents) {
+      const snapshotUpdate = await fetchDocumentSnapshot(token, projectId, document.path);
+      const content = decodeCollabTextSnapshot(snapshotUpdate);
+      await fileAdapter.saveFile(document.path, content);
+    }
+  }
+
   async function handleCreateCloudProject() {
     if (!snapshot || !collabAuthSession) {
+      setCollabLoginMode("edit");
       setLoginModalOpen(true);
       return;
     }
@@ -1398,67 +1559,244 @@ function App() {
       return;
     }
     const defaultName = workspaceLabelFromRoot(snapshot.projectConfig.rootPath);
-    const projectName = window.prompt("输入云项目名称", defaultName);
-    if (!projectName?.trim()) {
+    setCollabNotice(null);
+    setCollabProjectModal({
+      mode: "create",
+      defaultValue: defaultName,
+    });
+  }
+
+  async function handleSubmitCreateCloudProject(projectName: string) {
+    if (!snapshot || !collabAuthSession || !projectName.trim()) {
       return;
     }
 
-    const result = await createCloudProject(collabAuthSession.token, projectName.trim(), snapshot.projectConfig.mainTex);
-    const collab: WorkspaceCollabMetadata = {
-      mode: "cloud",
-      cloudProjectId: result.projectId,
-      checkoutRoot: snapshot.projectConfig.rootPath,
-      linkedAt: new Date().toISOString(),
-    };
-    await writeWorkspaceCollabMetadata(fileAdapter, collab);
-    setSnapshot((current) => (current ? { ...current, collab } : current));
+    setCollabBusyAction("create-project");
+    setCollabNotice(null);
+
+    try {
+      const result = await createCloudProject(collabAuthSession.token, projectName.trim(), snapshot.projectConfig.mainTex);
+      const collab: WorkspaceCollabMetadata = {
+        mode: "cloud",
+        cloudProjectId: result.projectId,
+        checkoutRoot: snapshot.projectConfig.rootPath,
+        linkedAt: new Date().toISOString(),
+      };
+      await writeWorkspaceCollabMetadata(fileAdapter, collab);
+      setSnapshot((current) => (current ? { ...current, collab } : current));
+      setCollabProjectModal(null);
+      setCollabNotice({
+        tone: "success",
+        text: `云项目已创建并关联：${projectName.trim()}`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCollabNotice({
+        tone: "error",
+        text: `创建云项目失败：${message}`,
+      });
+    } finally {
+      setCollabBusyAction(null);
+    }
   }
 
   async function handleLinkCloudProject() {
     if (!snapshot || !collabAuthSession) {
+      setCollabLoginMode("edit");
       setLoginModalOpen(true);
       return;
     }
-    const { httpBaseUrl } = resolveCollabBaseUrls();
-    if (!httpBaseUrl) {
-      window.alert("请先在云协作面板中配置服务器地址。");
-      setDrawerTab("collab");
-      return;
+    setCollabNotice(null);
+    setCollabProjectModal({
+      mode: "link",
+      defaultValue: "",
+    });
+    void refreshAvailableCloudProjects();
+  }
+
+  function handleLinkCloudProjectFromWelcome() {
+    setCollabNotice(null);
+    setCollabProjectModal({
+      mode: "link",
+      defaultValue: "",
+    });
+    if (collabAuthSession) {
+      void refreshAvailableCloudProjects();
     }
-    const cloudProjectId = window.prompt("输入要关联的 Cloud project ID");
-    if (!cloudProjectId?.trim()) {
+  }
+
+  function handlePrepareBootstrapCloudProject(projectReference: string) {
+    const resolvedProject = resolveProjectReference(projectReference);
+    if (!resolvedProject) {
       return;
     }
 
-    const collab: WorkspaceCollabMetadata = {
-      mode: "cloud",
-      cloudProjectId: cloudProjectId.trim(),
-      checkoutRoot: snapshot.projectConfig.rootPath,
-      linkedAt: new Date().toISOString(),
-    };
-    await writeWorkspaceCollabMetadata(fileAdapter, collab);
-    try {
-      await joinCloudProject(collabAuthSession.token, cloudProjectId.trim());
-    } catch {
-      // Project might not exist on server yet, or user is already a member
+    setPendingCloudProjectReference(projectReference.trim());
+    setCollabProjectModal(null);
+    setCollabLoginMode("bootstrap");
+    setLoginModalOpen(true);
+  }
+
+  async function handleSubmitLinkCloudProject(projectReference: string) {
+    if (!snapshot || !collabAuthSession) {
+      return;
     }
-    setSnapshot((current) => (current ? { ...current, collab } : current));
+
+    const resolvedProject = resolveProjectReference(projectReference);
+    if (!resolvedProject) return;
+
+    const cloudProjectId = resolvedProject.projectId;
+
+    setCollabBusyAction("link-project");
+    setCollabNotice(null);
+
+    try {
+      await joinCloudProject(collabAuthSession.token, cloudProjectId);
+
+      const collab: WorkspaceCollabMetadata = {
+        mode: "cloud",
+        cloudProjectId,
+        checkoutRoot: snapshot.projectConfig.rootPath,
+        linkedAt: new Date().toISOString(),
+      };
+      await writeWorkspaceCollabMetadata(fileAdapter, collab);
+      setSnapshot((current) => (current ? { ...current, collab } : current));
+      setCollabProjectModal(null);
+      setCollabNotice({
+        tone: "success",
+        text: `云项目已关联：${cloudProjectId}`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCollabNotice({
+        tone: "error",
+        text: `关联云项目失败：${message}`,
+      });
+    } finally {
+      setCollabBusyAction(null);
+    }
+  }
+
+  async function handleBootstrapCloudProject(projectReference: string, sessionOverride?: CollabAuthSession) {
+    const resolvedProject = resolveProjectReference(projectReference);
+    if (!resolvedProject) return;
+
+    const session = sessionOverride ?? collabAuthSession;
+    if (!session) {
+      setPendingCloudProjectReference(projectReference);
+      setCollabProjectModal(null);
+      setCollabLoginMode("bootstrap");
+      setLoginModalOpen(true);
+      return;
+    }
+
+    setCollabBusyAction("link-project");
+    setCollabNotice(null);
+
+    try {
+      await joinCloudProject(session.token, resolvedProject.projectId);
+      const project = await getCloudProject(session.token, resolvedProject.projectId);
+      const parentDir = await pickDirectory();
+      if (!parentDir || isStreaming) {
+        return;
+      }
+
+      const localProjectName =
+        sanitizeProjectFolderName(project.name) || `Cloud Project ${resolvedProject.projectId.slice(0, 8)}`;
+
+      await saveDirtyFilesBeforeWorkspaceSwitch();
+      const createdSnapshot = await projectAdapter.createProject(parentDir, localProjectName.trim());
+      const rootMainFile = project.rootMainFile?.trim() || "main.tex";
+      let projectConfig = createdSnapshot.projectConfig;
+      if (rootMainFile !== createdSnapshot.projectConfig.mainTex) {
+        projectConfig = await projectAdapter.updateProjectConfig({
+          ...createdSnapshot.projectConfig,
+          mainTex: rootMainFile,
+        });
+      }
+
+      const collab: WorkspaceCollabMetadata = {
+        mode: "cloud",
+        cloudProjectId: resolvedProject.projectId,
+        checkoutRoot: createdSnapshot.projectConfig.rootPath,
+        linkedAt: new Date().toISOString(),
+      };
+      await writeWorkspaceCollabMetadata(fileAdapter, collab);
+
+      setCollabProjectModal(null);
+      setPendingCloudProjectReference(null);
+      applyFreshWorkspaceSnapshot({
+        ...createdSnapshot,
+        projectConfig,
+        collab,
+      });
+      setCollabNotice({
+        tone: "success",
+        text: `已创建本地工作区，正在同步云项目：${project.name || resolvedProject.projectId}`,
+      });
+
+      await hydrateCloudProjectWorkspace(session.token, resolvedProject.projectId, rootMainFile);
+
+      const nextSnapshot = await loadSnapshotWithCollab(() => projectAdapter.openProject());
+      applyFreshWorkspaceSnapshot(nextSnapshot);
+      setCollabNotice({
+        tone: "success",
+        text: `云项目已下载并关联：${project.name || resolvedProject.projectId}`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCollabNotice({
+        tone: "error",
+        text: `关联云项目失败：${message}`,
+      });
+      window.alert(`关联云项目失败:\n${message}`);
+    } finally {
+      setCollabBusyAction(null);
+    }
   }
 
   function handleCollabLogin(session: CollabAuthSession) {
+    const nextPendingProjectReference = pendingCloudProjectReference;
     writeCollabAuthSession(session);
     setCollabAuthRevision((n) => n + 1);
+    setCollabLoginMode("edit");
+    setCollabNotice(null);
+    setAvailableCloudProjects([]);
+    setPendingCloudProjectReference(null);
     setLoginModalOpen(false);
+    if (nextPendingProjectReference) {
+      void handleBootstrapCloudProject(nextPendingProjectReference, session);
+    }
   }
 
   function handleCollabLogout() {
     writeCollabAuthSession(null);
     setCollabAuthRevision((n) => n + 1);
+    setCollabLoginMode("edit");
+    setCollabNotice(null);
+    setCollabProjectModal(null);
+    setAvailableCloudProjects([]);
+    setPendingCloudProjectReference(null);
   }
 
   function handleSaveCollabConfig(config: CollabConfig) {
-    writeCollabConfig(config);
-    setCollabConfigState(config);
+    setCollabBusyAction("save-config");
+    try {
+      writeCollabConfig(config);
+      setCollabConfigState(config);
+      setCollabNotice({
+        tone: "success",
+        text: "服务器配置已保存到本地。",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCollabNotice({
+        tone: "error",
+        text: `保存配置失败：${message}`,
+      });
+    } finally {
+      setCollabBusyAction(null);
+    }
   }
 
   function handleCopyShareLink() {
@@ -1831,6 +2169,7 @@ function App() {
           isWindowDragEnabled={isMacOverlayWindow}
           onOpenProject={() => void handleOpenExistingProject()}
           onCreateProject={() => void handleCreateNewProject()}
+          onLinkCloudProject={handleLinkCloudProjectFromWelcome}
           onOpenRecentWorkspace={(rootPath) => void activateWorkspace(rootPath)}
         />
       )}
@@ -1963,9 +2302,14 @@ function App() {
             collabAuthSession={collabAuthSession}
             collabConfig={collabConfigState}
             cloudCollab={snapshot.collab ?? null}
+            collabBusyAction={collabBusyAction}
+            collabNotice={collabNotice}
             collabStatus={currentCollabStatus}
             activeFilePath={activeFilePath}
-            onOpenLoginModal={() => setLoginModalOpen(true)}
+            onOpenLoginModal={() => {
+              setCollabLoginMode("edit");
+              setLoginModalOpen(true);
+            }}
             onLogout={handleCollabLogout}
             onSaveCollabConfig={handleSaveCollabConfig}
             onCreateCloudProject={() => void handleCreateCloudProject()}
@@ -2173,8 +2517,40 @@ function App() {
       {loginModalOpen && (
         <CollabLoginModal
           currentSession={collabAuthSession}
+          preserveUserId={collabLoginMode !== "bootstrap"}
           onSave={handleCollabLogin}
-          onClose={() => setLoginModalOpen(false)}
+          onClose={() => {
+            setCollabLoginMode("edit");
+            setLoginModalOpen(false);
+            setPendingCloudProjectReference(null);
+          }}
+        />
+      )}
+
+      {collabProjectModal && (
+        <CollabProjectModal
+          mode={collabProjectModal.mode}
+          defaultValue={collabProjectModal.defaultValue}
+          busy={collabBusyAction === "create-project" || collabBusyAction === "link-project"}
+          projects={availableCloudProjects}
+          isLoadingProjects={isLoadingCloudProjects}
+          onRefreshProjects={() => void refreshAvailableCloudProjects()}
+          onSubmit={(value) => {
+            if (collabProjectModal.mode === "create") {
+              void handleSubmitCreateCloudProject(value);
+              return;
+            }
+            if (hasProject) {
+              void handleSubmitLinkCloudProject(value);
+              return;
+            }
+            handlePrepareBootstrapCloudProject(value);
+          }}
+          onClose={() => {
+            if (!collabBusyAction) {
+              setCollabProjectModal(null);
+            }
+          }}
         />
       )}
     </div>

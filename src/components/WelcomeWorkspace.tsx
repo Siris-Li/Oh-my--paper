@@ -7,6 +7,7 @@ interface WelcomeWorkspaceProps {
   isWindowDragEnabled?: boolean;
   onOpenProject: () => void;
   onCreateProject: () => void;
+  onLinkCloudProject: () => void;
   onOpenRecentWorkspace: (rootPath: string) => void;
 }
 
@@ -31,6 +32,7 @@ export function WelcomeWorkspace({
   isWindowDragEnabled = false,
   onOpenProject,
   onCreateProject,
+  onLinkCloudProject,
   onOpenRecentWorkspace,
 }: WelcomeWorkspaceProps) {
   const [showAllRecent, setShowAllRecent] = useState(false);
@@ -102,6 +104,13 @@ export function WelcomeWorkspace({
                 <path d="M5 12h14"></path>
               </svg>
               创建项目
+            </button>
+            <button className="btn-secondary welcome-action-btn welcome-action-btn--secondary" type="button" onClick={onLinkCloudProject}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 1 0-7.07-7.07L11 4"></path>
+                <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 1 0 7.07 7.07L13 20"></path>
+              </svg>
+              关联云项目
             </button>
           </div>
 

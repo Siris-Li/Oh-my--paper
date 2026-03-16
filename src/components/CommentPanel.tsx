@@ -77,7 +77,7 @@ export function CommentPanel({
 
       {unresolved.length === 0 && resolved.length === 0 && (
         <div className="sidebar-empty-state">
-          暂无批注 · 选中代码后按 Cmd+Shift+M 添加
+          暂无批注 · 选中代码后点击编辑器右上角“添加批注”，或按 Cmd+Shift+M
         </div>
       )}
 

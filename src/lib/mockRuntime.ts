@@ -618,6 +618,20 @@ export const mockRuntime = {
     const file = getFile(filePath);
     if (file) {
       file.content = content;
+      file.language = detectLanguage(filePath);
+    } else {
+      if (hasPath(filePath)) {
+        throw new Error(`Path is not a writable file: ${filePath}`);
+      }
+      for (const dir of listAncestorDirectories(filePath)) {
+        virtualDirectories.delete(dir);
+      }
+      files.push({
+        path: filePath,
+        language: detectLanguage(filePath),
+        content,
+      });
+      files.sort((left, right) => left.path.localeCompare(right.path));
     }
     activeFile = filePath;
     return { ok: true };

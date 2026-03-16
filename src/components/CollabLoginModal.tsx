@@ -3,6 +3,7 @@ import type { CollabAuthSession } from "../lib/collaboration/auth";
 
 interface CollabLoginModalProps {
   currentSession: CollabAuthSession | null;
+  preserveUserId?: boolean;
   onSave: (session: CollabAuthSession) => void;
   onClose: () => void;
 }
@@ -19,7 +20,12 @@ function slugify(name: string) {
     .replace(/^-|-$/g, "") || `user-${Date.now()}`;
 }
 
-export function CollabLoginModal({ currentSession, onSave, onClose }: CollabLoginModalProps) {
+export function CollabLoginModal({
+  currentSession,
+  preserveUserId = true,
+  onSave,
+  onClose,
+}: CollabLoginModalProps) {
   const [name, setName] = useState(currentSession?.name ?? "");
   const [email, setEmail] = useState(currentSession?.email ?? "");
   const [color, setColor] = useState(currentSession?.color ?? "#4f8cff");
@@ -27,7 +33,9 @@ export function CollabLoginModal({ currentSession, onSave, onClose }: CollabLogi
   function handleSave() {
     const trimmedName = name.trim();
     if (!trimmedName) return;
-    const userId = currentSession?.userId || slugify(trimmedName);
+    const userId = preserveUserId && currentSession?.userId
+      ? currentSession.userId
+      : slugify(trimmedName);
     const token = `dev:${userId}:${trimmedName}`;
     onSave({
       token,

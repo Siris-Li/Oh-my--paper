@@ -37,6 +37,21 @@ export async function createCloudProject(token: string, name: string, rootMainFi
   return parseJson<{ projectId: string; name: string; rootMainFile: string }>(response);
 }
 
+export async function getCloudProject(token: string, projectId: string): Promise<CloudProjectSummary> {
+  const { httpBaseUrl } = resolveCollabBaseUrls();
+  const response = await fetch(`${httpBaseUrl}/api/projects/${projectId}`, {
+    headers: authHeaders(token),
+  });
+  const payload = await parseJson<{
+    project: Omit<CloudProjectSummary, "role">;
+    role: CloudProjectSummary["role"];
+  }>(response);
+  return {
+    ...payload.project,
+    role: payload.role,
+  };
+}
+
 export async function listCloudDocuments(token: string, projectId: string): Promise<CloudDocumentSummary[]> {
   const { httpBaseUrl } = resolveCollabBaseUrls();
   const response = await fetch(`${httpBaseUrl}/api/projects/${projectId}/documents`, {
@@ -80,4 +95,3 @@ export async function joinCloudProject(token: string, projectId: string) {
   });
   return parseJson<{ ok: boolean; role: string }>(response);
 }
-

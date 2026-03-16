@@ -93,6 +93,14 @@ export class ViewerLeafProvider {
     return this.syncedState;
   }
 
+  sendDocumentUpdate(update: Uint8Array) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    this.ws.send(encodeFrame(FRAME_DOCUMENT_UPDATE, update));
+    return true;
+  }
+
   connect() {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;

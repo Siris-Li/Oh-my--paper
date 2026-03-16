@@ -22,6 +22,214 @@ function json(data: unknown, init?: ResponseInit) {
   });
 }
 
+function html(markup: string, init?: ResponseInit) {
+  return new Response(markup, {
+    ...init,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      ...(init?.headers ?? {}),
+    },
+  });
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderJoinPage(projectId: string, projectName: string | null, shareLink: string) {
+  const safeProjectId = escapeHtml(projectId);
+  const safeProjectName = escapeHtml(projectName?.trim() || "ViewerLeaf Cloud Project");
+  const safeShareLink = escapeHtml(shareLink);
+
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>加入 ViewerLeaf 云项目</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f2eb;
+        --card: rgba(255, 252, 245, 0.94);
+        --text: #1f2937;
+        --muted: #5f6b7a;
+        --line: rgba(31, 41, 55, 0.12);
+        --accent: #0f766e;
+        --accent-strong: #115e59;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 28rem),
+          linear-gradient(180deg, #f8f5ef 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+      main {
+        width: min(46rem, calc(100vw - 2rem));
+        margin: 0 auto;
+        padding: 3rem 0 4rem;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        padding: 1.5rem;
+        box-shadow: 0 18px 60px rgba(15, 23, 42, 0.08);
+        backdrop-filter: blur(18px);
+      }
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: clamp(2rem, 5vw, 3rem);
+        line-height: 1.05;
+      }
+      p {
+        margin: 0.75rem 0 0;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.45rem 0.8rem;
+        border-radius: 999px;
+        background: rgba(15, 118, 110, 0.1);
+        color: var(--accent-strong);
+        font-size: 0.85rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      .section {
+        margin-top: 1.25rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--line);
+      }
+      .label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: var(--muted);
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .value {
+        width: 100%;
+        padding: 0.9rem 1rem;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.7);
+        color: var(--text);
+        font: inherit;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 1rem;
+      }
+      button {
+        appearance: none;
+        border: 0;
+        border-radius: 999px;
+        padding: 0.8rem 1.1rem;
+        background: var(--accent);
+        color: white;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: rgba(15, 118, 110, 0.12);
+        color: var(--accent-strong);
+      }
+      ol {
+        margin: 1rem 0 0;
+        padding-left: 1.25rem;
+        color: var(--muted);
+      }
+      li + li {
+        margin-top: 0.55rem;
+      }
+      .status {
+        min-height: 1.25rem;
+        margin-top: 0.85rem;
+        color: var(--accent-strong);
+        font-size: 0.92rem;
+      }
+      code {
+        font-family: "SF Mono", "JetBrains Mono", monospace;
+        font-size: 0.94em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="card">
+        <div class="eyebrow">ViewerLeaf Cloud</div>
+        <h1>加入共享项目</h1>
+        <p>这个链接现在可以正常打开了，但它不会直接在浏览器里进入编辑器。ViewerLeaf 目前的协作入口仍在桌面端。</p>
+
+        <div class="section">
+          <span class="label">项目名称</span>
+          <input class="value" value="${safeProjectName}" readonly />
+        </div>
+
+        <div class="section">
+          <span class="label">Project ID</span>
+          <input id="project-id" class="value" value="${safeProjectId}" readonly />
+          <div class="actions">
+            <button type="button" onclick="copyValue('project-id', '已复制 Project ID')">复制 Project ID</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <span class="label">分享链接</span>
+          <input id="share-link" class="value" value="${safeShareLink}" readonly />
+          <div class="actions">
+            <button type="button" class="secondary" onclick="copyValue('share-link', '已复制分享链接')">复制分享链接</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <span class="label">如何加入</span>
+          <ol>
+            <li>打开 ViewerLeaf 桌面应用，并登录同一个协作服务器。</li>
+            <li>进入云协作面板，点击“关联已有项目”。</li>
+            <li>直接粘贴这个分享链接，或者只粘贴上面的 Project ID。</li>
+          </ol>
+          <div id="status" class="status" aria-live="polite"></div>
+        </div>
+      </div>
+    </main>
+    <script>
+      async function copyValue(id, message) {
+        const input = document.getElementById(id);
+        const status = document.getElementById("status");
+        if (!input || !status) return;
+        try {
+          await navigator.clipboard.writeText(input.value);
+          status.textContent = message;
+        } catch {
+          input.select();
+          document.execCommand("copy");
+          status.textContent = message;
+        }
+      }
+    </script>
+  </body>
+</html>`;
+}
+
 function textFileKind(path: string) {
   const extension = path.split(".").pop()?.toLowerCase() ?? "";
   if (extension === "bib") {
@@ -105,6 +313,24 @@ export default {
     try {
       if (url.pathname === "/health") {
         return json({ ok: true });
+      }
+
+      if (url.pathname === "/favicon.ico") {
+        return new Response(null, { status: 204 });
+      }
+
+      const publicJoinMatch = url.pathname.match(/^\/join\/([^/]+)$/);
+      if (publicJoinMatch && request.method === "GET") {
+        const projectId = publicJoinMatch[1];
+        const project = await env.DB.prepare(
+          `SELECT name FROM projects WHERE id = ?1 LIMIT 1`,
+        )
+          .bind(projectId)
+          .first<{ name: string }>();
+        if (!project) {
+          return html(renderJoinPage(projectId, null, url.toString()), { status: 404 });
+        }
+        return html(renderJoinPage(projectId, project.name, url.toString()));
       }
 
       const user = await verifyRequestAuth(request, env);

@@ -296,6 +296,17 @@ function EditorPaneInner({
     view.dispatch({ effects: setCommentMarkers.of(markers) });
   }, [comments, file.path, view]);
 
+  const canAddComment = Boolean(collabStatus?.enabled && onAddComment);
+
+  function handleAddCommentClick() {
+    const { from, to } = view.state.selection.main;
+    const lineStart = view.state.doc.lineAt(from).number;
+    const lineEnd = view.state.doc.lineAt(to).number;
+    const selectedText = view.state.sliceDoc(from, to);
+    onAddCommentRef.current?.(lineStart, lineEnd, selectedText);
+    view.focus();
+  }
+
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <div
@@ -318,10 +329,22 @@ function EditorPaneInner({
             </span>
           )}
         </span>
-        <span>
-          {file.language} · 共 {lineCount} 行
-          {collabStatus?.enabled && ` · ${collabStatus.members.length + 1} 人`}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span>
+            {file.language} · 共 {lineCount} 行
+            {collabStatus?.enabled && ` · ${collabStatus.members.length + 1} 人`}
+          </span>
+          <button
+            className="btn-secondary"
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={handleAddCommentClick}
+            disabled={!canAddComment}
+            title={canAddComment ? "为当前选择添加批注（Cmd+Shift+M）" : "连接云协作后可用"}
+          >
+            添加批注
+          </button>
+        </div>
       </div>
       <div style={{ flex: 1, overflow: "hidden" }}>
         <CodeMirrorView view={view} />
