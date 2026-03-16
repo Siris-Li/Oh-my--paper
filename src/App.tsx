@@ -284,6 +284,8 @@ function App() {
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("ai");
   const [isTerminalVisible, setIsTerminalVisible] = useState(false);
   const [terminalPanelHeight, setTerminalPanelHeight] = useState(TERMINAL_PANEL_DEFAULT_HEIGHT);
+  const [terminalCommandRequest, setTerminalCommandRequest] = useState<{ id: number; command: string } | null>(null);
+  const terminalCommandCounterRef = useRef(0);
   const [workspacePaneMode, setWorkspacePaneMode] = useState<WorkspacePaneMode>("files");
   const [isWorkspacePaneCollapsed, setIsWorkspacePaneCollapsed] = useState(false);
   const [cursorLine, setCursorLine] = useState(1);
@@ -959,6 +961,20 @@ function App() {
 
   const handleToggleTerminal = useEffectEvent(() => {
     setIsTerminalVisible((current) => !current);
+  });
+
+  const handleRunTerminalCommand = useEffectEvent((command: string) => {
+    const trimmed = command.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    terminalCommandCounterRef.current += 1;
+    setTerminalCommandRequest({
+      id: terminalCommandCounterRef.current,
+      command: trimmed,
+    });
+    setIsTerminalVisible(true);
   });
 
   const handleTerminalResizeStart = useEffectEvent((event: ReactMouseEvent<HTMLDivElement>) => {
@@ -2136,16 +2152,14 @@ function App() {
     <div className={`app-shell fade-in ${hasProject ? "" : "is-welcome"}`}>
       <header
         className={`topbar ${hasProject ? "" : "topbar--welcome"} ${isMacOverlayWindow ? "topbar--overlay" : ""}`}
-        data-tauri-drag-region={!hasProject && isMacOverlayWindow ? "true" : undefined}
+        data-tauri-drag-region={isMacOverlayWindow ? "true" : undefined}
       >
-        {isMacOverlayWindow && <div className="topbar-drag-surface" data-tauri-drag-region="true" aria-hidden="true" />}
         <div className="topbar-left">
-          <span
-            className={`brand-title ${hasProject ? "" : "brand-title--welcome"}`}
-            data-tauri-drag-region={hasProject && isMacOverlayWindow ? "true" : undefined}
-          >
-            ViewerLeaf
-          </span>
+          {!hasProject ? (
+            <span className="brand-title brand-title--welcome">
+              ViewerLeaf
+            </span>
+          ) : null}
           {hasProject && (
             <WorkspaceMenuBar
               showInAppFileMenu={!isTauriRuntime()}
@@ -2170,7 +2184,7 @@ function App() {
         </div>
         {hasProject && (
           <>
-            <div className="topbar-center" data-tauri-drag-region={isMacOverlayWindow ? "true" : undefined}>
+            <div className="topbar-center">
               <span className="topbar-metric">
                 编译状态
                 <strong>{compileStatusLabel}</strong>
@@ -2208,19 +2222,7 @@ function App() {
         )}
       </header>
 
-      {!hasProject && (
-        <WelcomeWorkspace
-          recentWorkspaces={recentWorkspaces}
-          isWindowDragEnabled={isMacOverlayWindow}
-          onOpenProject={() => void handleOpenExistingProject()}
-          onCreateProject={() => void handleCreateNewProject()}
-          onLinkCloudProject={handleLinkCloudProjectFromWelcome}
-          onOpenRecentWorkspace={(rootPath) => void activateWorkspace(rootPath)}
-        />
-      )}
-
-      {hasProject && (
-        <div className="workspace-container">
+      <div className="workspace-container">
           <div className="activity-bar">
             <button
               className={`activity-icon hover-spring ${drawerTab === "latex" ? "is-active" : ""}`}
@@ -2352,6 +2354,7 @@ function App() {
             onCreateCloudProject={() => void handleCreateCloudProject()}
             onLinkCloudProject={() => void handleLinkCloudProject()}
             onCopyShareLink={handleCopyShareLink}
+            onRunTerminalCommand={handleRunTerminalCommand}
             comments={activeDocComments}
             onResolveComment={handleResolveComment}
             onReplyComment={handleReplyComment}
@@ -2531,6 +2534,15 @@ function App() {
                       comments={activeDocComments}
                       onAddComment={handleAddComment}
                     />
+                  ) : !hasProject ? (
+                    <WelcomeWorkspace
+                      embedded
+                      recentWorkspaces={recentWorkspaces}
+                      onOpenProject={() => void handleOpenExistingProject()}
+                      onCreateProject={() => void handleCreateNewProject()}
+                      onLinkCloudProject={handleLinkCloudProjectFromWelcome}
+                      onOpenRecentWorkspace={(rootPath) => void activateWorkspace(rootPath)}
+                    />
                   ) : (
                     <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>
                       {loadingFilePath
@@ -2566,12 +2578,12 @@ function App() {
                 workspaceRoot={snapshot.projectConfig.rootPath}
                 isVisible={isTerminalVisible}
                 height={terminalPanelHeight}
+                commandRequest={terminalCommandRequest}
                 onHide={() => setIsTerminalVisible(false)}
               />
             </div>
           </div>
         </div>
-      )}
 
       {loginModalOpen && (
         <CollabLoginModal

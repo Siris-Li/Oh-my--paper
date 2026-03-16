@@ -5,6 +5,7 @@ import type { WorkspaceEntry } from "../types";
 interface WelcomeWorkspaceProps {
   recentWorkspaces: WorkspaceEntry[];
   isWindowDragEnabled?: boolean;
+  embedded?: boolean;
   onOpenProject: () => void;
   onCreateProject: () => void;
   onLinkCloudProject: () => void;
@@ -30,6 +31,7 @@ function WelcomeActivityIcon({
 export function WelcomeWorkspace({
   recentWorkspaces,
   isWindowDragEnabled = false,
+  embedded = false,
   onOpenProject,
   onCreateProject,
   onLinkCloudProject,
@@ -43,47 +45,49 @@ export function WelcomeWorkspace({
   const hasHiddenRecentWorkspaces = recentWorkspaces.length > visibleRecentWorkspaces.length;
 
   return (
-    <div className="welcome-workspace">
-      <aside className="welcome-activity-bar" aria-label="ViewerLeaf tools">
-        <WelcomeActivityIcon accent>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 4h10l4 4v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"></path>
-            <path d="M14 4v4h4"></path>
-          </svg>
-        </WelcomeActivityIcon>
-        <WelcomeActivityIcon>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="4"></rect>
-            <path d="M7 15l3-3 2 2 5-6"></path>
-          </svg>
-        </WelcomeActivityIcon>
-        <WelcomeActivityIcon>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33"></path>
-            <path d="M4.6 9A1.65 1.65 0 0 0 4.27 7.18l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 8.92 4"></path>
-            <path d="M9 19.08A1.65 1.65 0 0 0 7.18 19l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4 14.92"></path>
-            <path d="M15 4.92A1.65 1.65 0 0 0 16.82 5l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 20 9.08"></path>
-          </svg>
-        </WelcomeActivityIcon>
-        <WelcomeActivityIcon>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="7" height="7"></rect>
-            <rect x="14" y="3" width="7" height="7"></rect>
-            <rect x="14" y="14" width="7" height="7"></rect>
-            <rect x="3" y="14" width="7" height="7"></rect>
-          </svg>
-        </WelcomeActivityIcon>
-        <WelcomeActivityIcon>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 3v18h18"></path>
-            <path d="M7 14l4-4 3 3 5-7"></path>
-          </svg>
-        </WelcomeActivityIcon>
-      </aside>
+    <div className={`welcome-workspace ${embedded ? "welcome-workspace--embedded" : ""}`}>
+      {!embedded ? (
+        <aside className="welcome-activity-bar" aria-label="ViewerLeaf tools">
+          <WelcomeActivityIcon accent>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 4h10l4 4v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"></path>
+              <path d="M14 4v4h4"></path>
+            </svg>
+          </WelcomeActivityIcon>
+          <WelcomeActivityIcon>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="4"></rect>
+              <path d="M7 15l3-3 2 2 5-6"></path>
+            </svg>
+          </WelcomeActivityIcon>
+          <WelcomeActivityIcon>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33"></path>
+              <path d="M4.6 9A1.65 1.65 0 0 0 4.27 7.18l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 8.92 4"></path>
+              <path d="M9 19.08A1.65 1.65 0 0 0 7.18 19l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4 14.92"></path>
+              <path d="M15 4.92A1.65 1.65 0 0 0 16.82 5l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 20 9.08"></path>
+            </svg>
+          </WelcomeActivityIcon>
+          <WelcomeActivityIcon>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+          </WelcomeActivityIcon>
+          <WelcomeActivityIcon>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 3v18h18"></path>
+              <path d="M7 14l4-4 3 3 5-7"></path>
+            </svg>
+          </WelcomeActivityIcon>
+        </aside>
+      ) : null}
 
-      <section className="welcome-canvas">
-        {isWindowDragEnabled && (
+      <section className={`welcome-canvas ${embedded ? "welcome-canvas--embedded" : ""}`}>
+        {isWindowDragEnabled && !embedded && (
           <div className="welcome-canvas-drag-surface" data-tauri-drag-region="true" aria-hidden="true" />
         )}
         <div className="welcome-center">

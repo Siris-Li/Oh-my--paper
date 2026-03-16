@@ -77,20 +77,6 @@ pub fn save_project_config(root: &Path, config: &ProjectConfig) -> std::io::Resu
     fs::write(config_path, serde_json::to_string_pretty(config)?)
 }
 
-pub fn resolve_initial_workspace(app_data_dir: &Path) -> Option<PathBuf> {
-    load_recent_workspace(app_data_dir).filter(|path| path.exists())
-}
-
-pub fn load_recent_workspace(app_data_dir: &Path) -> Option<PathBuf> {
-    let state_path = app_data_dir.join("workspace-state.json");
-    let raw = fs::read_to_string(state_path).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    value
-        .get("rootPath")
-        .and_then(|item| item.as_str())
-        .map(PathBuf::from)
-}
-
 pub fn persist_recent_workspace(app_data_dir: &Path, root: &Path) -> std::io::Result<()> {
     fs::create_dir_all(app_data_dir)?;
     fs::write(

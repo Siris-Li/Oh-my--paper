@@ -12,12 +12,10 @@ use std::sync::{Mutex, RwLock};
 use tauri::Manager;
 
 use state::{
-    default_compile_result, empty_project_config, load_project_config, resolve_initial_workspace,
-    AppState,
+    default_compile_result, empty_project_config, load_project_config, AppState,
 };
 
 enum LaunchWorkspace {
-    UseRecent,
     Empty,
     Root(PathBuf),
 }
@@ -42,7 +40,6 @@ pub fn run() {
             let app_root = resolve_app_root(app.handle());
             let sidecar_dir = resolve_sidecar_dir(app.handle(), &app_root);
             let workspace_root = match resolve_launch_workspace() {
-                LaunchWorkspace::UseRecent => resolve_initial_workspace(&app_data_dir),
                 LaunchWorkspace::Empty => None,
                 LaunchWorkspace::Root(root) if root.exists() => Some(root),
                 LaunchWorkspace::Root(_) => None,
@@ -148,7 +145,7 @@ fn resolve_launch_workspace() -> LaunchWorkspace {
         }
     }
 
-    LaunchWorkspace::UseRecent
+    LaunchWorkspace::Empty
 }
 
 fn resolve_sidecar_dir(app: &tauri::AppHandle, app_root: &std::path::Path) -> PathBuf {

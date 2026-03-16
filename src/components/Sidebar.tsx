@@ -85,6 +85,7 @@ interface SidebarProps {
   onCreateCloudProject: () => void;
   onLinkCloudProject: () => void;
   onCopyShareLink: () => void;
+  onRunTerminalCommand: (command: string) => void;
   // Comment props
   comments: ReviewComment[];
   onResolveComment: (id: string) => void;
@@ -195,6 +196,7 @@ export function Sidebar({
   onCreateCloudProject,
   onLinkCloudProject,
   onCopyShareLink,
+  onRunTerminalCommand,
   comments,
   onResolveComment,
   onReplyComment,
@@ -771,6 +773,49 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
                   {collabNotice.text}
                 </div>
               )}
+            </div>
+
+            {/* Card 3: Worker quick deploy */}
+            <div className="card">
+              <div className="card-header">Worker 快捷部署</div>
+              <div className="sidebar-stack-compact">
+                <button
+                  className="btn-secondary"
+                  style={{ width: "100%" }}
+                  onClick={() =>
+                    onRunTerminalCommand(
+                      'if [ -d "./workers" ]; then (cd "./workers" && npx wrangler login); else echo "[ViewerLeaf] 当前项目根目录未找到 workers/"; fi',
+                    )
+                  }
+                >
+                  打开终端并登录 Wrangler
+                </button>
+                <button
+                  className="btn-primary"
+                  style={{ width: "100%" }}
+                  onClick={() =>
+                    onRunTerminalCommand(
+                      'if [ -d "./workers" ]; then npm --prefix "./workers" run deploy; else echo "[ViewerLeaf] 当前项目根目录未找到 workers/"; fi',
+                    )
+                  }
+                >
+                  一键远程部署 Worker
+                </button>
+                <button
+                  className="btn-secondary"
+                  style={{ width: "100%" }}
+                  onClick={() =>
+                    onRunTerminalCommand(
+                      'if [ -d "./workers" ]; then (cd "./workers" && (npx wrangler whoami >/dev/null 2>&1 || npx wrangler login) && npm run deploy); else echo "[ViewerLeaf] 当前项目根目录未找到 workers/"; fi',
+                    )
+                  }
+                >
+                  登录检查 + 自动部署
+                </button>
+                <div className="text-subtle text-xs">
+                  会自动打开内置终端并执行命令，日志会显示在终端里。
+                </div>
+              </div>
             </div>
 
             {/* Card 3: Cloud project */}

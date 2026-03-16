@@ -9,6 +9,7 @@ interface TerminalPanelProps {
   workspaceRoot: string;
   isVisible: boolean;
   height: number;
+  commandRequest?: { id: number; command: string } | null;
   onHide: () => void;
 }
 
@@ -29,12 +30,14 @@ function safelyDisposeListener(listener?: (() => void | Promise<void>) | null) {
   }
 }
 
-export function TerminalPanel({ workspaceRoot, isVisible, height, onHide }: TerminalPanelProps) {
+export function TerminalPanel({ workspaceRoot, isVisible, height, commandRequest, onHide }: TerminalPanelProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef("");
   const isSessionStartingRef = useRef(false);
+  const lastCommandRequestIdRef = useRef(0);
+  const commandQueueRef = useRef<string[]>([]);
   const pendingEventsRef = useRef<Map<string, TerminalEvent[]>>(new Map());
   const workspaceRootRef = useRef(workspaceRoot);
   const [sessionInfo, setSessionInfo] = useState<TerminalSessionInfo | null>(null);
@@ -65,6 +68,19 @@ export function TerminalPanel({ workspaceRoot, isVisible, height, onHide }: Term
     terminal.reset();
     if (message) {
       terminal.writeln(message);
+    }
+  };
+
+  const flushCommandQueue = () => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId || commandQueueRef.current.length === 0) {
+      return;
+    }
+
+    const commands = commandQueueRef.current.splice(0, commandQueueRef.current.length);
+    for (const command of commands) {
+      const payload = command.endsWith("\n") ? command : `${command}\n`;
+      void desktop.terminalWrite(sessionId, payload);
     }
   };
 
@@ -122,6 +138,7 @@ export function TerminalPanel({ workspaceRoot, isVisible, height, onHide }: Term
         handleTerminalEvent(event);
       }
       terminal.focus();
+      flushCommandQueue();
     } catch (error) {
       isSessionStartingRef.current = false;
       setIsStarting(false);
@@ -286,6 +303,8 @@ export function TerminalPanel({ workspaceRoot, isVisible, height, onHide }: Term
       terminalRef.current?.focus();
       if (!sessionIdRef.current) {
         void startSession();
+      } else {
+        flushCommandQueue();
       }
     }, 40);
 
@@ -312,6 +331,35 @@ export function TerminalPanel({ workspaceRoot, isVisible, height, onHide }: Term
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- startSession reads latest state from refs/current render
   }, [workspaceRoot, isVisible]);
+
+  useEffect(() => {
+    if (!commandRequest || commandRequest.id <= lastCommandRequestIdRef.current) {
+      return;
+    }
+
+    lastCommandRequestIdRef.current = commandRequest.id;
+    const command = commandRequest.command.trim();
+    if (!command) {
+      return;
+    }
+
+    commandQueueRef.current.push(command);
+
+    if (!isVisible) {
+      return;
+    }
+
+    terminalRef.current?.focus();
+    if (sessionIdRef.current) {
+      flushCommandQueue();
+      return;
+    }
+
+    if (!isSessionStartingRef.current) {
+      void startSession();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- startSession reads latest refs/current render
+  }, [commandRequest, isVisible]);
 
   const handleRestart = async () => {
     await closeSession();
