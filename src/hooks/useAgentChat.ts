@@ -348,6 +348,14 @@ export function useAgentChat({
     didBootstrapRef.current = true;
     void bootstrapSessions().catch((error) => {
       console.warn("failed to bootstrap agent sessions", error);
+      // Retry once after a short delay in case backend wasn't ready
+      didBootstrapRef.current = false;
+      setTimeout(() => {
+        if (!didBootstrapRef.current) {
+          didBootstrapRef.current = true;
+          void bootstrapSessions().catch(() => {});
+        }
+      }, 1500);
     });
   }, [bootstrapSessions, snapshot]);
 

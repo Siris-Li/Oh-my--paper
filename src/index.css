@@ -1670,12 +1670,12 @@ button {
 /* Math preview in code editor */
 .cm-math-preview {
   position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
-  max-width: 42%; min-width: 180px; max-height: 55%;
+  width: fit-content; max-width: 60%; min-width: 180px; max-height: 60%;
   background: var(--bg-surface); border: 1px solid var(--border-light);
   border-radius: 10px; box-shadow: var(--shadow-md);
-  padding: 14px 18px; overflow: auto; z-index: 15;
+  padding: 16px 20px; overflow: hidden; z-index: 15;
   animation: cm-math-preview-in 0.2s ease;
-  pointer-events: none;
+  pointer-events: auto;
 }
 @keyframes cm-math-preview-in {
   from { opacity: 0; transform: translateY(-50%) translateX(8px); }
@@ -1683,11 +1683,11 @@ button {
 }
 .cm-math-preview-label {
   font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
-  color: var(--text-tertiary); margin-bottom: 8px; pointer-events: none;
+  color: var(--text-tertiary); margin-bottom: 8px;
 }
-.cm-math-preview-content { overflow-x: auto; pointer-events: none; }
-.cm-math-preview-content .katex-display { margin: 0; }
-.cm-math-preview-content .katex { font-size: 1.1em; }
+.cm-math-preview-content { overflow-x: scroll; overflow-y: auto; max-height: 100%; -webkit-overflow-scrolling: touch; }
+.cm-math-preview-content .katex-display { margin: 0; overflow-x: visible; }
+.cm-math-preview-content .katex { font-size: 1.1em; white-space: nowrap; }
 
 .editor-comment-trigger {
   position: absolute;
@@ -2962,6 +2962,8 @@ button {
   transition: background 0.1s;
 }
 .ag-tool-header:hover { background: var(--bg-surface-active); }
+.ag-tool-header--static { cursor: default; }
+.ag-tool-header--static:hover { background: transparent; }
 .ag-tool-icon { color: var(--text-tertiary); flex-shrink: 0; }
 .ag-tool-name { flex: 1; font-weight: 500; color: var(--text-secondary); }
 .ag-tool-preview {

@@ -154,15 +154,17 @@ function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; c
     if (toolMatch) {
       const toolId = toolMatch[1];
       let result = "";
+      // Check if next line is a [Result: ...] block
       if (i + 1 < lines.length && lines[i + 1].startsWith("[Result: ")) {
-        i++;
-        const resultLines: string[] = [lines[i].slice("[Result: ".length)];
-        while (i + 1 < lines.length && !lines[i + 1].match(/^\[Tool: /)) {
-          i++;
-          resultLines.push(lines[i]);
+        const resultLine = lines[i + 1];
+        // Find the LAST ] on this line to handle ] inside content
+        const lastBracket = resultLine.lastIndexOf("]");
+        if (lastBracket > "[Result: ".length - 1) {
+          result = resultLine.slice("[Result: ".length, lastBracket);
+        } else {
+          result = resultLine.slice("[Result: ".length);
         }
-        result = resultLines.join('\n');
-        if (result.endsWith(']')) result = result.slice(0, -1);
+        i++; // consume the result line
       }
       toolCalls.push({
         id: `${i}-${toolId}`,
@@ -280,28 +282,14 @@ function summarizeToolCall(call: ToolCallBlock) {
 
 /* ─── Tool call card ──────────────────────────────────── */
 function ToolCallCard({ call }: { call: ToolCallBlock }) {
-  const [open, setOpen] = useState(false);
   const isRunning = call.status === "running";
   const isError = call.status === "error";
   const isRequested = call.status === "requested";
   const summary = summarizeToolCall(call);
-  const preview = call.output?.trim()
-    ? call.output.trim().split("\n").find((line) => line.trim().length > 0) ?? ""
-    : "";
-  const shortPreview = preview.length > 92 ? `${preview.slice(0, 92)}…` : preview;
-
-  // Extract a short arg summary for inline display
-  const argSummary = (() => {
-    if (!call.args) return "";
-    const vals = Object.values(call.args).filter(v => typeof v === "string" || typeof v === "number");
-    if (!vals.length) return "";
-    const first = String(vals[0]);
-    return first.length > 60 ? first.slice(0, 60) + "…" : first;
-  })();
 
   return (
     <div className={`ag-tool-card${isError ? " ag-tool-card--error" : ""}`}>
-      <button type="button" className="ag-tool-header" onClick={() => setOpen(v => !v)}>
+      <div className="ag-tool-header ag-tool-header--static">
         <span className="ag-tool-icon">
           {isRunning ? (
             <span className="ag-tool-spinner" />
@@ -321,22 +309,7 @@ function ToolCallCard({ call }: { call: ToolCallBlock }) {
         </span>
         <span className="ag-tool-name">{summary}</span>
         <span className={`ag-tool-pill ag-tool-pill--${call.status}`}>{call.toolId}</span>
-        {argSummary && !shortPreview && <span className="ag-tool-arg">{argSummary}</span>}
-        {shortPreview && !open && <span className="ag-tool-preview">{shortPreview}</span>}
-        {(call.output || call.args) && (
-          <span className="ag-tool-chevron">{open ? "▾" : "▸"}</span>
-        )}
-      </button>
-      {open && (
-        <div className="ag-tool-body">
-          {call.args && Object.keys(call.args).length > 0 && (
-            <pre className="ag-tool-args">{JSON.stringify(call.args, null, 2)}</pre>
-          )}
-          {call.output && (
-            <pre className="ag-tool-output">{call.output}</pre>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -644,7 +617,13 @@ function formatSessionTimestamp(value: string) {
     return "";
   }
 
-  const date = new Date(value);
+  // SQLite datetime('now') produces UTC without timezone suffix; ensure JS parses as UTC
+  const normalized = value.trim();
+  const date = new Date(
+    normalized.includes("T") || normalized.includes("Z") || normalized.includes("+")
+      ? normalized
+      : normalized.replace(" ", "T") + "Z"
+  );
   if (Number.isNaN(date.getTime())) {
     return value;
   }
