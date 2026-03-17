@@ -6,6 +6,18 @@ const TOOL_TAGS = [
   { open: "<minimax:tool_call", close: "</minimax:tool_call>", needsOpenBracketClose: true },
   { open: "minimax:tool_call", close: "</tool>", payloadOffset: 0 },
 ];
+
+// Known tool IDs for detecting <toolname ...> format tags
+const KNOWN_TOOL_IDS = [
+  "tool_search", "list", "read", "glob", "grep", "bash",
+  "edit", "write", "apply_patch", "list_files", "read_section",
+  "list_sections", "read_bib_entries", "search_project",
+  "apply_text_patch", "insert_at_line",
+];
+const TOOL_NAME_TAG_RE = new RegExp(
+  `<\\s*(${KNOWN_TOOL_IDS.join("|")})\\b`,
+  "i",
+);
 const MAX_OPEN_MARKER_LENGTH = Math.max(
   THINK_OPEN.length,
   ...TOOL_TAGS.map((tag) => tag.open.length),
@@ -351,7 +363,10 @@ export function consumeTaggedText(buffer, options = {}) {
       .map((tag) => ({ tag, index: remaining.indexOf(tag.open) }))
       .filter((item) => item.index >= 0)
       .sort((left, right) => left.index - right.index)[0];
-    const openIndexCandidates = [thinkIndex, toolMatch?.index ?? -1].filter((value) => value >= 0);
+    // Also detect <toolname ...> patterns
+    const toolNameTagMatch = remaining.match(TOOL_NAME_TAG_RE);
+    const toolNameTagIndex = toolNameTagMatch ? toolNameTagMatch.index : -1;
+    const openIndexCandidates = [thinkIndex, toolMatch?.index ?? -1, toolNameTagIndex].filter((value) => value >= 0);
     const openIndex = openIndexCandidates.length > 0 ? Math.min(...openIndexCandidates) : -1;
 
     if (openIndex < 0) {
@@ -383,6 +398,68 @@ export function consumeTaggedText(buffer, options = {}) {
 
     const matchedTag = TOOL_TAGS.find((tag) => remaining.startsWith(tag.open));
     if (!matchedTag) {
+      // Check for <toolname args> format (e.g., "< read file_path: ... >" or "<read ...>")
+      const toolNameMatch = remaining.match(TOOL_NAME_TAG_RE);
+      if (toolNameMatch && toolNameMatch.index === 0) {
+        const toolName = toolNameMatch[1].toLowerCase();
+        // Find closing: </toolname>, </toolname >, or self-closing >...</toolname>
+        const closePattern = new RegExp(`<\\s*/\\s*${toolName}\\s*>`, "i");
+        const closeMatch = remaining.slice(toolNameMatch[0].length).match(closePattern);
+        // Also try simple > as self-closing if no close tag found
+        const selfCloseIndex = remaining.indexOf(">", toolNameMatch[0].length);
+
+        if (closeMatch) {
+          const innerStart = remaining.indexOf(">", toolNameMatch[0].length);
+          const closeStart = toolNameMatch[0].length + closeMatch.index;
+          const closeEnd = closeStart + closeMatch[0].length;
+          // Content between first > and </toolname>
+          const inner = innerStart >= 0 && innerStart < closeStart
+            ? remaining.slice(innerStart + 1, closeStart).trim()
+            : "";
+          // Extract args from the opening tag itself
+          const openTagEnd = innerStart >= 0 ? innerStart : closeStart;
+          const openTagContent = remaining.slice(toolNameMatch[0].length, openTagEnd).trim();
+          const args = {
+            ...parseColonStyleObject(openTagContent),
+            ...parseColonStyleObject(inner),
+          };
+          const normalized = normalizeToolArguments(toolName, args);
+          events.push({ type: "tool_call", name: toolName, args: normalized, source: "tagged" });
+          remaining = remaining.slice(closeEnd);
+          continue;
+        } else if (selfCloseIndex >= 0) {
+          // Self-closing: <read file_path: "main.tex"> or < read file_path: "main.tex" >
+          const openTagContent = remaining.slice(toolNameMatch[0].length, selfCloseIndex).trim();
+          const args = parseColonStyleObject(openTagContent);
+          const normalized = normalizeToolArguments(toolName, args);
+          // Check if there's a close tag after the >
+          const afterClose = remaining.slice(selfCloseIndex + 1);
+          const lateCloseMatch = afterClose.match(closePattern);
+          const totalConsumed = lateCloseMatch
+            ? selfCloseIndex + 1 + lateCloseMatch.index + lateCloseMatch[0].length
+            : selfCloseIndex + 1;
+          events.push({ type: "tool_call", name: toolName, args: normalized, source: "tagged" });
+          remaining = remaining.slice(totalConsumed);
+          continue;
+        } else if (!flush) {
+          // Incomplete tag, wait for more data
+          break;
+        } else {
+          // Flush mode: try to parse whatever we have
+          const openTagContent = remaining.slice(toolNameMatch[0].length).replace(/[<>]/g, "").trim();
+          const args = parseColonStyleObject(openTagContent);
+          if (Object.keys(args).length > 0) {
+            const normalized = normalizeToolArguments(toolName, args);
+            events.push({ type: "tool_call", name: toolName, args: normalized, source: "tagged" });
+            remaining = "";
+            break;
+          }
+          events.push({ type: "text", text: remaining[0] });
+          remaining = remaining.slice(1);
+          continue;
+        }
+      }
+
       events.push({ type: "text", text: remaining[0] });
       remaining = remaining.slice(1);
       continue;

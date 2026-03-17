@@ -7,7 +7,7 @@ import {
   resolveUserPath,
 } from "./common.mjs";
 
-const DEFAULT_LIMIT = 200;
+const DEFAULT_LIMIT = 500;
 const MAX_LIMIT = 2000;
 
 function clampLimit(value) {

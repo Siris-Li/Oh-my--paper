@@ -391,6 +391,16 @@ export function resolveActiveTools({ requestedToolIds, userMessage, context, dis
     selectedToolIds = chooseToolIds(allowlist, userMessage, context);
   }
 
+  // Always provide at least a base set of tools so the model can use native
+  // tool_use instead of falling back to text-based tagged tool calls.
+  if (selectedToolIds.length === 0 && !intent.isGreeting && !intent.asksAboutCapabilities) {
+    const BASE_TOOL_IDS = ["tool_search", "list", "read", "glob", "grep", "bash", "edit", "write"];
+    const allowed = new Set(allowlist);
+    selectedToolIds = prioritizeToolIds(
+      BASE_TOOL_IDS.filter((id) => allowed.has(id) && TOOL_MAP.has(id)),
+    );
+  }
+
   return {
     toolIds: selectedToolIds,
     tools: selectedToolIds.map((id) => TOOL_MAP.get(id)).filter(Boolean),
