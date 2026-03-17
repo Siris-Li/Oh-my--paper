@@ -187,6 +187,68 @@ button {
   -webkit-app-region: no-drag;
 }
 
+/* Windows custom titlebar */
+.topbar--windows {
+  padding-right: 0;
+}
+
+.win-controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  margin-left: 4px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.win-ctrl {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+.win-ctrl:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.win-ctrl--close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+/* Global scrollbar styling (works on Windows Chromium) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #b0bec5;
+}
+
 .topbar-toggle {
   display: inline-flex;
   align-items: center;

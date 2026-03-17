@@ -166,6 +166,21 @@ export const desktop = {
     }
     await (mockRuntime.setWindowTitle?.(title) ?? Promise.resolve());
   },
+  async minimizeWindow() {
+    if (isTauriRuntime()) {
+      try { await getCurrentWindow().minimize(); } catch { /* ignore */ }
+    }
+  },
+  async toggleMaximizeWindow() {
+    if (isTauriRuntime()) {
+      try { await getCurrentWindow().toggleMaximize(); } catch { /* ignore */ }
+    }
+  },
+  async closeWindow() {
+    if (isTauriRuntime()) {
+      try { await getCurrentWindow().close(); } catch { /* ignore */ }
+    }
+  },
   saveFile(filePath: string, content: string) {
     return runOrMock("save_file", { filePath, content }, () => mockRuntime.saveFile(filePath, content));
   },

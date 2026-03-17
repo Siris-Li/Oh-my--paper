@@ -992,6 +992,11 @@ function App() {
     typeof window !== "undefined" &&
     isTauriRuntime() &&
     /mac/i.test(window.navigator.userAgent);
+  const isWindows =
+    typeof window !== "undefined" &&
+    isTauriRuntime() &&
+    /win/i.test(window.navigator.userAgent) &&
+    !/mac/i.test(window.navigator.userAgent);
   const toggleDrawerTab = useEffectEvent((tab: DrawerTab) => {
     setDrawerTab(tab);
   });
@@ -2891,8 +2896,8 @@ function App() {
   return (
     <div className={`app-shell fade-in ${hasProject ? "" : "is-welcome"}`}>
       <header
-        className={`topbar ${hasProject ? "" : "topbar--welcome"} ${isMacOverlayWindow ? "topbar--overlay" : ""}`}
-        data-tauri-drag-region={isMacOverlayWindow ? "true" : undefined}
+        className={`topbar ${hasProject ? "" : "topbar--welcome"} ${isMacOverlayWindow ? "topbar--overlay" : ""} ${isWindows ? "topbar--windows" : ""}`}
+        data-tauri-drag-region={(isMacOverlayWindow || isWindows) ? "true" : undefined}
       >
         <div className="topbar-left">
           {!hasProject ? (
@@ -2959,6 +2964,34 @@ function App() {
               </button>
             </div>
           </>
+        )}
+        {isWindows && (
+          <div className="win-controls" data-tauri-drag-region="false">
+            <button
+              className="win-ctrl win-ctrl--min"
+              title="最小化"
+              onClick={() => void desktop.minimizeWindow()}
+              aria-label="最小化"
+            >
+              <svg viewBox="0 0 10 1" width="10" height="1"><rect width="10" height="1" fill="currentColor"/></svg>
+            </button>
+            <button
+              className="win-ctrl win-ctrl--max"
+              title="最大化"
+              onClick={() => void desktop.toggleMaximizeWindow()}
+              aria-label="最大化"
+            >
+              <svg viewBox="0 0 10 10" width="10" height="10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor"/></svg>
+            </button>
+            <button
+              className="win-ctrl win-ctrl--close"
+              title="关闭"
+              onClick={() => void desktop.closeWindow()}
+              aria-label="关闭"
+            >
+              <svg viewBox="0 0 10 10" width="10" height="10"><line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" strokeWidth="1.2"/><line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" strokeWidth="1.2"/></svg>
+            </button>
+          </div>
         )}
       </header>
 
@@ -3055,7 +3088,7 @@ function App() {
 
           {drawerTab === "project" ? (
             <ProjectSidebar
-              projectName={snapshot.projectConfig.rootPath.split("/").at(-1) || "未命名项目"}
+              projectName={workspaceLabelFromRoot(snapshot.projectConfig.rootPath) || "未命名项目"}
               mode={workspacePaneMode}
               nodes={snapshot.tree}
               activeFile={focusedTreePath}

@@ -244,6 +244,7 @@ export function Sidebar({
   });
   const availableEngineSet = new Set<LatexEngine>(compileEnvironment?.availableEngines ?? []);
   const selectedEngineAvailable = availableEngineSet.has(projectConfig.engine as LatexEngine);
+  const isWindows = typeof window !== "undefined" && /win/i.test(window.navigator.userAgent) && !/mac/i.test(window.navigator.userAgent);
   const providerLabelById = new Map(
     providers.map((provider) => [provider.id, provider.name?.trim() || provider.vendor || provider.id]),
   );
@@ -346,15 +347,36 @@ export function Sidebar({
                   缺少: {compileEnvironment.missingTools.join(" / ") || "latexmk / synctex / engine"}
                 </div>
                 <ol className="latex-guide-list">
-                  <li>先安装一个本地 TeX 发行版。macOS 上优先用 MacTeX，轻量方案可选 TinyTeX。</li>
-                  <li>安装完成后，在终端确认 `latexmk -v`、`xelatex --version`、`synctex` 至少能执行。</li>
-                  <li>如果是刚安装完，再重启一次 ViewerLeaf，然后回到这里点“重新检测”。</li>
+                  {isWindows ? (
+                    <>
+                      <li>安装 MiKTeX（推荐）或 TeX Live for Windows。MiKTeX 支持按需安装宏包，更轻量。</li>
+                      <li>安装完成后，打开命令提示符确认 <code>latexmk -v</code>、<code>xelatex --version</code> 能正常执行。</li>
+                      <li>如果刚安装完，重启 ViewerLeaf 后点"重新检测"。</li>
+                    </>
+                  ) : (
+                    <>
+                      <li>先安装一个本地 TeX 发行版。macOS 上优先用 MacTeX，轻量方案可选 TinyTeX。</li>
+                      <li>安装完成后，在终端确认 `latexmk -v`、`xelatex --version`、`synctex` 至少能执行。</li>
+                      <li>如果是刚安装完，再重启一次 ViewerLeaf，然后回到这里点"重新检测"。</li>
+                    </>
+                  )}
                 </ol>
-                <pre className="latex-code-block">{`# 完整方案（推荐）
+                {isWindows ? (
+                  <pre className="latex-code-block">{`# 方案一：MiKTeX（推荐，支持按需安装宏包）
+# 从 https://miktex.org/download 下载安装包
+
+# 方案二：TeX Live for Windows
+# 从 https://tug.org/texlive/windows.html 下载 install-tl-windows.exe
+
+# 方案三：Scoop 包管理器（命令行）
+scoop install latex`}</pre>
+                ) : (
+                  <pre className="latex-code-block">{`# 完整方案（推荐）
 brew install --cask mactex-no-gui
 
 # 轻量方案
 curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
+                )}
               </div>
             ) : (
               <>
@@ -784,6 +806,7 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
                 </button>
                 <div className="text-subtle text-xs">
                   首次会把内置 Worker 模板释放到本机应用数据目录，再自动安装依赖并执行部署。
+                  {isWindows && " Windows 上需要先安装 Node.js（nodejs.org），并确保 npx 在 PATH 中可用。"}
                 </div>
               </div>
             </div>
@@ -843,7 +866,7 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
                     </div>
                   )}
                   <div className="text-subtle text-xs">
-                    推送和拉取入口已经移到顶部同步栏，以及左侧“源码管理”工具栏。
+                    推送和拉取入口已经移到顶部同步栏，以及左侧"源码管理"工具栏。
                   </div>
                   <button
                     className="btn-secondary"
