@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ChatPanel } from "./ChatPanel";
 import { CommentPanel } from "./CommentPanel";
 import { ProviderCard, ProviderEditModal } from "./ProviderCard";
+import { SkillArsenal } from "./SkillArsenal";
 import type { CollabAuthSession } from "../lib/collaboration/auth";
 import type { CollabConfig } from "../lib/collaboration/collab-config";
 import type {
@@ -109,9 +110,6 @@ interface SidebarProps {
   onJumpToCommentLine: (line: number) => void;
 }
 
-function skillEnabled(skill: SkillManifest) {
-  return skill.isEnabled ?? skill.enabled ?? false;
-}
 
 function formatUsageTimestamp(createdAt: string) {
   if (!createdAt.trim()) {
@@ -521,57 +519,13 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
 
       {tab === "skills" && (
         <>
-          <div className="sidebar-header">技能应用</div>
+          <div className="sidebar-header">技能军火库</div>
           <div className="sidebar-content sidebar-stack">
-            <div className="card">
-              <div className="card-header">已安装技能</div>
-              <div className="text-subtle text-xs">
-                所有技能都保持侧栏化展示，不再接管整个编辑工作区。
-              </div>
-            </div>
-
-            <div className="sidebar-stack-compact">
-              {skills.map((skill) => {
-                const enabled = skillEnabled(skill);
-                return (
-                  <div key={skill.id} className={clsx("card", "sidebar-compact-card", enabled && "sidebar-card-active")}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
-                          {skill.name}
-                        </div>
-                        <div className="text-subtle text-xs">
-                          {skill.source} · v{skill.version}
-                        </div>
-                      </div>
-                      <span
-                        className="status-badge"
-                        style={{
-                          background: enabled ? "var(--accent-bg)" : "var(--bg-surface-hover)",
-                          color: enabled ? "var(--accent-primary)" : "var(--text-secondary)",
-                        }}
-                      >
-                        {enabled ? "启用" : "停用"}
-                      </span>
-                    </div>
-                    {skill.stages.length > 0 && (
-                      <div className="text-subtle text-xs" style={{ marginTop: "8px" }}>
-                        {skill.stages.join(" / ")}
-                      </div>
-                    )}
-                    <button
-                      className={enabled ? "btn-secondary" : "btn-primary"}
-                      style={{ width: "100%", marginTop: "12px" }}
-                      type="button"
-                      onClick={() => void onToggleSkill(skill)}
-                    >
-                      {enabled ? "停用技能" : "启用技能"}
-                    </button>
-                  </div>
-                );
-              })}
-              {skills.length === 0 && <div className="sidebar-empty-state">暂无技能</div>}
-            </div>
+            <SkillArsenal
+              skills={skills}
+              onToggleSkill={onToggleSkill}
+            />
+            {skills.length === 0 && <div className="sidebar-empty-state">暂无技能</div>}
           </div>
         </>
       )}

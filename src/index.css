@@ -1667,6 +1667,28 @@ button {
   position: relative;
 }
 
+/* Math preview in code editor */
+.cm-math-preview {
+  position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+  max-width: 42%; min-width: 180px; max-height: 55%;
+  background: var(--bg-surface); border: 1px solid var(--border-light);
+  border-radius: 10px; box-shadow: var(--shadow-md);
+  padding: 14px 18px; overflow: auto; z-index: 15;
+  animation: cm-math-preview-in 0.2s ease;
+  pointer-events: none;
+}
+@keyframes cm-math-preview-in {
+  from { opacity: 0; transform: translateY(-50%) translateX(8px); }
+  to { opacity: 1; transform: translateY(-50%) translateX(0); }
+}
+.cm-math-preview-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-tertiary); margin-bottom: 8px; pointer-events: none;
+}
+.cm-math-preview-content { overflow-x: auto; pointer-events: none; }
+.cm-math-preview-content .katex-display { margin: 0; }
+.cm-math-preview-content .katex { font-size: 1.1em; }
+
 .editor-comment-trigger {
   position: absolute;
   z-index: 12;
@@ -4285,3 +4307,138 @@ button {
   display: inline-block; width: 8px; height: 8px;
   border-radius: 50%; margin: 3px; cursor: pointer;
 }
+
+/* ─── Editor Mode Switch ─────────────────────── */
+.editor-mode-switch {
+  display: inline-flex; gap: 0; border: 1px solid var(--border-light); border-radius: 6px; overflow: hidden; margin-left: 8px;
+}
+.editor-mode-btn {
+  padding: 2px 10px; font-size: 11px; font-weight: 500; border: none; background: transparent;
+  color: var(--text-secondary); cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.editor-mode-btn:hover { background: var(--bg-surface-hover); }
+.editor-mode-btn.is-active {
+  background: var(--accent-primary); color: #fff;
+}
+
+/* ─── Visual Editor ──────────────────────────── */
+.visual-editor { display: flex; flex-direction: column; height: 100%; background: var(--bg-app); }
+.ve-toolbar {
+  display: flex; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--border-light);
+  background: var(--bg-surface); flex-shrink: 0;
+}
+.ve-toolbar-btn {
+  padding: 3px 10px; font-size: 11px; font-weight: 500; border: 1px solid var(--border-light);
+  border-radius: 4px; background: var(--bg-surface); color: var(--text-secondary); cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ve-toolbar-btn:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+.ve-toolbar-spacer { flex: 1; }
+.ve-lines { flex: 1; overflow-y: auto; padding: 8px 0; font-family: var(--font-mono, "SF Mono", "Fira Code", monospace); font-size: 13px; line-height: 1.7; }
+.ve-line {
+  display: flex; align-items: flex-start; padding: 0 12px; min-height: 22px;
+  transition: background 0.1s;
+}
+.ve-line:hover { background: rgba(255,255,255,0.02); }
+.ve-line-active { background: rgba(255,255,255,0.04) !important; }
+.ve-line-preamble { opacity: 0.45; }
+.ve-line-number {
+  width: 40px; flex-shrink: 0; text-align: right; padding-right: 12px;
+  color: var(--text-secondary); opacity: 0.4; font-size: 11px; user-select: none;
+  line-height: 1.7;
+}
+.ve-line-text {
+  flex: 1; min-width: 0; outline: none; white-space: pre-wrap; word-break: break-word;
+  color: var(--text-primary); caret-color: var(--accent-primary);
+}
+.ve-line-text:focus { outline: none; }
+
+/* Syntax tokens */
+.ve-tok-command { color: #4dd0e1; }
+.ve-tok-math { color: #fff176; }
+.ve-tok-math-rendered { display: inline-block; vertical-align: middle; padding: 0 2px; cursor: default; }
+.ve-tok-math-rendered .katex { font-size: 1em; }
+div.ve-tok-math-rendered { display: block; text-align: center; margin: 8px 0; }
+div.ve-tok-math-rendered .katex { font-size: 1.15em; }
+.ve-tok-comment { color: #616161; font-style: italic; }
+.ve-tok-brace { color: #ffab40; }
+
+/* Section headings */
+.ve-heading-1 .ve-line-text { font-size: 22px; font-weight: 700; }
+.ve-heading-2 .ve-line-text { font-size: 18px; font-weight: 600; }
+.ve-heading-3 .ve-line-text { font-size: 15px; font-weight: 600; }
+.ve-heading-4 .ve-line-text { font-size: 14px; font-weight: 500; }
+
+/* ─── Skill Arsenal ──────────────────────────── */
+.arsenal { padding: 0; }
+.arsenal-grid {
+  display: grid; grid-template-columns: 1fr; gap: 8px;
+}
+.arsenal-card {
+  position: relative; border-radius: 10px; padding: 14px;
+  background: var(--bg-surface); border: 1px solid var(--border-light);
+  cursor: pointer; transition: transform 0.18s, box-shadow 0.18s, border-color 0.18s;
+  animation: arsenal-enter 0.3s ease both;
+}
+.arsenal-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  border-color: var(--arsenal-primary, var(--accent-primary));
+}
+.arsenal-card--active {
+  border-color: var(--arsenal-primary, var(--accent-primary));
+  box-shadow: 0 0 0 1px var(--arsenal-primary, var(--accent-primary)), 0 2px 12px rgba(0,0,0,0.15);
+}
+.arsenal-card-header {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.arsenal-icon {
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  image-rendering: pixelated;
+}
+.arsenal-icon svg { image-rendering: pixelated; }
+.arsenal-name {
+  font-size: 13px; font-weight: 600; color: var(--text-primary);
+}
+.arsenal-desc {
+  font-size: 11px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;
+}
+.arsenal-action-btn {
+  width: 100%; padding: 5px 0; font-size: 11px; font-weight: 500;
+  border: 1px solid var(--arsenal-primary, var(--accent-primary));
+  border-radius: 6px; background: transparent;
+  color: var(--arsenal-primary, var(--accent-primary)); cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.arsenal-action-btn:hover {
+  background: var(--arsenal-primary, var(--accent-primary)); color: #fff;
+}
+.arsenal-custom-dot {
+  position: absolute; top: 8px; right: 8px; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--arsenal-accent, #ffab40);
+}
+.arsenal-status {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  margin-left: 6px; font-weight: 500;
+}
+.arsenal-status--on { background: var(--accent-bg); color: var(--accent-primary); }
+.arsenal-status--off { background: var(--bg-surface-hover); color: var(--text-secondary); }
+
+@keyframes arsenal-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Compact mode (ChatPanel flyout) */
+.arsenal--compact .arsenal-grid {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.arsenal--compact .arsenal-card {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  border-radius: 6px; animation: none;
+}
+.arsenal--compact .arsenal-card-header { margin-bottom: 0; }
+.arsenal--compact .arsenal-desc { display: none; }
+.arsenal--compact .arsenal-action-btn { display: none; }
+.arsenal--compact .arsenal-name { font-size: 12px; }
+.arsenal--compact .arsenal-icon svg { width: 24px; height: 24px; }

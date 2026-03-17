@@ -18,6 +18,8 @@ import { latex } from "../editor/languages/latex";
 import { commentGutter, setCommentMarkers } from "../editor/extensions/comment-gutter";
 import type { CollabStatus, ProjectFile, ReviewComment } from "../types";
 import CodeMirrorView from "./source-editor/CodeMirrorView";
+import "katex/dist/katex.min.css";
+import { findMathBlocks, renderMathToken } from "../lib/latexTokenizer";
 
 interface EditorPaneProps {
   file: ProjectFile;
@@ -111,9 +113,16 @@ function EditorPaneInner({
   const syncSelectionCommentTriggerRef = useRef<(view: EditorView) => void>(() => {});
   const [lineCount, setLineCount] = useState(() => file.content.split("\n").length);
   const [commentPopover, setCommentPopover] = useState<CommentPopoverState | null>(null);
+  const [cursorLine, setCursorLine] = useState(1);
   const isCollaborative = Boolean(yText && awareness);
   const canAddComment = Boolean(collabStatus?.enabled && collabStatus.canComment && onAddComment);
   const isReadOnly = Boolean(collabStatus?.enabled && !collabStatus.canEditText);
+
+  const docLines = useMemo(() => file.content.split("\n"), [file.content]);
+  const mathBlocks = useMemo(() => findMathBlocks(docLines), [docLines]);
+  const activeMathBlock = useMemo(() => {
+    return mathBlocks.find(b => cursorLine >= b.startLine + 1 && cursorLine <= b.endLine + 1) ?? null;
+  }, [mathBlocks, cursorLine]);
 
   const onChangeRef = useRef(onChange);
   const onCursorChangeRef = useRef(onCursorChange);
@@ -327,6 +336,7 @@ function EditorPaneInner({
           const column = (main.head - lineInfo.from) + 1;
           const selectedText = nextView.state.sliceDoc(main.from, main.to);
           onCursorChangeRef.current(line, column, selectedText);
+          setCursorLine(line);
           syncSelectionCommentTriggerRef.current(nextView);
         }
       },
@@ -343,6 +353,7 @@ function EditorPaneInner({
     const column = (main.head - lineInfo.from) + 1;
     const selectedText = view.state.sliceDoc(main.from, main.to);
     onCursorChangeRef.current(line, column, selectedText);
+    setCursorLine(line);
     syncSelectionCommentTrigger(view);
   }, [view]);
 
@@ -513,6 +524,19 @@ function EditorPaneInner({
       </div>
       <div className="editor-pane-surface" ref={editorSurfaceRef}>
         <CodeMirrorView view={view} />
+        {activeMathBlock && (() => {
+          const rendered = renderMathToken(activeMathBlock.tex, activeMathBlock.displayMode);
+          if (!rendered) return null;
+          return (
+            <div className="cm-math-preview" data-comment-overlay="true">
+              <div className="cm-math-preview-label">Math Preview</div>
+              <div
+                className="cm-math-preview-content"
+                dangerouslySetInnerHTML={{ __html: rendered }}
+              />
+            </div>
+          );
+        })()}
         {commentPopover?.mode === "trigger" && (
           <button
             type="button"

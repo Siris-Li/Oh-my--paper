@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { SkillArsenal } from "./SkillArsenal";
 
 import type {
   AgentMessage,
@@ -25,7 +26,6 @@ interface StreamBlock {
   thoughtText: string;
 }
 
-const SERIALIZED_TOOL_BLOCK_RE = /\[Tool: ([^\]]+)\]\s*(?:\r?\n\[Result: ([\s\S]*?)\])?(?=(?:\r?\n){2}\[Tool: |\s*$)/g;
 const TAGGED_TOOL_BLOCK_RE = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>|\[TOOL_CALL\]\s*([\s\S]*?)\s*\[\/TOOL_CALL\]|<(?:[\w-]+:)?tool_call[^>]*>\s*([\s\S]*?)\s*<\/(?:[\w-]+:)?tool_call>|(?:<)?minimax:tool_call\b[^>]*>\s*([\s\S]*?)\s*<\/tool>|(?:<)?minimax:tool_call\b\s*([\s\S]*?)\s*<\/tool>/g;
 
 function parseColonStyleArgs(raw: string) {
@@ -144,6 +144,40 @@ function parseEmbeddedToolPayload(raw: string) {
   }
 }
 
+function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; cleaned: string } {
+  const lines = raw.split('\n');
+  const toolCalls: ToolCallBlock[] = [];
+  const textLines: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const toolMatch = lines[i].match(/^\[Tool: ([^\]]+)\]$/);
+    if (toolMatch) {
+      const toolId = toolMatch[1];
+      let result = "";
+      if (i + 1 < lines.length && lines[i + 1].startsWith("[Result: ")) {
+        i++;
+        const resultLines: string[] = [lines[i].slice("[Result: ".length)];
+        while (i + 1 < lines.length && !lines[i + 1].match(/^\[Tool: /)) {
+          i++;
+          resultLines.push(lines[i]);
+        }
+        result = resultLines.join('\n');
+        if (result.endsWith(']')) result = result.slice(0, -1);
+      }
+      toolCalls.push({
+        id: `${i}-${toolId}`,
+        toolId,
+        output: result.trim() || undefined,
+        status: result ? "completed" : "running",
+      });
+    } else {
+      textLines.push(lines[i]);
+    }
+    i++;
+  }
+  return { toolCalls, cleaned: textLines.join('\n') };
+}
+
 function parseStreamBlocks(raw: string): StreamBlock {
   const toolCalls: ToolCallBlock[] = [];
   const thoughtText = Array.from(raw.matchAll(/<think>\s*([\s\S]*?)\s*<\/think>/g))
@@ -151,18 +185,10 @@ function parseStreamBlocks(raw: string): StreamBlock {
     .filter((value) => value.length > 0)
     .join("\n\n");
 
+  const serialized = parseSerializedToolBlocks(raw);
+  toolCalls.push(...serialized.toolCalls);
+
   let m: RegExpExecArray | null;
-  while ((m = SERIALIZED_TOOL_BLOCK_RE.exec(raw)) !== null) {
-    if (m[1]) {
-      const output = m[2]?.trim();
-      toolCalls.push({
-        id: `${m.index}-${m[1]}`,
-        toolId: m[1],
-        output,
-        status: output ? "completed" : "running",
-      });
-    }
-  }
 
   while ((m = TAGGED_TOOL_BLOCK_RE.exec(raw)) !== null) {
     const embedded = parseEmbeddedToolPayload(m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? "");
@@ -176,8 +202,7 @@ function parseStreamBlocks(raw: string): StreamBlock {
       status: "requested",
     });
   }
-  const text = raw
-    .replace(SERIALIZED_TOOL_BLOCK_RE, "")
+  const text = serialized.cleaned
     .replace(TAGGED_TOOL_BLOCK_RE, "")
     .replace(/<\/(?:[\w-]+:)?tool_call>/g, "")
     .replace(/(?:<)?minimax:tool_call\b[^>]*>/g, "")
@@ -515,20 +540,11 @@ function BottomBar({
       {/* Skill flyout */}
       {showSkills && skills.length > 0 && (
         <div className="ag-skill-flyout">
-          {skills.map(skill => {
-            const active = skill.isEnabled ?? skill.enabled ?? false;
-            return (
-              <button
-                key={skill.id}
-                type="button"
-                className={`ag-skill-item ${active ? "ag-skill-item--on" : ""}`}
-                onClick={() => void onToggleSkill(skill)}
-              >
-                <span className={`ag-skill-dot ${active ? "ag-skill-dot--on" : ""}`} />
-                {skill.name}
-              </button>
-            );
-          })}
+          <SkillArsenal
+            skills={skills}
+            onToggleSkill={onToggleSkill}
+            compact
+          />
         </div>
       )}
 

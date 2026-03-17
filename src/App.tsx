@@ -10,6 +10,7 @@ import * as Y from "yjs";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import { EditorPane } from "./components/EditorPane";
+import { VisualEditor } from "./components/VisualEditor";
 import { OutlineTree } from "./components/OutlineTree";
 import { PdfPane, type PreviewPaneState } from "./components/PdfPane";
 import { ProjectSidebar } from "./components/ProjectSidebar";
@@ -347,6 +348,7 @@ function App() {
   const [collabRevision, setCollabRevision] = useState(0);
   const [runtimeDebugLogLines, setRuntimeDebugLogLines] = useState<string[]>([]);
   const [collabDebugLogLines, setCollabDebugLogLines] = useState<string[]>([]);
+  const [editorMode, setEditorMode] = useState<"code" | "visual">("code");
   const workspaceBodyRef = useRef<HTMLDivElement | null>(null);
   const editorPreviewSplitRef = useRef<HTMLDivElement | null>(null);
 
@@ -3001,6 +3003,24 @@ function App() {
                     );
                   })}
                   </div>
+                  {activeFile?.path.endsWith(".tex") && (
+                    <div className="editor-mode-switch">
+                      <button
+                        type="button"
+                        className={`editor-mode-btn ${editorMode === "code" ? "is-active" : ""}`}
+                        onClick={() => setEditorMode("code")}
+                      >
+                        Code
+                      </button>
+                      <button
+                        type="button"
+                        className={`editor-mode-btn ${editorMode === "visual" ? "is-active" : ""}`}
+                        onClick={() => setEditorMode("visual")}
+                      >
+                        Visual
+                      </button>
+                    </div>
+                  )}
                   <div className="editor-content">
                     {editorImagePath ? (
                       <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--bg-app)" }}>
@@ -3043,23 +3063,32 @@ function App() {
                         </div>
                       </div>
                     ) : activeFile ? (
-                      <EditorPane
-                        file={activeFile}
-                        isDirty={dirtyPathSet.has(activeFile.path)}
-                        targetLine={editorJumpTarget?.path === activeFile.path ? editorJumpTarget.line : undefined}
-                        targetNonce={editorJumpTarget?.path === activeFile.path ? editorJumpTarget.nonce : undefined}
-                        onChange={handleEditorChange}
-                        onCursorChange={handleEditorCursorChange}
-                        onSave={handleEditorSave}
-                        onRunAgent={handleEditorRunAgent}
-                        onCompile={handleEditorCompile}
-                        onForwardSync={handleEditorForwardSync}
-                        yText={activeCollaborativeDoc.yText}
-                        awareness={activeCollaborativeDoc.awareness}
-                        collabStatus={currentCollabStatus}
-                        comments={activeDocComments}
-                        onAddComment={handleAddComment}
-                      />
+                      editorMode === "visual" && activeFile.path.endsWith(".tex") ? (
+                        <VisualEditor
+                          content={activeFile.content}
+                          onChange={handleEditorChange}
+                          onSave={handleSaveCurrentFile}
+                          onSwitchToCode={() => setEditorMode("code")}
+                        />
+                      ) : (
+                        <EditorPane
+                          file={activeFile}
+                          isDirty={dirtyPathSet.has(activeFile.path)}
+                          targetLine={editorJumpTarget?.path === activeFile.path ? editorJumpTarget.line : undefined}
+                          targetNonce={editorJumpTarget?.path === activeFile.path ? editorJumpTarget.nonce : undefined}
+                          onChange={handleEditorChange}
+                          onCursorChange={handleEditorCursorChange}
+                          onSave={handleEditorSave}
+                          onRunAgent={handleEditorRunAgent}
+                          onCompile={handleEditorCompile}
+                          onForwardSync={handleEditorForwardSync}
+                          yText={activeCollaborativeDoc.yText}
+                          awareness={activeCollaborativeDoc.awareness}
+                          collabStatus={currentCollabStatus}
+                          comments={activeDocComments}
+                          onAddComment={handleAddComment}
+                        />
+                      )
                     ) : !hasProject ? (
                       <WelcomeWorkspace
                         embedded

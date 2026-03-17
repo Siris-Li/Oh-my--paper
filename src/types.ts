@@ -385,3 +385,26 @@ export interface WorkspaceSnapshot {
   assets: GeneratedAsset[];
   collab?: WorkspaceCollabMetadata | null;
 }
+
+export type WeaponType = "blade" | "bow" | "hammer" | "shield" | "spear";
+export type SkillActionType = "snippet" | "checklist" | "command" | "agent";
+
+export interface SkillAction {
+  type: SkillActionType;
+  snippet?: string;
+  checklist?: string;
+  command?: string;
+  prompt?: string;
+}
+
+export interface AcademicSkill {
+  id: string;
+  name: string;
+  weaponType: WeaponType;
+  description: string;
+  actionLabel: string;
+  themeColors: { primary: string; secondary: string; accent: string };
+  enabled: boolean;
+  action?: SkillAction;
+  isCustom?: boolean;
+}

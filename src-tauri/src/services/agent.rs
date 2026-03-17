@@ -125,7 +125,13 @@ pub fn run_agent(
             vendor: prov.vendor.clone(),
             base_url: prov.base_url.clone(),
             api_key: prov.api_key.clone(),
-            model: profile.model.clone(),
+            // Always use provider's current default_model so that changing
+            // the model in provider settings takes effect immediately.
+            model: if prov.default_model.trim().is_empty() {
+                profile.model.clone()
+            } else {
+                prov.default_model.clone()
+            },
         },
         system_prompt,
         tools: profile.tool_allowlist.clone(),
@@ -199,6 +205,7 @@ pub fn run_agent(
     let mut committed_thinking = String::new();
     let mut last_error: Option<String> = None;
     let mut done_usage: Option<UsageInfo> = None;
+    let mut tool_call_log: Vec<(String, String, String)> = Vec::new(); // (toolId, status, preview)
 
     for line in reader.lines() {
         let line = line?;
@@ -237,6 +244,35 @@ pub fn run_agent(
                     last_error = Some(message.clone());
                     let _ = app_handle.emit("agent:stream", &chunk);
                 }
+                StreamChunk::ToolCallStart { tool_id, .. } => {
+                    tool_call_log.push((tool_id.clone(), "running".into(), String::new()));
+                    let _ = app_handle.emit("agent:stream", &chunk);
+                }
+                StreamChunk::ToolCallResult {
+                    tool_id,
+                    output,
+                    status,
+                } => {
+                    let resolved_status = status
+                        .as_deref()
+                        .unwrap_or("completed")
+                        .to_string();
+                    if let Some(entry) = tool_call_log
+                        .iter_mut()
+                        .rev()
+                        .find(|e| e.0 == *tool_id && e.1 == "running")
+                    {
+                        entry.1 = resolved_status;
+                        entry.2 = truncate_preview(output, 60);
+                    } else {
+                        tool_call_log.push((
+                            tool_id.clone(),
+                            resolved_status,
+                            truncate_preview(output, 60),
+                        ));
+                    }
+                    let _ = app_handle.emit("agent:stream", &chunk);
+                }
                 _ => {
                     let _ = app_handle.emit("agent:stream", &chunk);
                 }
@@ -269,7 +305,7 @@ pub fn run_agent(
             },
         );
         let all_thinking = merge_thinking_segments(&committed_thinking, &active_thinking);
-        let partial_content = build_assistant_message_content(&all_thinking, &full_response);
+        let partial_content = build_assistant_message_content(&all_thinking, &full_response, &tool_call_log);
         if !partial_content.trim().is_empty() {
             persist_assistant_message(state, &session_id, profile_id, &partial_content)?;
         }
@@ -278,7 +314,7 @@ pub fn run_agent(
     }
 
     let all_thinking = merge_thinking_segments(&committed_thinking, &active_thinking);
-    let final_content = build_assistant_message_content(&all_thinking, &full_response);
+    let final_content = build_assistant_message_content(&all_thinking, &full_response, &tool_call_log);
     if !final_content.trim().is_empty() {
         persist_assistant_message(state, &session_id, profile_id, &final_content)?;
     } else if let Some(error_message) = last_error {
@@ -390,6 +426,13 @@ pub fn get_agent_messages(state: &AppState, session_id: Option<&str>) -> Result<
 }
 
 pub fn list_agent_sessions(state: &AppState) -> Result<Vec<AgentSessionSummary>> {
+    let project_root = {
+        let config = state
+            .project_config
+            .read()
+            .expect("project config lock poisoned");
+        config.root_path.clone()
+    };
     let conn = state.db.lock().expect("db lock poisoned");
     let mut stmt = conn.prepare(
         "
@@ -409,12 +452,13 @@ pub fn list_agent_sessions(state: &AppState) -> Result<Vec<AgentSessionSummary>>
           ), '') AS last_message
         FROM sessions s
         LEFT JOIN messages m ON m.session_id = s.id
+        WHERE s.project_dir = ?1
         GROUP BY s.id
         ORDER BY datetime(s.updated_at) DESC, datetime(s.created_at) DESC
         ",
     )?;
 
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map(params![project_root], |row| {
         let title: String = row.get(2)?;
         let last_message: String = row.get(6)?;
         let preview_source = sanitize_agent_message_for_display(&last_message);
@@ -513,16 +557,29 @@ fn persist_assistant_message(
     Ok(())
 }
 
-fn build_assistant_message_content(thinking: &str, text: &str) -> String {
+fn build_assistant_message_content(
+    thinking: &str,
+    text: &str,
+    tool_calls: &[(String, String, String)],
+) -> String {
     let mut parts = Vec::new();
     let trimmed_thinking = thinking.trim();
     if !trimmed_thinking.is_empty() {
         parts.push(format!("<think>\n{trimmed_thinking}\n</think>"));
     }
+    if !tool_calls.is_empty() {
+        for (tool_id, _status, preview) in tool_calls {
+            if preview.is_empty() {
+                parts.push(format!("[Tool: {tool_id}]"));
+            } else {
+                parts.push(format!("[Tool: {tool_id}]\n[Result: {preview}]"));
+            }
+        }
+    }
     if !text.trim().is_empty() {
         parts.push(text.to_string());
     }
-    parts.join("\n\n")
+    parts.join("\n")
 }
 
 fn merge_thinking_segments(committed: &str, active: &str) -> String {

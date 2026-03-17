@@ -1,7 +1,7 @@
 const THINK_OPEN = "<think>";
 const THINK_CLOSE = "</think>";
 const TOOL_TAGS = [
-  { open: "<tool_call>", close: "</tool_call>" },
+  { open: "<tool_call>", close: "</tool_call>", altClose: ["</arg_value>", "</tool_call >"] },
   { open: "[TOOL_CALL]", close: "[/TOOL_CALL]" },
   { open: "<minimax:tool_call", close: "</minimax:tool_call>", needsOpenBracketClose: true },
   { open: "minimax:tool_call", close: "</tool>", payloadOffset: 0 },
@@ -111,6 +111,43 @@ function parseInlineToolCommand(rawCommand) {
     .trim();
   if (!normalized) {
     return null;
+  }
+
+  // Handle GLM-style backtick format: "tool_name`arg1`arg2" or "tool_name``arg"
+  const backtickMatch = normalized.match(/^([a-zA-Z_][a-zA-Z0-9_-]*)`+(.*)$/);
+  if (backtickMatch) {
+    const name = backtickMatch[1];
+    const argParts = backtickMatch[2].split(/`+/).filter(Boolean);
+    // Try to interpret as: first arg is the primary argument for the tool
+    const args = {};
+    if (argParts.length === 1) {
+      // Single arg — guess the parameter name based on tool
+      const val = argParts[0].trim();
+      if (["read", "read_section", "list_sections", "edit", "write"].includes(name)) {
+        args.filePath = val;
+      } else if (["grep", "search_project"].includes(name)) {
+        args.query = val;
+      } else if (["glob"].includes(name)) {
+        args.pattern = val;
+      } else if (["bash"].includes(name)) {
+        args.command = val;
+      } else {
+        args.query = val;
+      }
+    } else if (argParts.length >= 2) {
+      // Try key:value or just positional
+      for (const part of argParts) {
+        const kv = part.match(/^([a-zA-Z_]+)\s*[:=]\s*(.+)$/);
+        if (kv) {
+          args[normalizeArgKey(kv[1])] = kv[2].trim();
+        }
+      }
+      if (Object.keys(args).length === 0) {
+        // Positional: first is likely query/path
+        args.query = argParts.join(" ");
+      }
+    }
+    return { name, args: normalizeToolArguments(name, args) };
   }
 
   const [name, ...rest] = normalized.split(/\s+/);
@@ -478,6 +515,17 @@ export function consumeTaggedText(buffer, options = {}) {
 
     let effectiveClose = matchedTag.close;
     let closeIndex = remaining.indexOf(matchedTag.close, Math.max(matchedTag.open.length, payloadStart + 1));
+    // Try alternative close tags (e.g., GLM models use </arg_value> instead of </tool_call>)
+    if (closeIndex < 0 && Array.isArray(matchedTag.altClose)) {
+      for (const alt of matchedTag.altClose) {
+        const altIndex = remaining.indexOf(alt, Math.max(matchedTag.open.length, payloadStart + 1));
+        if (altIndex >= 0) {
+          closeIndex = altIndex;
+          effectiveClose = alt;
+          break;
+        }
+      }
+    }
     if (closeIndex < 0 && matchedTag.open.includes("minimax:tool_call")) {
       const toolCloseIndex = remaining.indexOf("</tool>", Math.max(matchedTag.open.length, payloadStart + 1));
       if (toolCloseIndex >= 0) {
