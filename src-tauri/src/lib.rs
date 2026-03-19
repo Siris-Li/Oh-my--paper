@@ -167,15 +167,22 @@ fn resolve_sidecar_dir(app: &tauri::AppHandle, app_root: &std::path::Path) -> Pa
     candidates.push(app_root.join("resources/sidecar"));
 
     if let Ok(resource_dir) = app.path().resource_dir() {
-        candidates.push(resource_dir.join("sidecar"));
-        candidates.push(resource_dir.join("../Resources/sidecar"));
+        push_bundled_resource_candidates(&mut candidates, &resource_dir, "sidecar");
     }
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            candidates.push(parent.join("sidecar"));
-            candidates.push(parent.join("../Resources/sidecar"));
-            candidates.push(parent.join("../../Resources/sidecar"));
+            push_bundled_resource_candidates(&mut candidates, parent, "sidecar");
+            push_bundled_resource_candidates(
+                &mut candidates,
+                &parent.join("../Resources"),
+                "sidecar",
+            );
+            push_bundled_resource_candidates(
+                &mut candidates,
+                &parent.join("../../Resources"),
+                "sidecar",
+            );
         }
     }
 
@@ -261,15 +268,22 @@ pub(crate) fn resolve_worker_template_dir(
     );
 
     if let Ok(resource_dir) = app.path().resource_dir() {
-        candidates.push(resource_dir.join("worker-template"));
-        candidates.push(resource_dir.join("../Resources/worker-template"));
+        push_bundled_resource_candidates(&mut candidates, &resource_dir, "worker-template");
     }
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            candidates.push(parent.join("worker-template"));
-            candidates.push(parent.join("../Resources/worker-template"));
-            candidates.push(parent.join("../../Resources/worker-template"));
+            push_bundled_resource_candidates(&mut candidates, parent, "worker-template");
+            push_bundled_resource_candidates(
+                &mut candidates,
+                &parent.join("../Resources"),
+                "worker-template",
+            );
+            push_bundled_resource_candidates(
+                &mut candidates,
+                &parent.join("../../Resources"),
+                "worker-template",
+            );
         }
     }
 
@@ -288,4 +302,10 @@ fn has_root_markers(path: &Path) -> bool {
     path.join("sidecar").join("index.mjs").is_file()
         || path.join("skills").is_dir()
         || path.join("src-tauri").is_dir()
+}
+
+fn push_bundled_resource_candidates(candidates: &mut Vec<PathBuf>, base: &Path, resource: &str) {
+    candidates.push(base.join(resource));
+    candidates.push(base.join("resources").join(resource));
+    candidates.push(base.join("_up_").join(resource));
 }
