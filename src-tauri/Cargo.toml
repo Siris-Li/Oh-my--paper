@@ -1,6 +1,6 @@
 [package]
 name = "viewerleaf"
-version = "0.1.0"
+version = "0.2.0"
 description = "ViewerLeaf academic writing workbench"
 authors = ["donkfeng"]
 edition = "2021"
