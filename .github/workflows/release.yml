@@ -44,7 +44,7 @@ jobs:
             args: --target x86_64-apple-darwin
             rust_target: x86_64-apple-darwin
           - platform: windows-latest
-            args: ""
+            args: --bundles nsis
             rust_target: ""
           - platform: ubuntu-22.04
             args: ""
@@ -67,6 +67,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            sidecar/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

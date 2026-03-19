@@ -4,8 +4,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 fn main() {
+    println!("cargo:warning=staging worker template resources");
     stage_worker_template().expect("failed to stage worker template resources");
+    println!("cargo:warning=staging sidecar resources");
     stage_sidecar().expect("failed to stage sidecar resources");
+    println!("cargo:warning=staged bundle resources");
     tauri_build::build()
 }
 
@@ -45,14 +48,29 @@ fn stage_sidecar() -> io::Result<()> {
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is missing"));
     let source_root = manifest_dir.join("../sidecar");
     let target_root = manifest_dir.join("resources/sidecar");
-
-    emit_rerun_markers(&source_root)?;
+    let include_paths = [
+        "package.json",
+        "package-lock.json",
+        "index.mjs",
+        "agent.mjs",
+        "opencode.mjs",
+        "providers",
+        "tools",
+        "utils",
+        "node_modules",
+    ];
 
     if target_root.exists() {
         fs::remove_dir_all(&target_root)?;
     }
+    fs::create_dir_all(&target_root)?;
 
-    copy_path(&source_root, &target_root)?;
+    for relative in include_paths {
+        let source = source_root.join(relative);
+        let target = target_root.join(relative);
+        emit_rerun_markers(&source)?;
+        copy_path(&source, &target)?;
+    }
 
     Ok(())
 }
