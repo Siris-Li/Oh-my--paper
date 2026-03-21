@@ -10,7 +10,10 @@
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { emit } from "../utils/ndjson.mjs";
-import { requireCliExecutable } from "../utils/resolve-cli.mjs";
+import {
+  buildCliProcessEnv,
+  requireCliExecutable,
+} from "../utils/resolve-cli.mjs";
 
 /**
  * Check if a message looks like system/skill prompt content
@@ -98,6 +101,7 @@ function extractTokenBudget(usage) {
 export async function runClaudeCode(request) {
   const options = buildSdkOptions(request);
   options.pathToClaudeCodeExecutable = await requireCliExecutable("claude-code");
+  options.env = buildCliProcessEnv(options.pathToClaudeCodeExecutable);
   const userMessage =
     typeof request.userMessage === "string" && request.userMessage.trim()
       ? request.userMessage.trim()
@@ -108,18 +112,16 @@ export async function runClaudeCode(request) {
   let totalOutputTokens = 0;
 
   try {
-    const result = await query({
+    const queryInstance = query({
       prompt: userMessage,
       options,
-      abortController: new AbortController(),
-      onEvent: (event) => {
-        handleSdkEvent(event);
-      },
     });
 
-    // If query returns a session ID, capture it
-    if (result?.sessionId) {
-      capturedSessionId = result.sessionId;
+    for await (const event of queryInstance) {
+      if (event?.session_id && !capturedSessionId) {
+        capturedSessionId = event.session_id;
+      }
+      handleSdkEvent(event);
     }
   } catch (error) {
     const wasAborted =

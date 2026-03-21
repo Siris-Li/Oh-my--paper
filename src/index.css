@@ -2481,51 +2481,31 @@ button {
   padding: 14px 16px 6px;
 }
 
-.ag-runtime-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-  margin: 0 16px 10px;
-  padding: 14px 16px;
-  border-radius: 18px;
+.ag-runtime-setup {
+  margin: 8px 16px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
   border: 1px solid rgba(15, 23, 42, 0.08);
-  background:
-    radial-gradient(circle at top right, rgba(15, 118, 110, 0.08), transparent 32%),
-    rgba(255, 255, 255, 0.92);
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.06);
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
 }
 
-.ag-runtime-copy {
-  min-width: 0;
-}
-
-.ag-runtime-eyebrow {
-  display: inline-flex;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-
-.ag-runtime-title-row {
+.ag-runtime-inline {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 6px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.ag-runtime-title {
-  min-width: 0;
-  font-size: 16px;
+.ag-runtime-inline-label {
+  font-size: 12px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--text-secondary);
 }
 
 .ag-runtime-status {
   flex: 0 0 auto;
-  padding: 4px 10px;
+  padding: 4px 8px;
   border-radius: 999px;
   background: rgba(15, 118, 110, 0.1);
   color: var(--accent-primary);
@@ -2541,15 +2521,15 @@ button {
 .ag-runtime-vendors {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .ag-runtime-chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 38px;
-  padding: 0 14px;
+  height: 32px;
+  padding: 0 12px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.28);
   background: rgba(255, 255, 255, 0.96);
@@ -2570,38 +2550,61 @@ button {
   cursor: not-allowed;
 }
 
+.ag-runtime-chip.is-unavailable {
+  opacity: 0.68;
+}
+
 .ag-runtime-chip-icon {
   font-size: 14px;
 }
 
-.ag-runtime-model {
+.ag-runtime-inline-model {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
-.ag-runtime-model-label {
+.ag-runtime-inline-model-label {
   flex: 0 0 auto;
   font-size: 12px;
   font-weight: 700;
   color: var(--text-secondary);
 }
 
-.ag-runtime-model select {
-  min-width: 0;
-  flex: 1 1 auto;
-  height: 40px;
-  padding: 0 12px;
-  border-radius: 12px;
+.ag-runtime-inline-model select {
+  min-width: 150px;
+  max-width: 190px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 10px;
   border: 1px solid #dbe4ee;
   background: #fdfefe;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 12px;
 }
 
-.ag-runtime-model select:disabled {
+.ag-runtime-inline-model select:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.ag-runtime-refresh {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(191, 104, 66, 0.22);
+  background: rgba(255, 247, 237, 0.92);
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ag-runtime-help {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #92400e;
 }
 
 .ag-session-actions {
@@ -3685,19 +3688,23 @@ button {
     padding-top: 12px;
   }
 
-  .ag-runtime-bar {
-    margin: 0 12px 10px;
-    padding: 12px;
+  .ag-runtime-setup {
+    margin: 8px 12px 0;
+    padding: 10px;
   }
 
-  .ag-runtime-title-row,
-  .ag-runtime-model {
+  .ag-runtime-inline {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .ag-runtime-model select {
+  .ag-runtime-inline-model {
     width: 100%;
+  }
+
+  .ag-runtime-inline-model select {
+    width: 100%;
+    max-width: none;
   }
 
   .ag-session-actions {

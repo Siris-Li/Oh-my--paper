@@ -10,7 +10,10 @@
 
 import { Codex } from "@openai/codex-sdk";
 import { emit } from "../utils/ndjson.mjs";
-import { requireCliExecutable } from "../utils/resolve-cli.mjs";
+import {
+  buildCliProcessEnv,
+  requireCliExecutable,
+} from "../utils/resolve-cli.mjs";
 
 /**
  * Map permission mode string to Codex SDK sandbox/approval options.
@@ -160,6 +163,23 @@ function transformCodexEvent(event) {
   }
 }
 
+function normalizeCodexError(error) {
+  const raw = error?.message || String(error);
+
+  if (raw.includes("env: node: No such file or directory")) {
+    return "Codex CLI 已找到，但桌面应用环境里缺少它依赖的 node。请确认本机 Node.js 可执行，或重启应用后重试。";
+  }
+
+  if (
+    raw.includes("system-configuration") ||
+    raw.includes("Attempted to create a NULL object")
+  ) {
+    return "Codex CLI 已启动，但在读取 macOS 系统配置时崩溃。先重启应用再试；如果仍失败，通常需要重新安装或升级本机 codex CLI。";
+  }
+
+  return raw;
+}
+
 /**
  * Run an agent session using Codex SDK.
  * @param {object} request - The agent request payload from Rust
@@ -189,7 +209,10 @@ export async function runCodex(request) {
 
   try {
     const codexPathOverride = await requireCliExecutable("codex");
-    const codex = new Codex({ codexPathOverride });
+    const codex = new Codex({
+      codexPathOverride,
+      env: buildCliProcessEnv(codexPathOverride),
+    });
 
     // Thread options
     const threadOptions = {
@@ -243,7 +266,7 @@ export async function runCodex(request) {
     if (!wasAborted) {
       emit({
         type: "error",
-        message: error?.message || String(error),
+        message: normalizeCodexError(error),
       });
     }
   }

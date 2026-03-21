@@ -104,7 +104,7 @@ pub fn run_agent(
             } else {
                 prov.default_model.clone()
             },
-            permission_mode: String::from("default"),
+            permission_mode: String::from("acceptEdits"),
         },
         system_prompt,
         user_message: user_message.clone(),

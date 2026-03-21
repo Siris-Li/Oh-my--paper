@@ -79,16 +79,34 @@ export async function resolveCliExecutable(name) {
     seen.add(candidate);
 
     const version = await readVersion(candidate);
-    if (version) {
+    const executablePath = resolveUsablePath(candidate);
+    if (executablePath) {
       return {
         available: true,
-        path: candidate,
-        version,
+        path: executablePath,
+        version: version ?? undefined,
       };
     }
   }
 
   return { available: false };
+}
+
+export function buildCliProcessEnv(executablePath) {
+  const extraPathEntries = unique([
+    process.execPath ? path.dirname(process.execPath) : null,
+    looksLikePath(executablePath) ? path.dirname(path.resolve(executablePath)) : null,
+    ...buildCommonDirectories(),
+  ].filter(Boolean));
+  const currentPathEntries = String(process.env.PATH || "")
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  return {
+    ...process.env,
+    PATH: unique([...extraPathEntries, ...currentPathEntries]).join(path.delimiter),
+  };
 }
 
 function getCliConfig(name) {
@@ -186,8 +204,15 @@ function buildCommonCandidates(command) {
   const names = process.platform === "win32"
     ? [`${command}.cmd`, `${command}.exe`, `${command}.bat`, command]
     : [command];
+  const directories = buildCommonDirectories();
 
-  const directories = process.platform === "win32"
+  return directories.flatMap((directory) =>
+    names.map((name) => path.join(directory, name)),
+  );
+}
+
+function buildCommonDirectories() {
+  return process.platform === "win32"
     ? unique([
         path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "npm"),
         path.join(process.env.ProgramFiles || "C:\\Program Files", "nodejs"),
@@ -207,10 +232,6 @@ function buildCommonCandidates(command) {
         path.join(os.homedir(), "Library", "pnpm"),
         path.join(os.homedir(), "bin"),
       ]);
-
-  return directories.flatMap((directory) =>
-    names.map((name) => path.join(directory, name)),
-  );
 }
 
 function firstExistingPath(stdout) {
@@ -241,6 +262,7 @@ async function readVersion(executablePath) {
       executablePath,
       ["--version"],
       {
+        env: buildCliProcessEnv(executablePath),
         timeout: 10_000,
         windowsHide: true,
       },
@@ -252,21 +274,34 @@ async function readVersion(executablePath) {
 }
 
 function extractVersion(stdout, stderr) {
-  const text = `${stdout || ""}\n${stderr || ""}`
+  const lines = `${stdout || ""}\n${stderr || ""}`
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .find(Boolean);
+    .filter(Boolean);
 
-  if (!text) {
+  if (lines.length === 0) {
     return "unknown";
   }
 
-  const semverMatch = text.match(/\b\d+\.\d+\.\d+(?:[-+._0-9A-Za-z]*)?\b/);
+  const combined = lines.join("\n");
+  const semverMatch = combined.match(/\b\d+\.\d+\.\d+(?:[-+._0-9A-Za-z]*)?\b/);
   if (semverMatch) {
     return semverMatch[0];
   }
 
-  return text.replace(/^[vV]/, "");
+  const preferredLine =
+    lines.find((line) => !/^warning:/i.test(line)) ??
+    lines[0];
+
+  return preferredLine.replace(/^[vV]/, "");
+}
+
+function resolveUsablePath(candidate) {
+  if (looksLikePath(candidate) && existsSync(candidate)) {
+    return candidate;
+  }
+
+  return null;
 }
 
 function unique(values) {

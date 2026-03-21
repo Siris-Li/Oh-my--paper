@@ -510,7 +510,7 @@ function PatchCard({ summary, diff, onApply, onDismiss }: {
   );
 }
 
-function AgentRuntimeBar({
+function AgentRuntimeSetup({
   providers,
   activeProfile,
   activeProviderId,
@@ -527,36 +527,25 @@ function AgentRuntimeBar({
 }) {
   const [cliStatus, setCliStatus] = useState<Record<string, CliAgentStatus>>({});
   const [detectingCli, setDetectingCli] = useState(true);
+  const loadCliStatus = useCallback(async () => {
+    setDetectingCli(true);
+    try {
+      const agents = await desktop.detectCliAgents();
+      const nextStatus: Record<string, CliAgentStatus> = {};
+      for (const agent of agents) {
+        nextStatus[agent.name] = agent;
+      }
+      setCliStatus(nextStatus);
+    } catch (error) {
+      console.warn("failed to detect CLI agents", error);
+    } finally {
+      setDetectingCli(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let disposed = false;
-
-    void desktop
-      .detectCliAgents()
-      .then((agents) => {
-        if (disposed) {
-          return;
-        }
-
-        const nextStatus: Record<string, CliAgentStatus> = {};
-        for (const agent of agents) {
-          nextStatus[agent.name] = agent;
-        }
-        setCliStatus(nextStatus);
-      })
-      .catch((error) => {
-        console.warn("failed to detect CLI agents", error);
-      })
-      .finally(() => {
-        if (!disposed) {
-          setDetectingCli(false);
-        }
-      });
-
-    return () => {
-      disposed = true;
-    };
-  }, []);
+    void loadCliStatus();
+  }, [loadCliStatus]);
 
   const activeProvider =
     providers.find((provider) => provider.id === activeProviderId) ??
@@ -575,30 +564,14 @@ function AgentRuntimeBar({
   const modelOptions = activeBrand.models.some((model) => model.value === currentModel)
     ? activeBrand.models
     : [{ value: currentModel, label: currentModel }, ...activeBrand.models];
+  const hasMissingRuntime = !detectingCli && !activeStatus?.available;
 
   return (
-    <div className="ag-runtime-bar">
-      <div className="ag-runtime-copy">
-        <span className="ag-runtime-eyebrow">Agent Runtime</span>
-        <div className="ag-runtime-title-row">
-          <span className="ag-runtime-title">
-            {activeBrand.icon} {activeBrand.label}
-          </span>
-          <span
-            className={`ag-runtime-status${!detectingCli && !activeStatus?.available ? " is-missing" : ""}`}
-          >
-            {detectingCli
-              ? "检测中…"
-              : activeStatus?.available
-                ? activeStatus.version
-                  ? `v${activeStatus.version}`
-                  : "已就绪"
-                : "未安装"}
-          </span>
-        </div>
-      </div>
+    <div className="ag-runtime-setup">
+      <div className="ag-runtime-inline">
+        <span className="ag-runtime-inline-label">本轮对话</span>
 
-      <div className="ag-runtime-vendors" role="tablist" aria-label="选择 Agent 运行时">
+        <div className="ag-runtime-vendors" role="tablist" aria-label="选择 Agent 运行时">
         {(Object.entries(AGENT_BRANDS) as [AgentVendor, (typeof AGENT_BRANDS)[AgentVendor]][]).map(
           ([vendor, brand]) => {
             const status = cliStatus[vendor];
@@ -608,7 +581,7 @@ function AgentRuntimeBar({
               <button
                 key={vendor}
                 type="button"
-                className={`ag-runtime-chip${activeVendor === vendor ? " is-active" : ""}`}
+                className={`ag-runtime-chip${activeVendor === vendor ? " is-active" : ""}${unavailable ? " is-unavailable" : ""}`}
                 style={
                   activeVendor === vendor
                     ? {
@@ -618,7 +591,7 @@ function AgentRuntimeBar({
                       }
                     : undefined
                 }
-                disabled={Boolean(isStreaming) || unavailable}
+                disabled={Boolean(isStreaming)}
                 onClick={() => void onSelectProviderVendor(vendor)}
               >
                 <span className="ag-runtime-chip-icon">{brand.icon}</span>
@@ -627,22 +600,53 @@ function AgentRuntimeBar({
             );
           },
         )}
+        </div>
+
+        <label className="ag-runtime-inline-model">
+          <span className="ag-runtime-inline-model-label">模型</span>
+          <select
+            value={currentModel}
+            disabled={Boolean(isStreaming)}
+            onChange={(event) => void onSelectModel(event.target.value)}
+          >
+            {modelOptions.map((model) => (
+              <option key={model.value} value={model.value}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <span
+          className={`ag-runtime-status${hasMissingRuntime ? " is-missing" : ""}`}
+          title={activeStatus?.path || activeBrand.label}
+        >
+          {detectingCli
+            ? "检测中…"
+            : activeStatus?.available
+              ? activeStatus.version
+                ? `v${activeStatus.version}`
+                : "已就绪"
+              : "未检测到"}
+        </span>
+
+        {hasMissingRuntime && (
+          <button
+            type="button"
+            className="ag-runtime-refresh"
+            disabled={Boolean(isStreaming)}
+            onClick={() => void loadCliStatus()}
+          >
+            重试
+          </button>
+        )}
       </div>
 
-      <label className="ag-runtime-model">
-        <span className="ag-runtime-model-label">模型</span>
-        <select
-          value={currentModel}
-          disabled={Boolean(isStreaming) || (!detectingCli && !activeStatus?.available)}
-          onChange={(event) => void onSelectModel(event.target.value)}
-        >
-          {modelOptions.map((model) => (
-            <option key={model.value} value={model.value}>
-              {model.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      {hasMissingRuntime && (
+        <div className="ag-runtime-help">
+          没能拉起 {activeBrand.label}。通常是桌面环境里缺少它依赖的 `node` 或 `PATH`。
+        </div>
+      )}
     </div>
   );
 }
@@ -1030,6 +1034,7 @@ export function ChatPanel({
     onSelectSession(sessionId);
     setIsSessionPickerOpen(false);
   }, [onSelectSession]);
+  const shouldShowRuntimeSetup = !activeSessionId && messages.length === 0 && !isStreaming;
 
   return (
     <div className="ag-panel">
@@ -1063,15 +1068,6 @@ export function ChatPanel({
           </button>
         </div>
       </div>
-
-      <AgentRuntimeBar
-        providers={providers}
-        activeProfile={activeProfile}
-        activeProviderId={activeProviderId}
-        isStreaming={isStreaming}
-        onSelectProviderVendor={onSelectProviderVendor}
-        onSelectModel={onSelectModel}
-      />
 
       {isSessionPickerOpen && (
         <div
@@ -1276,6 +1272,17 @@ export function ChatPanel({
           </button>
         )}
       </div>
+
+      {shouldShowRuntimeSetup && (
+        <AgentRuntimeSetup
+          providers={providers}
+          activeProfile={activeProfile}
+          activeProviderId={activeProviderId}
+          isStreaming={isStreaming}
+          onSelectProviderVendor={onSelectProviderVendor}
+          onSelectModel={onSelectModel}
+        />
+      )}
 
       {/* Bottom toolbar */}
       <BottomBar
