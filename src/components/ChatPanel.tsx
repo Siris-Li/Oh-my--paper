@@ -4,8 +4,14 @@ import { SkillArsenal } from "./SkillArsenal";
 import { desktop } from "../lib/desktop";
 import {
   AGENT_BRANDS,
+  buildAgentModelVariants,
+  formatEffortLabel,
   getAgentBrand,
   isAgentVendor,
+  readAgentRuntimePreferences,
+  resolveAgentModelSelection,
+  resolveAgentModelVariant,
+  serializeAgentModelVariant,
   type AgentVendor,
 } from "../lib/agentCatalog";
 
@@ -49,6 +55,20 @@ function parseColonStyleArgs(raw: string) {
     args[match[1]] = match[2] ?? match[3] ?? match[4] ?? "";
   }
   return args;
+}
+
+function parseSerializedArgs(raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return parseColonStyleArgs(trimmed);
+  }
 }
 
 function parseInlineToolCommand(raw: string) {
@@ -158,7 +178,7 @@ function parseEmbeddedToolPayload(raw: string) {
 }
 
 function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; blocks: RenderBlock[]; cleaned: string } {
-  const lines = raw.split('\n');
+  const lines = raw.split("\n");
   const toolCalls: ToolCallBlock[] = [];
   const blocks: RenderBlock[] = [];
   const textLines: string[] = [];
@@ -182,42 +202,60 @@ function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; b
     if (toolMatch) {
       pushTextBlock();
       const toolId = toolMatch[1];
+      let args: Record<string, unknown> | undefined;
       let result = "";
       let status: ToolCallBlock["status"] = "running";
-      if (i + 1 < lines.length && lines[i + 1].startsWith("[Status: ")) {
-        const statusLine = lines[i + 1];
+      let cursor = i + 1;
+
+      if (cursor < lines.length && lines[cursor].trim() === "[Args]") {
+        cursor += 1;
+        const argLines: string[] = [];
+        while (cursor < lines.length && lines[cursor].trim() !== "[/Args]") {
+          argLines.push(lines[cursor]);
+          cursor += 1;
+        }
+        args = parseSerializedArgs(argLines.join("\n"));
+        if (cursor < lines.length && lines[cursor].trim() === "[/Args]") {
+          cursor += 1;
+        }
+      }
+
+      if (cursor < lines.length && lines[cursor].startsWith("[Status: ")) {
+        const statusLine = lines[cursor];
         const lastBracket = statusLine.lastIndexOf("]");
         const nextStatus = statusLine.slice("[Status: ".length, lastBracket > -1 ? lastBracket : undefined).trim();
         if (nextStatus === "error" || nextStatus === "requested" || nextStatus === "running") {
           status = nextStatus;
         }
-        i += 1;
+        cursor += 1;
       }
-      // New multi-line format: [Result] ... [/Result]
-      if (i + 1 < lines.length && lines[i + 1].trim() === "[Result]") {
-        i += 2; // skip [Result] line
+
+      if (cursor < lines.length && lines[cursor].trim() === "[Result]") {
+        cursor += 1;
         const resultLines: string[] = [];
-        while (i < lines.length && lines[i].trim() !== "[/Result]") {
-          resultLines.push(lines[i]);
-          i++;
+        while (cursor < lines.length && lines[cursor].trim() !== "[/Result]") {
+          resultLines.push(lines[cursor]);
+          cursor += 1;
         }
         result = resultLines.join("\n");
-        // i now points at [/Result], will be incremented at end of loop
-      }
-      // Legacy single-line format: [Result: ...]
-      else if (i + 1 < lines.length && lines[i + 1].startsWith("[Result: ")) {
-        const resultLine = lines[i + 1];
+        if (cursor < lines.length && lines[cursor].trim() === "[/Result]") {
+          cursor += 1;
+        }
+      } else if (cursor < lines.length && lines[cursor].startsWith("[Result: ")) {
+        const resultLine = lines[cursor];
         const lastBracket = resultLine.lastIndexOf("]");
         if (lastBracket > "[Result: ".length - 1) {
           result = resultLine.slice("[Result: ".length, lastBracket);
         } else {
           result = resultLine.slice("[Result: ".length);
         }
-        i++; // consume the result line
+        cursor += 1;
       }
+
       toolCalls.push({
         id: `${i}-${toolId}`,
         toolId,
+        args,
         output: result.trim() || undefined,
         status: result ? (status === "running" ? "completed" : status) : status,
       });
@@ -226,6 +264,7 @@ function parseSerializedToolBlocks(raw: string): { toolCalls: ToolCallBlock[]; b
         id: `${i}-${toolId}`,
         call: toolCalls[toolCalls.length - 1],
       });
+      i = cursor - 1;
     } else {
       textLines.push(lines[i]);
     }
@@ -299,6 +338,7 @@ function summarizeToolCall(call: ToolCallBlock) {
       return "";
     }
     const candidates = [
+      call.args.command,
       call.args.filePath,
       call.args.file_path,
       call.args.uri,
@@ -340,9 +380,56 @@ function summarizeToolCall(call: ToolCallBlock) {
       return `${requestedPrefix}修改文件${target ? ` · ${target}` : ""}`;
     case "bash":
       return `${requestedPrefix}执行命令${target ? ` · ${target}` : ""}`;
+    case "web_search":
+      return `${requestedPrefix}联网搜索${target ? ` · ${target}` : ""}`;
+    case "file_change":
+      return `${requestedPrefix}应用文件变更`;
     default:
       return `${requestedPrefix}调用 ${call.toolId}${target ? ` · ${target}` : ""}`;
   }
+}
+
+function formatToolArgValue(value: unknown) {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+  if (value && typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "[object]";
+    }
+  }
+  return "";
+}
+
+function buildToolArgRows(call: ToolCallBlock) {
+  if (!call.args) {
+    return [];
+  }
+  return Object.entries(call.args)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .slice(0, 4)
+    .map(([key, value]) => ({
+      key,
+      value: formatToolArgValue(value),
+    }))
+    .filter((entry) => entry.value);
+}
+
+function buildToolOutputPreview(output?: string) {
+  const cleaned = output?.trim() ?? "";
+  if (!cleaned) {
+    return "";
+  }
+  const lines = cleaned.split("\n").slice(0, 4).join("\n");
+  return lines.length > 240 ? `${lines.slice(0, 240)}…` : lines;
 }
 
 /* ─── Tool call card ──────────────────────────────────── */
@@ -351,6 +438,8 @@ function ToolCallCard({ call }: { call: ToolCallBlock }) {
   const isError = call.status === "error";
   const isRequested = call.status === "requested";
   const summary = summarizeToolCall(call);
+  const argRows = buildToolArgRows(call);
+  const outputPreview = buildToolOutputPreview(call.output);
 
   return (
     <div className={`ag-tool-card${isError ? " ag-tool-card--error" : ""}`}>
@@ -375,6 +464,23 @@ function ToolCallCard({ call }: { call: ToolCallBlock }) {
         <span className="ag-tool-name">{summary}</span>
         <span className={`ag-tool-pill ag-tool-pill--${call.status}`}>{call.toolId}</span>
       </div>
+      {(argRows.length > 0 || outputPreview) && (
+        <div className="ag-tool-body">
+          {argRows.length > 0 && (
+            <div className="ag-tool-args-grid">
+              {argRows.map((entry) => (
+                <div key={entry.key} className="ag-tool-arg-chip">
+                  <span className="ag-tool-arg-key">{entry.key}</span>
+                  <span className="ag-tool-arg-value">{entry.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {outputPreview && (
+            <pre className="ag-tool-output">{outputPreview}</pre>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -575,6 +681,8 @@ function AgentRuntimeSetup({
 }) {
   const [cliStatus, setCliStatus] = useState<Record<string, CliAgentStatus>>({});
   const [detectingCli, setDetectingCli] = useState(true);
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const runtimeRef = useRef<HTMLDivElement>(null);
   const loadCliStatus = useCallback(async () => {
     setDetectingCli(true);
     try {
@@ -595,6 +703,17 @@ function AgentRuntimeSetup({
     void loadCliStatus();
   }, [loadCliStatus]);
 
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!runtimeRef.current?.contains(event.target as Node)) {
+        setIsModelMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
+
   const activeProvider =
     providers.find((provider) => provider.id === activeProviderId) ??
     providers.find((provider) => provider.id === activeProfile?.providerId) ??
@@ -605,89 +724,145 @@ function AgentRuntimeSetup({
       : "claude-code";
   const activeBrand = getAgentBrand(activeVendor);
   const activeStatus = cliStatus[activeVendor];
+  const runtimePrefs = readAgentRuntimePreferences(activeProvider);
   const currentModel =
     activeProfile?.model?.trim() ||
     activeProvider?.defaultModel?.trim() ||
     activeBrand.defaultModel;
-  const modelOptions = activeBrand.models.some((model) => model.value === currentModel)
-    ? activeBrand.models
-    : [{ value: currentModel, label: currentModel }, ...activeBrand.models];
+  const currentVariant =
+    resolveAgentModelVariant(activeVendor, currentModel, runtimePrefs.effort) ??
+    resolveAgentModelSelection(
+      activeVendor,
+      serializeAgentModelVariant(currentModel, runtimePrefs.effort),
+      runtimePrefs.effort,
+    );
+  const knownVariants = buildAgentModelVariants(activeVendor);
+  const modelOptions = knownVariants.some((option) => option.key === currentVariant.key)
+    ? knownVariants
+    : [currentVariant, ...knownVariants];
   const hasMissingRuntime = !detectingCli && !activeStatus?.available;
 
+  useEffect(() => {
+    setIsModelMenuOpen(false);
+  }, [activeVendor, currentModel]);
+
   return (
-    <div className="ag-runtime-setup">
+    <div className="ag-runtime-setup" ref={runtimeRef}>
+      <div className="ag-runtime-head">
+        <div>
+          <div className="ag-runtime-inline-label">对话运行时</div>
+          <div className="ag-runtime-inline-sub">
+            进入前可选，进入后也能继续切换模型与思考强度。
+          </div>
+        </div>
+        <div className="ag-runtime-head-actions">
+          <span
+            className={`ag-runtime-status${hasMissingRuntime ? " is-missing" : ""}`}
+            title={activeStatus?.path || activeBrand.label}
+          >
+            {detectingCli
+              ? "检测中…"
+              : activeStatus?.available
+                ? activeStatus.version
+                  ? `v${activeStatus.version}`
+                  : "已就绪"
+                : "未检测到"}
+          </span>
+          {hasMissingRuntime && (
+            <button
+              type="button"
+              className="ag-runtime-refresh"
+              disabled={Boolean(isStreaming)}
+              onClick={() => void loadCliStatus()}
+            >
+              重试
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="ag-runtime-inline">
-        <span className="ag-runtime-inline-label">本轮对话</span>
-
         <div className="ag-runtime-vendors" role="tablist" aria-label="选择 Agent 运行时">
-        {(Object.entries(AGENT_BRANDS) as [AgentVendor, (typeof AGENT_BRANDS)[AgentVendor]][]).map(
-          ([vendor, brand]) => {
-            const status = cliStatus[vendor];
-            const unavailable = !detectingCli && !status?.available;
+          {(Object.entries(AGENT_BRANDS) as [AgentVendor, (typeof AGENT_BRANDS)[AgentVendor]][]).map(
+            ([vendor, brand]) => {
+              const status = cliStatus[vendor];
+              const unavailable = !detectingCli && !status?.available;
 
-            return (
-              <button
-                key={vendor}
-                type="button"
-                className={`ag-runtime-chip${activeVendor === vendor ? " is-active" : ""}${unavailable ? " is-unavailable" : ""}`}
-                style={
-                  activeVendor === vendor
-                    ? {
-                        borderColor: brand.borderActive,
-                        background: brand.accentBg,
-                        color: brand.accentColor,
-                      }
-                    : undefined
-                }
-                disabled={Boolean(isStreaming)}
-                onClick={() => void onSelectProviderVendor(vendor)}
-              >
-                <span className="ag-runtime-chip-icon">{brand.icon}</span>
-                <span>{brand.label}</span>
-              </button>
-            );
-          },
-        )}
+              return (
+                <button
+                  key={vendor}
+                  type="button"
+                  className={`ag-runtime-chip${activeVendor === vendor ? " is-active" : ""}${unavailable ? " is-unavailable" : ""}`}
+                  style={
+                    activeVendor === vendor
+                      ? {
+                          borderColor: brand.borderActive,
+                          background: brand.accentBg,
+                          color: brand.accentColor,
+                        }
+                      : undefined
+                  }
+                  disabled={Boolean(isStreaming)}
+                  onClick={() => {
+                    setIsModelMenuOpen(false);
+                    void onSelectProviderVendor(vendor);
+                  }}
+                >
+                  <span className="ag-runtime-chip-icon">{brand.icon}</span>
+                  <span>{brand.label}</span>
+                </button>
+              );
+            },
+          )}
         </div>
 
-        <label className="ag-runtime-inline-model">
+        <div className="ag-runtime-inline-model">
           <span className="ag-runtime-inline-model-label">模型</span>
-          <select
-            value={currentModel}
-            disabled={Boolean(isStreaming)}
-            onChange={(event) => void onSelectModel(event.target.value)}
-          >
-            {modelOptions.map((model) => (
-              <option key={model.value} value={model.value}>
-                {model.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <span
-          className={`ag-runtime-status${hasMissingRuntime ? " is-missing" : ""}`}
-          title={activeStatus?.path || activeBrand.label}
-        >
-          {detectingCli
-            ? "检测中…"
-            : activeStatus?.available
-              ? activeStatus.version
-                ? `v${activeStatus.version}`
-                : "已就绪"
-              : "未检测到"}
-        </span>
-
-        {hasMissingRuntime && (
           <button
             type="button"
-            className="ag-runtime-refresh"
+            className={`ag-runtime-model-trigger${isModelMenuOpen ? " is-open" : ""}`}
             disabled={Boolean(isStreaming)}
-            onClick={() => void loadCliStatus()}
+            onClick={() => setIsModelMenuOpen((open) => !open)}
           >
-            重试
+            <span className="ag-runtime-model-copy">
+              <span className="ag-runtime-model-primary">{currentVariant.label}</span>
+              <span className="ag-runtime-model-secondary">
+                {currentVariant.description}
+                {currentVariant.effort ? ` · ${formatEffortLabel(currentVariant.effort)} effort` : ""}
+              </span>
+            </span>
+            <span className="ag-runtime-model-caret" aria-hidden="true">▾</span>
           </button>
-        )}
+          {isModelMenuOpen && (
+            <div className="ag-runtime-model-menu" role="listbox" aria-label="选择模型">
+              {modelOptions.map((model) => {
+                const isSelected = model.key === currentVariant.key;
+                return (
+                  <button
+                    key={model.key}
+                    type="button"
+                    className={`ag-runtime-model-option${isSelected ? " is-selected" : ""}`}
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      setIsModelMenuOpen(false);
+                      void onSelectModel(model.key);
+                    }}
+                  >
+                    <span className="ag-runtime-model-option-main">
+                      <span className="ag-runtime-model-option-title">{model.label}</span>
+                      <span className="ag-runtime-model-option-desc">{model.description}</span>
+                    </span>
+                    <span className="ag-runtime-model-option-meta">
+                      {model.badge ? <span className="ag-runtime-model-option-badge">{model.badge}</span> : null}
+                      {isSelected ? <span className="ag-runtime-model-option-check">✓</span> : null}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {hasMissingRuntime && (
@@ -1080,7 +1255,6 @@ export function ChatPanel({
     onSelectSession(sessionId);
     setIsSessionPickerOpen(false);
   }, [onSelectSession]);
-  const shouldShowRuntimeSetup = !activeSessionId && messages.length === 0 && !isStreaming;
 
   return (
     <div className="ag-panel">
@@ -1247,6 +1421,15 @@ export function ChatPanel({
         <div ref={endRef} />
       </div>
 
+      <AgentRuntimeSetup
+        providers={providers}
+        activeProfile={activeProfile}
+        activeProviderId={activeProviderId}
+        isStreaming={isStreaming}
+        onSelectProviderVendor={onSelectProviderVendor}
+        onSelectModel={onSelectModel}
+      />
+
       {/* Input box */}
       <div className="ag-input-wrap">
         {/* @ file mention dropdown */}
@@ -1317,17 +1500,6 @@ export function ChatPanel({
           </button>
         )}
       </div>
-
-      {shouldShowRuntimeSetup && (
-        <AgentRuntimeSetup
-          providers={providers}
-          activeProfile={activeProfile}
-          activeProviderId={activeProviderId}
-          isStreaming={isStreaming}
-          onSelectProviderVendor={onSelectProviderVendor}
-          onSelectModel={onSelectModel}
-        />
-      )}
 
       {/* Bottom toolbar */}
       <BottomBar

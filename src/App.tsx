@@ -65,7 +65,16 @@ import {
   writeWorkspaceCollabMetadata,
 } from "./lib/collaboration/workspace-metadata";
 import { desktop, isTauriRuntime } from "./lib/desktop";
-import { AGENT_BRANDS, getAgentBrand, isAgentVendor, type AgentVendor } from "./lib/agentCatalog";
+import {
+  AGENT_BRANDS,
+  getAgentBrand,
+  isAgentVendor,
+  readAgentRuntimePreferences,
+  resolveAgentModelSelection,
+  resolveAgentModelVariant,
+  writeAgentRuntimePreferences,
+  type AgentVendor,
+} from "./lib/agentCatalog";
 import { resolvePdfSource } from "./lib/pdf-source";
 import { findActiveHeading } from "./lib/outline";
 import { localizeResearchSnapshot } from "./lib/researchLocale";
@@ -1993,12 +2002,28 @@ function App() {
       return;
     }
 
-    const nextModel = provider.defaultModel?.trim() || getAgentBrand(vendor).defaultModel;
+    const nextVariant = resolveAgentModelVariant(
+      vendor,
+      provider.defaultModel?.trim() || getAgentBrand(vendor).defaultModel,
+      readAgentRuntimePreferences(provider).effort,
+    );
+    const nextModel = nextVariant?.model || provider.defaultModel?.trim() || getAgentBrand(vendor).defaultModel;
+    const nextMetaJson = writeAgentRuntimePreferences(provider, {
+      effort: nextVariant?.effort,
+    });
     await Promise.all([
       ...providers
         .filter((item) => isAgentVendor(item.vendor))
         .map((item) =>
-          desktop.updateProvider(item.id, { isEnabled: item.id === provider.id }),
+          desktop.updateProvider(item.id, {
+            isEnabled: item.id === provider.id,
+            ...(item.id === provider.id
+              ? {
+                  defaultModel: nextModel,
+                  metaJson: nextMetaJson,
+                }
+              : {}),
+          }),
         ),
       desktop.updateProfile({
         ...targetProfile,
@@ -2034,12 +2059,27 @@ function App() {
       return;
     }
 
+    const selection = isAgentVendor(targetProvider.vendor)
+      ? resolveAgentModelSelection(
+          targetProvider.vendor,
+          model,
+          readAgentRuntimePreferences(targetProvider).effort,
+        )
+      : null;
+    const nextModel = selection?.model || model;
+    const nextMetaJson = selection
+      ? writeAgentRuntimePreferences(targetProvider, { effort: selection.effort })
+      : targetProvider.metaJson;
+
     await Promise.all([
       desktop.updateProfile({
         ...targetProfile,
-        model,
+        model: nextModel,
       }),
-      desktop.updateProvider(targetProvider.id, { defaultModel: model }),
+      desktop.updateProvider(targetProvider.id, {
+        defaultModel: nextModel,
+        metaJson: nextMetaJson,
+      }),
     ]);
 
     await refreshAgentProvidersAndProfiles();

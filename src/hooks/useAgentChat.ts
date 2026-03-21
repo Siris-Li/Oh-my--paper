@@ -56,6 +56,19 @@ function mergeThinkingSegments(historyText: string, currentText: string) {
   return parts.join("\n\n");
 }
 
+function serializeToolArgs(args: Record<string, unknown>) {
+  const entries = Object.entries(args).filter(([, value]) => value !== undefined && value !== null && value !== "");
+  if (entries.length === 0) {
+    return "";
+  }
+
+  try {
+    return JSON.stringify(Object.fromEntries(entries), null, 2);
+  } catch {
+    return entries.map(([key, value]) => `${key}: ${String(value)}`).join("\n");
+  }
+}
+
 interface UseAgentChatParams {
   snapshot: WorkspaceSnapshot | null;
   activeFile: ProjectFile | null;
@@ -380,7 +393,11 @@ export function useAgentChat({
           break;
         case "tool_call_start":
           flushStreamBuffer();
-          appendStreamMarker(`[Tool: ${chunk.toolId}]`);
+          appendStreamMarker(
+            serializeToolArgs(chunk.args)
+              ? `[Tool: ${chunk.toolId}]\n[Args]\n${serializeToolArgs(chunk.args)}\n[/Args]`
+              : `[Tool: ${chunk.toolId}]`,
+          );
           break;
         case "tool_call_result":
           flushStreamBuffer();
@@ -526,7 +543,11 @@ export function useAgentChat({
           break;
         case "tool_call_start":
           flushStreamBuffer();
-          appendStreamMarker(`[Tool: ${chunk.toolId}]`);
+          appendStreamMarker(
+            serializeToolArgs(chunk.args)
+              ? `[Tool: ${chunk.toolId}]\n[Args]\n${serializeToolArgs(chunk.args)}\n[/Args]`
+              : `[Tool: ${chunk.toolId}]`,
+          );
           break;
         case "tool_call_result":
           flushStreamBuffer();

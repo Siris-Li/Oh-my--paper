@@ -13,6 +13,23 @@ use crate::models::{
 use crate::services::{profile, provider, sidecar, skill};
 use crate::state::AppState;
 
+fn read_provider_reasoning_effort(meta_json: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(meta_json)
+        .ok()
+        .and_then(|meta| meta.get("runtime").cloned())
+        .and_then(|runtime| runtime.get("effort").cloned())
+        .and_then(|effort| effort.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+fn serialize_tool_args(args: &serde_json::Value) -> String {
+    match args {
+        serde_json::Value::Null => String::new(),
+        serde_json::Value::Object(map) if map.is_empty() => String::new(),
+        _ => serde_json::to_string_pretty(args).unwrap_or_default(),
+    }
+}
+
 
 
 /// Insert the user message and ensure the session exists in the DB.
@@ -107,6 +124,7 @@ pub fn run_agent(
                 prov.default_model.clone()
             },
             permission_mode: String::from("acceptEdits"),
+            reasoning_effort: read_provider_reasoning_effort(&prov.meta_json),
         },
         system_prompt,
         user_message: user_message.clone(),
@@ -220,10 +238,11 @@ pub fn run_agent(
                     last_error = Some(message.clone());
                     let _ = app_handle.emit("agent:stream", &chunk);
                 }
-                StreamChunk::ToolCallStart { tool_id, .. } => {
+                StreamChunk::ToolCallStart { tool_id, args } => {
                     assistant_timeline.push(AssistantTimelineItem::Tool {
                         tool_id: tool_id.clone(),
                         status: "running".into(),
+                        args: serialize_tool_args(args),
                         preview: String::new(),
                     });
                     let _ = app_handle.emit("agent:stream", &chunk);
@@ -234,7 +253,7 @@ pub fn run_agent(
                     status,
                 } => {
                     let resolved_status = status.as_deref().unwrap_or("completed").to_string();
-                    let preview = truncate_preview(output, 60);
+                    let preview = truncate_preview(output, 240);
                     if let Some(AssistantTimelineItem::Tool {
                         status,
                         preview: item_preview,
@@ -250,6 +269,7 @@ pub fn run_agent(
                         assistant_timeline.push(AssistantTimelineItem::Tool {
                             tool_id: tool_id.clone(),
                             status: resolved_status,
+                            args: String::new(),
                             preview,
                         });
                     }
@@ -592,9 +612,15 @@ fn build_assistant_message_content(
             AssistantTimelineItem::Tool {
                 tool_id,
                 status,
+                args,
                 preview,
             } => {
                 let mut lines = vec![format!("[Tool: {tool_id}]")];
+                if !args.is_empty() {
+                    lines.push("[Args]".into());
+                    lines.push(args.clone());
+                    lines.push("[/Args]".into());
+                }
                 if status != "completed" {
                     lines.push(format!("[Status: {status}]"));
                 }
@@ -616,6 +642,7 @@ enum AssistantTimelineItem {
     Tool {
         tool_id: String,
         status: String,
+        args: String,
         preview: String,
     },
 }

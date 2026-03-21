@@ -165,4 +165,41 @@ describe("research canvas graph", () => {
     const resolved = selectionToEntity(sampleResearch, "task:publication-1");
     expect(resolved.task?.title).toBe("Write");
   });
+
+  it("spreads sibling tasks into aligned rows without overlap", () => {
+    const graph = buildResearchCanvasGraph({
+      ...sampleResearch,
+      tasks: [
+        ...sampleResearch.tasks,
+        {
+          ...sampleResearch.tasks[0],
+          id: "publication-2",
+          title: "C",
+          stage: "publication",
+          dependencies: [],
+        },
+        {
+          ...sampleResearch.tasks[0],
+          id: "publication-3",
+          title: "A",
+          stage: "publication",
+          dependencies: [],
+        },
+        {
+          ...sampleResearch.tasks[0],
+          id: "publication-4",
+          title: "B",
+          stage: "publication",
+          dependencies: ["publication-3"],
+        },
+      ],
+    });
+
+    const publicationTasks = graph.nodes.filter((node) => node.id.startsWith("task:publication-"));
+    const positions = publicationTasks.map((node) => `${node.position.x}:${node.position.y}`);
+    expect(new Set(positions).size).toBe(publicationTasks.length);
+    expect(Math.max(...publicationTasks.map((node) => node.position.y))).toBeGreaterThan(
+      Math.min(...publicationTasks.map((node) => node.position.y)),
+    );
+  });
 });

@@ -369,13 +369,7 @@ export function ResearchCanvas({
     }
 
     setSelectionId(defaultResearchSelection(localizedResearch));
-    setNodes((currentNodes) => {
-      const currentPositionById = new Map(currentNodes.map((node) => [node.id, node.position]));
-      return graph.nodes.map((node) => ({
-        ...node,
-        position: currentPositionById.get(node.id) ?? node.position,
-      }));
-    });
+    setNodes(graph.nodes);
   }, [graph.nodes, localizedResearch, setNodes]);
 
   if (needsBootstrap) {
@@ -441,7 +435,7 @@ export function ResearchCanvas({
             onNodesChange={onNodesChange}
             onNodeClick={(_event, node) => setSelectionId(node.id)}
             onPaneClick={() => setSelectionId(null)}
-            nodesDraggable
+            nodesDraggable={false}
             nodesConnectable={false}
             fitView
             fitViewOptions={{ padding: 0.16, maxZoom: 1.08 }}

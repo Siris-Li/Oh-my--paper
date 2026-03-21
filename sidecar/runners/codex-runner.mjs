@@ -42,6 +42,21 @@ function mapPermissionMode(permissionMode) {
   }
 }
 
+function mapReasoningEffort(reasoningEffort) {
+  switch (reasoningEffort) {
+    case "minimal":
+    case "low":
+    case "medium":
+    case "high":
+    case "xhigh":
+      return reasoningEffort;
+    case "max":
+      return "xhigh";
+    default:
+      return undefined;
+  }
+}
+
 /**
  * Transform a Codex SDK event into a viwerleaf StreamChunk.
  * Returns null to skip the event.
@@ -207,6 +222,7 @@ export async function runCodex(request) {
   const permissionMode = request.provider?.permissionMode || "default";
   const { sandboxMode, approvalPolicy } = mapPermissionMode(permissionMode);
   const model = request.provider?.model || undefined;
+  const modelReasoningEffort = mapReasoningEffort(request.provider?.reasoningEffort);
 
   const userMessage =
     typeof request.userMessage === "string" && request.userMessage.trim()
@@ -244,6 +260,7 @@ export async function runCodex(request) {
       sandboxMode,
       approvalPolicy,
       model,
+      modelReasoningEffort,
     };
 
     // Start or resume thread

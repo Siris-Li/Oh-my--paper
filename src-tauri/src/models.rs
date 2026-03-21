@@ -247,6 +247,8 @@ pub struct AgentProvider {
     pub model: String,
     #[serde(default)]
     pub permission_mode: String,
+    #[serde(default)]
+    pub reasoning_effort: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -24,13 +24,16 @@ const STAGE_ORDER: ResearchStage[] = [
   "promotion",
 ];
 
-const STAGE_X = 540;
-const STAGE_Y = 44;
-const STAGE_STEP_Y = 290;
-const TASK_BRANCH_Y = 146;
-const TASK_ROW_GAP = 148;
-const TASK_COLUMN_GAP = 296;
-const TASKS_PER_ROW = 3;
+const STAGE_CENTER_X = 760;
+const STAGE_NODE_WIDTH = 300;
+const STAGE_NODE_HEIGHT = 140;
+const TASK_NODE_WIDTH = 250;
+const TASK_NODE_HEIGHT = 124;
+const TASK_COLUMN_GAP = 56;
+const TASK_ROW_GAP = 74;
+const STAGE_TO_TASK_GAP = 82;
+const STAGE_BLOCK_GAP = 132;
+const STAGE_TOP = 40;
 
 function stageNodeId(stage: ResearchStage) {
   return `stage:${stage}`;
@@ -40,22 +43,50 @@ function taskNodeId(taskId: string) {
   return `task:${taskId}`;
 }
 
-function buildTaskOffsets(count: number) {
-  const rows = Math.max(1, Math.ceil(count / TASKS_PER_ROW));
-  const offsets: Array<{ x: number; y: number }> = [];
+function groupTasksByDepth(tasks: ResearchTask[]) {
+  const taskMap = new Map(tasks.map((task) => [task.id, task]));
+  const depthCache = new Map<string, number>();
 
-  for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
-    const rowCount = Math.min(TASKS_PER_ROW, count - rowIndex * TASKS_PER_ROW);
-    const startX = -((rowCount - 1) * TASK_COLUMN_GAP) / 2;
-    for (let columnIndex = 0; columnIndex < rowCount; columnIndex += 1) {
-      offsets.push({
-        x: startX + columnIndex * TASK_COLUMN_GAP,
-        y: rowIndex * TASK_ROW_GAP,
-      });
+  const resolveDepth = (task: ResearchTask, visited = new Set<string>()): number => {
+    if (depthCache.has(task.id)) {
+      return depthCache.get(task.id) ?? 0;
     }
-  }
+    if (visited.has(task.id)) {
+      return 0;
+    }
 
-  return offsets;
+    visited.add(task.id);
+    const sameStageDependencies = task.dependencies
+      .map((dependencyId) => taskMap.get(dependencyId))
+      .filter((candidate): candidate is ResearchTask => Boolean(candidate));
+    const depth = sameStageDependencies.length > 0
+      ? Math.max(...sameStageDependencies.map((dependency) => resolveDepth(dependency, visited) + 1))
+      : 0;
+    visited.delete(task.id);
+    depthCache.set(task.id, depth);
+    return depth;
+  };
+
+  const layers = new Map<number, ResearchTask[]>();
+  tasks.forEach((task) => {
+    const depth = resolveDepth(task);
+    const current = layers.get(depth) ?? [];
+    current.push(task);
+    layers.set(depth, current);
+  });
+
+  return Array.from(layers.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([, layerTasks]) =>
+      layerTasks.sort((left, right) => left.title.localeCompare(right.title, "zh-CN")),
+    );
+}
+
+function rowWidth(count: number) {
+  if (count <= 0) {
+    return 0;
+  }
+  return count * TASK_NODE_WIDTH + Math.max(0, count - 1) * TASK_COLUMN_GAP;
 }
 
 export function buildResearchCanvasGraph(research: ResearchCanvasSnapshot): {
@@ -64,6 +95,7 @@ export function buildResearchCanvasGraph(research: ResearchCanvasSnapshot): {
 } {
   const nodes: ResearchCanvasNode[] = [];
   const edges: Edge[] = [];
+  let currentTop = STAGE_TOP;
 
   for (const [stageIndex, stage] of STAGE_ORDER.entries()) {
     const summary = research.stageSummaries.find((item) => item.stage === stage);
@@ -72,12 +104,16 @@ export function buildResearchCanvasGraph(research: ResearchCanvasSnapshot): {
     }
 
     const stageId = stageNodeId(stage);
-    const stageY = STAGE_Y + stageIndex * STAGE_STEP_Y;
+    const stageTasks = research.tasks.filter((task) => task.stage === stage);
+    const stageTaskIdSet = new Set(stageTasks.map((task) => task.id));
+    const taskRows = groupTasksByDepth(stageTasks);
+    const stageX = STAGE_CENTER_X - STAGE_NODE_WIDTH / 2;
+    const stageY = currentTop;
 
     nodes.push({
       id: stageId,
       type: "researchStage",
-      position: { x: STAGE_X, y: stageY },
+      position: { x: stageX, y: stageY },
       selectable: true,
       data: {
         kind: "stage",
@@ -92,47 +128,72 @@ export function buildResearchCanvasGraph(research: ResearchCanvasSnapshot): {
         target: stageId,
         type: "smoothstep",
         animated: research.currentStage === stage,
+        style: {
+          stroke: stage === research.currentStage ? "#2563eb" : "rgba(148, 163, 184, 0.72)",
+          strokeWidth: stage === research.currentStage ? 2.1 : 1.35,
+        },
       });
     }
 
-    const tasks = research.tasks.filter((task) => task.stage === stage);
-    const taskOffsets = buildTaskOffsets(tasks.length);
+    taskRows.forEach((row, rowIndex) => {
+      const totalWidth = rowWidth(row.length);
+      const rowStartX = STAGE_CENTER_X - totalWidth / 2;
+      const rowY = stageY + STAGE_NODE_HEIGHT + STAGE_TO_TASK_GAP + rowIndex * (TASK_NODE_HEIGHT + TASK_ROW_GAP);
 
-    tasks.forEach((task, taskIndex) => {
-      const offset = taskOffsets[taskIndex] ?? { x: 0, y: taskIndex * TASK_ROW_GAP };
-      const taskId = taskNodeId(task.id);
-      nodes.push({
-        id: taskId,
-        type: "researchTask",
-        position: {
-          x: STAGE_X + offset.x,
-          y: stageY + TASK_BRANCH_Y + offset.y,
-        },
-        selectable: true,
-        data: {
-          kind: "task",
-          task,
-        },
-      });
+      row.forEach((task, columnIndex) => {
+        const taskId = taskNodeId(task.id);
+        nodes.push({
+          id: taskId,
+          type: "researchTask",
+          position: {
+            x: rowStartX + columnIndex * (TASK_NODE_WIDTH + TASK_COLUMN_GAP),
+            y: rowY,
+          },
+          selectable: true,
+          data: {
+            kind: "task",
+            task,
+          },
+        });
 
-      edges.push({
-        id: `stage:${stage}:${task.id}`,
-        source: stageId,
-        target: taskId,
-        type: "smoothstep",
-        animated: research.nextTask?.id === task.id,
-      });
+        if (!task.dependencies.some((dependencyId) => stageTaskIdSet.has(dependencyId))) {
+          edges.push({
+            id: `stage:${stage}:${task.id}`,
+            source: stageId,
+            target: taskId,
+            type: "smoothstep",
+            animated: research.nextTask?.id === task.id,
+            style: {
+              stroke: research.nextTask?.id === task.id ? "#2563eb" : "rgba(148, 163, 184, 0.56)",
+              strokeWidth: research.nextTask?.id === task.id ? 2 : 1.2,
+            },
+          });
+        }
 
-      task.dependencies.forEach((dependencyId) => {
-        edges.push({
-          id: `dep:${dependencyId}:${task.id}`,
-          source: taskNodeId(dependencyId),
-          target: taskId,
-          type: "smoothstep",
-          animated: research.nextTask?.id === task.id,
+        task.dependencies.forEach((dependencyId) => {
+          edges.push({
+            id: `dep:${dependencyId}:${task.id}`,
+            source: taskNodeId(dependencyId),
+            target: taskId,
+            type: "smoothstep",
+            animated: research.nextTask?.id === task.id,
+            style: {
+              stroke: research.nextTask?.id === task.id ? "rgba(37, 99, 235, 0.8)" : "rgba(148, 163, 184, 0.44)",
+              strokeDasharray: "4 5",
+              strokeWidth: research.nextTask?.id === task.id ? 1.8 : 1.1,
+            },
+          });
         });
       });
     });
+
+    const blockHeight = STAGE_NODE_HEIGHT + (
+      taskRows.length > 0
+        ? STAGE_TO_TASK_GAP + taskRows.length * TASK_NODE_HEIGHT + Math.max(0, taskRows.length - 1) * TASK_ROW_GAP
+        : 0
+    );
+    currentTop += blockHeight + STAGE_BLOCK_GAP;
+
   }
 
   return { nodes, edges };

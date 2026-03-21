@@ -46,6 +46,11 @@ function buildSdkOptions(request) {
     options.model = request.provider.model;
   }
 
+  if (request.provider?.reasoningEffort) {
+    options.thinking = { type: "adaptive" };
+    options.effort = request.provider.reasoningEffort;
+  }
+
   // Permission mode
   const permMode = request.provider?.permissionMode || "default";
   if (permMode !== "default") {
