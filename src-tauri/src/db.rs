@@ -31,6 +31,9 @@ pub fn init_db(app_data_dir: &Path) -> SqlResult<Connection> {
     // Recreate skills table to accept 'git' source if needed.
     migrate_skills_table(&conn)?;
 
+    // Recreate providers table to accept any vendor (e.g. 'claude-code', 'codex').
+    migrate_providers_table(&conn)?;
+
     conn.execute_batch(include_str!("schema.sql"))?;
 
     let profile_count: i64 =
@@ -94,6 +97,59 @@ fn migrate_profiles_table(conn: &rusqlite::Connection) -> SqlResult<()> {
              skill_ids_json,tool_allowlist_json,output_mode,sort_order,is_builtin FROM profiles;
          DROP TABLE profiles;
          ALTER TABLE profiles_new RENAME TO profiles;
+         COMMIT;
+         PRAGMA foreign_keys=ON;",
+    )?;
+
+    Ok(())
+}
+
+/// Drop and recreate the providers table if it still has a restrictive CHECK on vendor.
+fn migrate_providers_table(conn: &rusqlite::Connection) -> SqlResult<()> {
+    let table_exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='providers'",
+        [],
+        |row| row.get(0),
+    )?;
+    if table_exists == 0 {
+        return Ok(());
+    }
+
+    // Probe whether the current table accepts 'claude-code' vendor
+    let check_ok = conn.execute_batch(
+        "SAVEPOINT probe_providers;
+         INSERT INTO providers (id, name, vendor, base_url) VALUES ('__probe__','probe','claude-code','');
+         DELETE FROM providers WHERE id='__probe__';
+         RELEASE SAVEPOINT probe_providers;",
+    );
+
+    if check_ok.is_ok() {
+        return Ok(());
+    }
+
+    let _ = conn.execute_batch(
+        "ROLLBACK TO SAVEPOINT probe_providers; RELEASE SAVEPOINT probe_providers;",
+    );
+
+    conn.execute_batch(
+        "PRAGMA foreign_keys=OFF;
+         BEGIN;
+         CREATE TABLE providers_new (
+             id            TEXT PRIMARY KEY,
+             name          TEXT NOT NULL,
+             vendor        TEXT NOT NULL,
+             base_url      TEXT NOT NULL,
+             api_key       TEXT NOT NULL DEFAULT '',
+             default_model TEXT NOT NULL DEFAULT '',
+             is_enabled    INTEGER NOT NULL DEFAULT 1,
+             sort_order    INTEGER NOT NULL DEFAULT 0,
+             meta_json     TEXT NOT NULL DEFAULT '{}',
+             created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+             updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+         );
+         INSERT INTO providers_new SELECT id,name,vendor,base_url,api_key,default_model,is_enabled,sort_order,meta_json,created_at,updated_at FROM providers;
+         DROP TABLE providers;
+         ALTER TABLE providers_new RENAME TO providers;
          COMMIT;
          PRAGMA foreign_keys=ON;",
     )?;

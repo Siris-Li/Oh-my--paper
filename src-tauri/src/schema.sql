@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS providers (
     id            TEXT PRIMARY KEY,
     name          TEXT NOT NULL,
-    vendor        TEXT NOT NULL CHECK(vendor IN ('openai','anthropic','openrouter','deepseek','google','banana','custom')),
+    vendor        TEXT NOT NULL,
     base_url      TEXT NOT NULL,
     api_key       TEXT NOT NULL DEFAULT '',
     default_model TEXT NOT NULL DEFAULT '',
