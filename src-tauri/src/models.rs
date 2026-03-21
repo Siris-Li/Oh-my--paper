@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -337,6 +339,89 @@ pub enum TerminalEvent {
     Error { session_id: String, message: String },
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchBootstrapState {
+    pub status: String,
+    pub message: String,
+    pub has_instance: bool,
+    pub has_templates: bool,
+    pub has_skill_views: bool,
+    pub has_brief: bool,
+    pub has_tasks: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchTask {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub stage: String,
+    #[serde(default)]
+    pub priority: String,
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    #[serde(default)]
+    pub task_type: String,
+    #[serde(default)]
+    pub inputs_needed: Vec<String>,
+    #[serde(default)]
+    pub suggested_skills: Vec<String>,
+    #[serde(default)]
+    pub next_action_prompt: String,
+    #[serde(default)]
+    pub artifact_paths: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchTaskCounts {
+    pub total: usize,
+    pub pending: usize,
+    pub in_progress: usize,
+    pub done: usize,
+    pub review: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchStageSummary {
+    pub stage: String,
+    pub label: String,
+    pub description: String,
+    pub status: String,
+    pub total_tasks: usize,
+    pub done_tasks: usize,
+    pub artifact_count: usize,
+    pub artifact_paths: Vec<String>,
+    pub missing_inputs: Vec<String>,
+    pub suggested_skills: Vec<String>,
+    pub next_task_id: Option<String>,
+    pub task_counts: ResearchTaskCounts,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ResearchCanvasSnapshot {
+    pub bootstrap: ResearchBootstrapState,
+    pub brief: Option<serde_json::Value>,
+    pub tasks: Vec<ResearchTask>,
+    pub current_stage: String,
+    pub next_task: Option<ResearchTask>,
+    pub stage_summaries: Vec<ResearchStageSummary>,
+    pub artifact_paths: HashMap<String, Vec<String>>,
+    pub handoff_to_writing: bool,
+    pub pipeline_root: String,
+    pub instance_path: Option<String>,
+    pub brief_topic: String,
+    pub brief_goal: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
@@ -350,4 +435,5 @@ pub struct WorkspaceSnapshot {
     pub compile_result: CompileResult,
     pub figure_briefs: Vec<FigureBriefDraft>,
     pub assets: Vec<GeneratedAsset>,
+    pub research: Option<ResearchCanvasSnapshot>,
 }

@@ -11,7 +11,8 @@ use crate::models::{
     SkillManifest, TerminalSessionInfo, TestResult, UsageRecord, WorkspaceSnapshot,
 };
 use crate::services::{
-    agent, compile, figure, profile, project, provider, sidecar, skill, sync, terminal, worker,
+    agent, compile, figure, profile, project, provider, research, sidecar, skill, sync, terminal,
+    worker,
 };
 use crate::state::AppState;
 
@@ -68,6 +69,39 @@ pub async fn create_project(
         let state = app_handle.state::<AppState>();
         project::create_project(&state, Path::new(&parent_dir), &project_name)
             .map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn ensure_research_scaffold(
+    app_handle: AppHandle,
+    start_stage: Option<String>,
+) -> Result<WorkspaceSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let root_path = state
+            .project_config
+            .read()
+            .map_err(|err| err.to_string())?
+            .root_path
+            .clone();
+        if root_path.trim().is_empty() {
+            return Err("no active project".into());
+        }
+
+        research::ensure_research_scaffold(Path::new(&root_path), start_stage.as_deref())
+            .map_err(|err| err.to_string())?;
+        let conn = state.db.lock().map_err(|err| err.to_string())?;
+        skill::discover_skills(
+            &conn,
+            &research::project_skill_roots(Path::new(&root_path)),
+            "project",
+        )
+        .map_err(|err| err.to_string())?;
+        drop(conn);
+        project::load_project_snapshot(&state).map_err(|err| err.to_string())
     })
     .await
     .map_err(|err| err.to_string())?

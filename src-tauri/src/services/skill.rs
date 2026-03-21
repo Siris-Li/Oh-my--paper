@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use rusqlite::{params, Connection};
+use walkdir::WalkDir;
 
 use crate::models::SkillManifest;
 
@@ -63,19 +64,20 @@ pub fn discover_skills(
             continue;
         }
 
-        let entries = fs::read_dir(dir).map_err(|err| err.to_string())?;
-        for entry in entries.flatten() {
-            let skill_dir = entry.path();
-            if !skill_dir.is_dir() {
+        for entry in WalkDir::new(dir)
+            .min_depth(1)
+            .max_depth(4)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+        {
+            if !entry.file_type().is_file() || entry.file_name() != "SKILL.md" {
                 continue;
             }
 
-            let skill_md = skill_dir.join("SKILL.md");
-            if !skill_md.exists() {
+            let Some(skill_dir) = entry.path().parent() else {
                 continue;
-            }
-
-            let content = fs::read_to_string(&skill_md).map_err(|err| err.to_string())?;
+            };
+            let content = fs::read_to_string(entry.path()).map_err(|err| err.to_string())?;
             if let Some((id, name, version, stages, tools)) = parse_skill_md(&content) {
                 let stages_json = serde_json::to_string(&stages).unwrap_or_else(|_| "[]".into());
                 let tools_json = serde_json::to_string(&tools).unwrap_or_else(|_| "[]".into());
@@ -159,7 +161,21 @@ pub fn enable_skill(
 pub fn load_skill_prompts(conn: &Connection, skill_ids: &[String]) -> Result<String, String> {
     let mut prompts = Vec::new();
 
-    for skill_id in skill_ids {
+    let mut resolved_skill_ids = if skill_ids.is_empty() {
+        let mut stmt = conn
+            .prepare("SELECT id FROM skills WHERE is_enabled=1 ORDER BY source, name")
+            .map_err(|err| err.to_string())?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|err| err.to_string())?;
+        rows.filter_map(Result::ok).collect::<Vec<_>>()
+    } else {
+        skill_ids.to_vec()
+    };
+
+    resolved_skill_ids.dedup();
+
+    for skill_id in resolved_skill_ids {
         let dir_path: String = conn
             .query_row(
                 "SELECT dir_path FROM skills WHERE id=?1 AND is_enabled=1",

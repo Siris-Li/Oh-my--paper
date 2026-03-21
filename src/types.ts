@@ -15,6 +15,7 @@ export type DrawerTab =
   | "usage"
   | "collab";
 export type WorkspacePaneMode = "files" | "outline";
+export type WorkspaceSurface = "research" | "writing";
 export type ProjectFileType =
   | "latex"
   | "bib"
@@ -388,6 +389,71 @@ export interface TestResult {
   error?: string;
 }
 
+export type ResearchStage = "survey" | "ideation" | "experiment" | "publication" | "promotion";
+
+export interface ResearchBootstrapState {
+  status: "ready" | "needs-bootstrap" | "missing-brief" | "missing-tasks" | "partial" | string;
+  message: string;
+  hasInstance: boolean;
+  hasTemplates: boolean;
+  hasSkillViews: boolean;
+  hasBrief: boolean;
+  hasTasks: boolean;
+}
+
+export interface ResearchTask {
+  id: string;
+  title: string;
+  description: string;
+  status: "pending" | "in-progress" | "done" | "review" | "deferred" | "cancelled" | string;
+  stage: ResearchStage;
+  priority: "high" | "medium" | "low" | string;
+  dependencies: string[];
+  taskType: string;
+  inputsNeeded: string[];
+  suggestedSkills: string[];
+  nextActionPrompt: string;
+  artifactPaths: string[];
+}
+
+export interface ResearchTaskCounts {
+  total: number;
+  pending: number;
+  inProgress: number;
+  done: number;
+  review: number;
+}
+
+export interface ResearchStageSummary {
+  stage: ResearchStage;
+  label: string;
+  description: string;
+  status: "active" | "complete" | "queued" | "idle" | string;
+  totalTasks: number;
+  doneTasks: number;
+  artifactCount: number;
+  artifactPaths: string[];
+  missingInputs: string[];
+  suggestedSkills: string[];
+  nextTaskId?: string | null;
+  taskCounts: ResearchTaskCounts;
+}
+
+export interface ResearchCanvasSnapshot {
+  bootstrap: ResearchBootstrapState;
+  brief?: Record<string, unknown> | null;
+  tasks: ResearchTask[];
+  currentStage: ResearchStage;
+  nextTask?: ResearchTask | null;
+  stageSummaries: ResearchStageSummary[];
+  artifactPaths: Record<ResearchStage, string[]>;
+  handoffToWriting: boolean;
+  pipelineRoot: string;
+  instancePath?: string | null;
+  briefTopic: string;
+  briefGoal: string;
+}
+
 export interface WorkspaceSnapshot {
   projectConfig: ProjectConfig;
   tree: ProjectNode[];
@@ -399,6 +465,7 @@ export interface WorkspaceSnapshot {
   compileResult: CompileResult;
   figureBriefs: FigureBriefDraft[];
   assets: GeneratedAsset[];
+  research?: ResearchCanvasSnapshot | null;
   collab?: WorkspaceCollabMetadata | null;
 }
 

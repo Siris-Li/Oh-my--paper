@@ -153,6 +153,11 @@ export const desktop = {
       mockRuntime.createProject?.(parentDir, projectName) ?? mockRuntime.openProject(),
     );
   },
+  ensureResearchScaffold(startStage?: string) {
+    return runOrMock<WorkspaceSnapshot>("ensure_research_scaffold", { startStage }, () =>
+      mockRuntime.ensureResearchScaffold?.(startStage) ?? mockRuntime.openProject(),
+    );
+  },
   launchWorkspaceWindow(rootPath?: string) {
     return runOrMock("launch_workspace_window", { rootPath }, () =>
       mockRuntime.launchWorkspaceWindow?.(rootPath) ?? Promise.resolve(true),

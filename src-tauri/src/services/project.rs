@@ -8,7 +8,7 @@ use crate::models::{
     AssetResource, FigureBriefDraft, GeneratedAsset, ProjectConfig, ProjectFile, ProjectNode,
     WorkspaceSnapshot,
 };
-use crate::services::{figure, profile, provider, skill};
+use crate::services::{figure, profile, provider, research, skill};
 use crate::state::{
     default_compile_result, initialize_project, load_project_config, persist_recent_workspace,
     save_project_config, AppState,
@@ -357,6 +357,7 @@ pub fn load_project_snapshot(state: &AppState) -> Result<WorkspaceSnapshot> {
     let profiles = profile::list_profiles(&conn).map_err(anyhow::Error::msg)?;
     let skills = skill::list_skills(&conn).map_err(anyhow::Error::msg)?;
     drop(conn);
+    let research = research::load_research_snapshot(root).ok();
 
     let compile_result = state
         .last_compile
@@ -376,6 +377,7 @@ pub fn load_project_snapshot(state: &AppState) -> Result<WorkspaceSnapshot> {
         compile_result,
         figure_briefs: briefs,
         assets,
+        research,
     })
 }
 
@@ -408,6 +410,7 @@ fn empty_snapshot(state: &AppState) -> Result<WorkspaceSnapshot> {
         compile_result,
         figure_briefs: Vec::new(),
         assets: Vec::new(),
+        research: None,
     })
 }
 
@@ -487,7 +490,8 @@ pub fn switch_project(state: &AppState, root: &Path) -> Result<WorkspaceSnapshot
         .context("failed to persist recent workspace")?;
 
     let conn = state.db.lock().expect("db lock poisoned");
-    skill::discover_skills(&conn, &[root.join("skills")], "project").map_err(anyhow::Error::msg)?;
+    skill::discover_skills(&conn, &research::project_skill_roots(&root), "project")
+        .map_err(anyhow::Error::msg)?;
     drop(conn);
 
     load_project_snapshot(state)
@@ -505,6 +509,8 @@ pub fn create_project(
     };
     let root = parent_dir.join(folder_name);
     initialize_project(&root, folder_name).context("failed to initialize project")?;
+    research::ensure_research_scaffold(&root, Some("survey"))
+        .context("failed to initialize research scaffold")?;
     switch_project(state, &root)
 }
 

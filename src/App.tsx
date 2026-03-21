@@ -23,6 +23,7 @@ import { CollabLoginModal } from "./components/CollabLoginModal";
 import { CollabProjectModal } from "./components/CollabProjectModal";
 import { CreateEntryModal } from "./components/CreateEntryModal";
 import { ReleaseNotesModal } from "./components/ReleaseNotesModal";
+import { ResearchCanvas } from "./components/ResearchCanvas";
 import { ShareLinkModal } from "./components/ShareLinkModal";
 import { createLocalAdapter } from "./lib/adapters";
 import {
@@ -67,7 +68,14 @@ import { desktop, isTauriRuntime } from "./lib/desktop";
 import { AGENT_BRANDS, getAgentBrand, isAgentVendor, type AgentVendor } from "./lib/agentCatalog";
 import { resolvePdfSource } from "./lib/pdf-source";
 import { findActiveHeading } from "./lib/outline";
-import { closePathTab, closeTextTab, getNodeByPath } from "./lib/workspace";
+import {
+  closePathTab,
+  closeTextTab,
+  detectProjectFileType,
+  getNodeByPath,
+  isPreviewableFileType,
+  isTextFileType,
+} from "./lib/workspace";
 import { useAgentChat } from "./hooks/useAgentChat";
 import { useCollaborativeDoc } from "./hooks/useCollaborativeDoc";
 import { useCompilePipeline } from "./hooks/useCompilePipeline";
@@ -85,11 +93,13 @@ import type {
   LatexEngine,
   ProjectNode,
   ProviderConfig,
+  ResearchTask,
   ReviewComment,
   SkillManifest,
   WorkspaceCollabMetadata,
   WorkspaceEntry,
   WorkspacePaneMode,
+  WorkspaceSurface,
   WorkspaceSnapshot,
 } from "./types";
 
@@ -251,6 +261,10 @@ function collectTextPathsFromTree(nodes: WorkspaceSnapshot["tree"]) {
 
   visit(nodes);
   return result;
+}
+
+function isResearchTaskClosed(task: ResearchTask) {
+  return task.status === "done" || task.status === "cancelled" || task.status === "deferred";
 }
 
 function formatDebugTimestamp(date: Date) {
@@ -444,6 +458,9 @@ function App() {
   const [selectedBrief, setSelectedBrief] = useState<FigureBriefDraft | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<GeneratedAsset | null>(null);
   const [previewSelection, setPreviewSelection] = useState<PreviewSelection>({ kind: "compile" });
+  const [workspaceSurface, setWorkspaceSurface] = useState<WorkspaceSurface>("research");
+  const [isResearchBootstrapBusy, setIsResearchBootstrapBusy] = useState(false);
+  const [lastAutoWritingHandoffKey, setLastAutoWritingHandoffKey] = useState("");
   const [editorJumpTarget, setEditorJumpTarget] = useState<EditorJumpTarget | null>(null);
   const [collabRevision, setCollabRevision] = useState(0);
   const [runtimeDebugLogLines, setRuntimeDebugLogLines] = useState<string[]>([]);
@@ -1179,6 +1196,8 @@ function App() {
     if (rootChanged) {
       resetAgentChatForSnapshot();
       setSelectedText("");
+      setLastAutoWritingHandoffKey("");
+      setWorkspaceSurface(nextSnapshot.projectConfig.rootPath ? "research" : "writing");
     }
     setSelectedBrief((current) =>
       current ? nextSnapshot.figureBriefs.find((item) => item.id === current.id) ?? null : null,
@@ -1258,6 +1277,27 @@ function App() {
       void loadAsset(previewSelection.path);
     }
   }, [assetCache, loadAsset, previewSelection]);
+
+  useEffect(() => {
+    const research = snapshot?.research;
+    if (!activeWorkspaceRoot || !research?.handoffToWriting) {
+      return;
+    }
+
+    const handoffKey = `${activeWorkspaceRoot}:${research.currentStage}:${research.nextTask?.id ?? ""}`;
+    if (handoffKey === lastAutoWritingHandoffKey) {
+      return;
+    }
+
+    setWorkspaceSurface("writing");
+    setLastAutoWritingHandoffKey(handoffKey);
+  }, [
+    activeWorkspaceRoot,
+    lastAutoWritingHandoffKey,
+    snapshot?.research?.currentStage,
+    snapshot?.research?.handoffToWriting,
+    snapshot?.research?.nextTask?.id,
+  ]);
 
   const executeCompile = useEffectEvent(async (filePath: string) => {
     const previousCompilePath = toProjectRelativePath(activeWorkspaceRoot, snapshot?.compileResult.pdfPath);
@@ -1660,10 +1700,102 @@ function App() {
     await sendMessageBase(text);
   });
 
+  const handleEnsureResearchScaffold = useEffectEvent(async () => {
+    if (!snapshot?.projectConfig.rootPath || isResearchBootstrapBusy) {
+      return;
+    }
+
+    setIsResearchBootstrapBusy(true);
+    try {
+      const nextSnapshot = await loadSnapshotWithCollab(() => desktop.ensureResearchScaffold());
+      applySnapshot(nextSnapshot, {
+        activeFilePath,
+        openTabs,
+        openImageTabs,
+        editorImagePath,
+        previewSelection,
+      });
+      setWorkspaceSurface("research");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      window.alert(`初始化研究工作流失败:\n${message}`);
+    } finally {
+      setIsResearchBootstrapBusy(false);
+    }
+  });
+
+  const handleOpenResearchArtifact = useEffectEvent((path: string) => {
+    const fileType = detectProjectFileType(path);
+    setWorkspaceSurface("writing");
+
+    if (isTextFileType(fileType)) {
+      openTextFile(path);
+      return;
+    }
+
+    if (fileType === "image") {
+      openImageFile(path);
+      return;
+    }
+
+    if (isPreviewableFileType(fileType)) {
+      if (fileType === "pdf" && compilePreviewPath && path === compilePreviewPath) {
+        setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
+        return;
+      }
+      setPreviewSelection({ kind: "asset", path });
+      void loadAsset(path);
+      return;
+    }
+
+    setPreviewSelection({
+      kind: "unsupported",
+      path,
+      title: path.split("/").at(-1) ?? path,
+      description: "该研究产物暂时不支持内置预览。",
+    });
+  });
+
+  const enableSkillsById = useEffectEvent(async (skillIds: string[]) => {
+    const currentSnapshot = snapshot;
+    if (!currentSnapshot || skillIds.length === 0) {
+      return;
+    }
+
+    const nextEnabledIds = [...new Set(skillIds)].filter((skillId) => {
+      const skill = currentSnapshot.skills.find((item) => item.id === skillId);
+      return Boolean(skill) && !(skill?.isEnabled ?? skill?.enabled ?? false);
+    });
+
+    if (nextEnabledIds.length === 0) {
+      return;
+    }
+
+    await Promise.all(nextEnabledIds.map((skillId) => desktop.enableSkill(skillId, true)));
+    setSnapshot((current) =>
+      current
+        ? {
+          ...current,
+          skills: current.skills.map((item) =>
+            nextEnabledIds.includes(item.id) ? { ...item, enabled: true, isEnabled: true } : item,
+          ),
+        }
+        : current,
+    );
+  });
+
+  const handleUseResearchTaskInChat = useEffectEvent(async (task: ResearchTask) => {
+    if (task.suggestedSkills.length > 0) {
+      await enableSkillsById(task.suggestedSkills);
+    }
+    await handleSendMessage(task.nextActionPrompt || task.description || task.title);
+  });
+
   function handleOpenNode(node: ProjectNode) {
     if (node.kind === "directory") {
       return;
     }
+    setWorkspaceSurface("writing");
     if (node.isText) {
       openTextFile(node.path);
       return;
@@ -1892,6 +2024,7 @@ function App() {
   async function handleCreateFile(parentDir: string, fileName: string) {
     const targetPath = parentDir ? `${parentDir}/${fileName}` : fileName;
     await fileAdapter.createFile(targetPath, "");
+    setWorkspaceSurface("writing");
     await refreshWorkspace({
       activeFilePath: targetPath,
       openTabs: [...openTabs, targetPath],
@@ -2893,33 +3026,28 @@ function App() {
     if (previewSelection.kind === "asset") {
       const node = getNodeByPath(snapshot.tree, previewSelection.path);
       const asset = previewAsset;
-      if (!node) {
-        return {
-          kind: "unsupported",
-          title: previewSelection.path,
-          description: "资源不存在。",
-        };
-      }
+      const fallbackTitle = previewSelection.path.split("/").at(-1) ?? previewSelection.path;
+      const resolvedFileType = node?.fileType ?? detectProjectFileType(previewSelection.path);
       if (!asset) {
         return {
           kind: "unsupported",
-          title: node.name,
+          title: node?.name ?? fallbackTitle,
           description: previewAssetLoadError || "正在加载预览资源…",
         };
       }
-      if (node.fileType === "pdf") {
+      if (resolvedFileType === "pdf") {
         const fileData = asset.data instanceof Uint8Array ? asset.data : undefined;
         const fileUrl = asset.resourceUrl ?? desktop.resolveResourceUrl(asset.absolutePath);
         if (!resolvePdfSource(fileData, fileUrl)) {
           return {
             kind: "unsupported",
-            title: node.name,
+            title: node?.name ?? fallbackTitle,
             description: previewAssetLoadError || "正在加载预览资源…",
           };
         }
         return {
           kind: "pdf",
-          title: node.name,
+          title: node?.name ?? fallbackTitle,
           fileData,
           fileUrl: undefined,
           isLoading: false,
@@ -2933,20 +3061,20 @@ function App() {
       if (!asset.resourceUrl) {
         return {
           kind: "unsupported",
-          title: node.name,
+          title: node?.name ?? fallbackTitle,
           description: previewAssetLoadError || "正在加载预览资源…",
         };
       }
-      if (node.fileType === "image") {
+      if (resolvedFileType === "image") {
         return {
           kind: "image",
-          title: node.name,
+          title: node?.name ?? fallbackTitle,
           fileUrl: asset.resourceUrl ?? "",
         };
       }
       return {
         kind: "unsupported",
-        title: node.name,
+        title: node?.name ?? fallbackTitle,
         description: "该文件类型暂时不支持内置预览。",
       };
     }
@@ -3050,6 +3178,27 @@ function App() {
     );
   }, [activeOutlineId, openTextFile, outlineLoading, outlineTree, outlineWarnings.length]);
 
+  const researchSnapshot = snapshot?.research ?? null;
+  const currentResearchStageSummary =
+    researchSnapshot?.stageSummaries.find((stage) => stage.stage === researchSnapshot.currentStage) ?? null;
+  const publicationTask =
+    researchSnapshot
+      ? (
+        researchSnapshot.nextTask?.stage === "publication"
+          ? researchSnapshot.nextTask
+          : researchSnapshot.tasks.find(
+            (task) => task.stage === "publication" && !isResearchTaskClosed(task),
+          ) ?? null
+      )
+      : null;
+  const showResearchSurface = hasProject && workspaceSurface === "research";
+  const showWritingSurface = !showResearchSurface;
+  const showResearchHandoffBanner = Boolean(
+    showWritingSurface &&
+    researchSnapshot &&
+    (researchSnapshot.currentStage === "publication" || researchSnapshot.handoffToWriting),
+  );
+
   if (bootstrapError) {
     return <div className="app-shell loading-shell">ViewerLeaf failed to start: {bootstrapError}</div>;
   }
@@ -3116,38 +3265,71 @@ function App() {
         {hasProject && (
           <>
             <div className="topbar-center">
-              <span className="topbar-metric">
-                编译状态
-                <strong>{compileStatusLabel}</strong>
-              </span>
+              <div className="surface-switcher">
+                <button
+                  type="button"
+                  className={`surface-switcher__btn ${workspaceSurface === "research" ? "is-active" : ""}`}
+                  onClick={() => setWorkspaceSurface("research")}
+                >
+                  Research Canvas
+                </button>
+                <button
+                  type="button"
+                  className={`surface-switcher__btn ${workspaceSurface === "writing" ? "is-active" : ""}`}
+                  onClick={() => setWorkspaceSurface("writing")}
+                >
+                  Writing Desk
+                </button>
+              </div>
+              {workspaceSurface === "writing" ? (
+                <span className="topbar-metric">
+                  编译状态
+                  <strong>{compileStatusLabel}</strong>
+                </span>
+              ) : (
+                <>
+                  <span className="topbar-metric">
+                    当前阶段
+                    <strong>{currentResearchStageSummary?.label ?? "Research Canvas"}</strong>
+                  </span>
+                  <span className="topbar-metric">
+                    下一任务
+                    <strong>{researchSnapshot?.nextTask?.title ?? "等待定义"}</strong>
+                  </span>
+                </>
+              )}
             </div>
             <div className="topbar-right">
-              <span className="topbar-metric">诊断结果 <strong>{snapshot.compileResult.diagnostics.length} 项</strong></span>
-              <button
-                className={`topbar-terminal-btn hover-spring ${isTerminalVisible ? "is-active" : ""}`}
-                onClick={() => setIsTerminalVisible((current) => !current)}
-                type="button"
-                title={isTerminalVisible ? "隐藏终端" : "打开终端"}
-                aria-label={isTerminalVisible ? "隐藏终端" : "打开终端"}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-                  <polyline points="7 9 11 12 7 15"></polyline>
-                  <line x1="13" y1="15" x2="17" y2="15"></line>
-                </svg>
-              </button>
-              <button
-                className="compile-launch-btn hover-spring"
-                onClick={() => void handleInteractiveCompile()}
-                type="button"
-                disabled={snapshot.compileResult.status === "running"}
-                title={compileNeedsAttention ? "本地 TeX 环境未就绪，打开 LaTeX 配置" : "编译当前项目"}
-                aria-label={compileNeedsAttention ? "打开 LaTeX 配置" : "编译当前项目"}
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <polygon points="8,5 19,12 8,19" fill="currentColor"></polygon>
-                </svg>
-              </button>
+              {workspaceSurface === "writing" ? (
+                <>
+                  <span className="topbar-metric">诊断结果 <strong>{snapshot.compileResult.diagnostics.length} 项</strong></span>
+                  <button
+                    className={`topbar-terminal-btn hover-spring ${isTerminalVisible ? "is-active" : ""}`}
+                    onClick={() => setIsTerminalVisible((current) => !current)}
+                    type="button"
+                    title={isTerminalVisible ? "隐藏终端" : "打开终端"}
+                    aria-label={isTerminalVisible ? "隐藏终端" : "打开终端"}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                      <polyline points="7 9 11 12 7 15"></polyline>
+                      <line x1="13" y1="15" x2="17" y2="15"></line>
+                    </svg>
+                  </button>
+                  <button
+                    className="compile-launch-btn hover-spring"
+                    onClick={() => void handleInteractiveCompile()}
+                    type="button"
+                    disabled={snapshot.compileResult.status === "running"}
+                    title={compileNeedsAttention ? "本地 TeX 环境未就绪，打开 LaTeX 配置" : "编译当前项目"}
+                    aria-label={compileNeedsAttention ? "打开 LaTeX 配置" : "编译当前项目"}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <polygon points="8,5 19,12 8,19" fill="currentColor"></polygon>
+                    </svg>
+                  </button>
+                </>
+              ) : null}
             </div>
           </>
         )}
@@ -3384,190 +3566,239 @@ function App() {
           )}
 
           <div className="workspace-body" ref={workspaceBodyRef}>
-            <div className="workspace-main">
-              <div className="workspace-main-content" ref={editorPreviewSplitRef}>
-                <div className="editor-area">
-                  <div className="editor-tabs" onWheel={handleEditorTabsWheel}>
-                  {editorTabs.map((tab) => {
-                    const isImageTab = openImageTabSet.has(tab);
-                    const isActive = tab === activeEditorTabPath;
-                    const tabLabel = tab.split("/").at(-1) ?? tab;
-                    return (
-                      <div
-                        key={tab}
-                        className={`editor-tab ${isActive ? "is-active" : ""}`}
-                        data-active={isActive ? "true" : "false"}
-                        title={tab}
-                      >
-                        <button
-                          className="editor-tab-trigger"
-                          onClick={() => (isImageTab ? openImageFile(tab) : openTextFile(tab))}
-                          type="button"
-                          title={tab}
-                        >
-                          <span className="editor-tab-label">{tabLabel}</span>
-                          {!isImageTab && dirtyPathSet.has(tab) && (
-                            <span className="editor-tab-dirty-dot" aria-hidden="true"></span>
-                          )}
-                        </button>
-                        <button
-                          className="editor-tab-close"
-                          type="button"
-                          aria-label={`关闭 ${tabLabel}`}
-                          title={`关闭 ${tabLabel}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            closeEditorTab(tab, isImageTab);
-                          }}
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                        </button>
+            {showResearchSurface ? (
+              <div className="workspace-main">
+                <ResearchCanvas
+                  research={researchSnapshot}
+                  isBusy={isResearchBootstrapBusy}
+                  onBootstrap={handleEnsureResearchScaffold}
+                  onOpenArtifact={handleOpenResearchArtifact}
+                  onUseTaskInChat={handleUseResearchTaskInChat}
+                  onOpenWriting={() => setWorkspaceSurface("writing")}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="workspace-main">
+                  {showResearchHandoffBanner && (
+                    <div className="research-handoff-banner">
+                      <div className="research-handoff-banner__meta">
+                        <div className="research-inspector__eyebrow">Publication Handoff</div>
+                        <strong>{publicationTask?.title ?? "进入论文写作阶段"}</strong>
+                        <span>{publicationTask?.description ?? "当前研究流程已经进入论文撰写与整理阶段。"}</span>
+                        {publicationTask?.suggestedSkills.length ? (
+                          <div className="research-node-chips">
+                            {publicationTask.suggestedSkills.map((skillId) => (
+                              <span key={skillId} className="research-node-chip">{skillId}</span>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
-                    );
-                  })}
-                  </div>
-                  {activeFile?.path.endsWith(".tex") && (
-                    <div className="editor-mode-switch">
-                      <button
-                        type="button"
-                        className={`editor-mode-btn ${editorMode === "code" ? "is-active" : ""}`}
-                        onClick={() => setEditorMode("code")}
-                      >
-                        Code
-                      </button>
-                      <button
-                        type="button"
-                        className={`editor-mode-btn ${editorMode === "visual" ? "is-active" : ""}`}
-                        onClick={() => setEditorMode("visual")}
-                      >
-                        Visual
-                      </button>
+                      <div className="research-handoff-banner__actions">
+                        <button
+                          type="button"
+                          className="research-secondary-btn"
+                          onClick={() => setWorkspaceSurface("research")}
+                        >
+                          返回研究画布
+                        </button>
+                        {publicationTask ? (
+                          <button
+                            type="button"
+                            className="research-primary-btn"
+                            onClick={() => void handleUseResearchTaskInChat(publicationTask)}
+                          >
+                            Use in Chat
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   )}
-                  <div className="editor-content">
-                    {editorImagePath ? (
-                      <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--bg-app)" }}>
-                        <div
-                          style={{
-                            padding: "6px 16px",
-                            borderBottom: "1px solid var(--border-light)",
-                            fontSize: "12px",
-                            color: "var(--text-secondary)",
-                            display: "flex",
-                            justifyContent: "space-between",
-                            background: "var(--bg-app)",
-                          }}
-                        >
-                          <span>图片路径: {editorImagePath}</span>
-                          <span>{editorImageAsset?.mimeType ?? "image"}</span>
+                  <div className="workspace-main-content" ref={editorPreviewSplitRef}>
+                    <div className="editor-area">
+                      <div className="editor-tabs" onWheel={handleEditorTabsWheel}>
+                      {editorTabs.map((tab) => {
+                        const isImageTab = openImageTabSet.has(tab);
+                        const isActive = tab === activeEditorTabPath;
+                        const tabLabel = tab.split("/").at(-1) ?? tab;
+                        return (
+                          <div
+                            key={tab}
+                            className={`editor-tab ${isActive ? "is-active" : ""}`}
+                            data-active={isActive ? "true" : "false"}
+                            title={tab}
+                          >
+                            <button
+                              className="editor-tab-trigger"
+                              onClick={() => (isImageTab ? openImageFile(tab) : openTextFile(tab))}
+                              type="button"
+                              title={tab}
+                            >
+                              <span className="editor-tab-label">{tabLabel}</span>
+                              {!isImageTab && dirtyPathSet.has(tab) && (
+                                <span className="editor-tab-dirty-dot" aria-hidden="true"></span>
+                              )}
+                            </button>
+                            <button
+                              className="editor-tab-close"
+                              type="button"
+                              aria-label={`关闭 ${tabLabel}`}
+                              title={`关闭 ${tabLabel}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                closeEditorTab(tab, isImageTab);
+                              }}
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                          </div>
+                        );
+                      })}
+                      </div>
+                      {activeFile?.path.endsWith(".tex") && (
+                        <div className="editor-mode-switch">
+                          <button
+                            type="button"
+                            className={`editor-mode-btn ${editorMode === "code" ? "is-active" : ""}`}
+                            onClick={() => setEditorMode("code")}
+                          >
+                            Code
+                          </button>
+                          <button
+                            type="button"
+                            className={`editor-mode-btn ${editorMode === "visual" ? "is-active" : ""}`}
+                            onClick={() => setEditorMode("visual")}
+                          >
+                            Visual
+                          </button>
                         </div>
-                        <div
-                          style={{
-                            flex: 1,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            background: "var(--bg-secondary, #1e1e1e)",
-                            overflow: "auto",
-                            padding: 24,
-                          }}
-                        >
-                          {editorImageUrl ? (
-                            <img
-                              src={editorImageUrl}
-                              alt={editorImagePath.split("/").at(-1) ?? ""}
-                              style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 8 }}
+                      )}
+                      <div className="editor-content">
+                        {editorImagePath ? (
+                          <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--bg-app)" }}>
+                            <div
+                              style={{
+                                padding: "6px 16px",
+                                borderBottom: "1px solid var(--border-light)",
+                                fontSize: "12px",
+                                color: "var(--text-secondary)",
+                                display: "flex",
+                                justifyContent: "space-between",
+                                background: "var(--bg-app)",
+                              }}
+                            >
+                              <span>图片路径: {editorImagePath}</span>
+                              <span>{editorImageAsset?.mimeType ?? "image"}</span>
+                            </div>
+                            <div
+                              style={{
+                                flex: 1,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                background: "var(--bg-secondary, #1e1e1e)",
+                                overflow: "auto",
+                                padding: 24,
+                              }}
+                            >
+                              {editorImageUrl ? (
+                                <img
+                                  src={editorImageUrl}
+                                  alt={editorImagePath.split("/").at(-1) ?? ""}
+                                  style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 8 }}
+                                />
+                              ) : (
+                                <div style={{ color: "var(--text-secondary)" }}>
+                                  {editorImageAsset ? "图片资源不可用" : "正在加载图片…"}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ) : activeFile ? (
+                          editorMode === "visual" && activeFile.path.endsWith(".tex") ? (
+                            <VisualEditor
+                              content={activeFile.content}
+                              onChange={handleEditorChange}
+                              onSave={handleSaveCurrentFile}
+                              onSwitchToCode={() => setEditorMode("code")}
                             />
                           ) : (
-                            <div style={{ color: "var(--text-secondary)" }}>
-                              {editorImageAsset ? "图片资源不可用" : "正在加载图片…"}
-                            </div>
-                          )}
-                        </div>
+                            <EditorPane
+                              file={activeFile}
+                              isDirty={dirtyPathSet.has(activeFile.path)}
+                              targetLine={editorJumpTarget?.path === activeFile.path ? editorJumpTarget.line : undefined}
+                              targetNonce={editorJumpTarget?.path === activeFile.path ? editorJumpTarget.nonce : undefined}
+                              onChange={handleEditorChange}
+                              onCursorChange={handleEditorCursorChange}
+                              onSave={handleEditorSave}
+                              onRunAgent={handleEditorRunAgent}
+                              onCompile={handleEditorCompile}
+                              onForwardSync={handleEditorForwardSync}
+                              yText={activeCollaborativeDoc.yText}
+                              awareness={activeCollaborativeDoc.awareness}
+                              collabStatus={currentCollabStatus}
+                              comments={activeDocComments}
+                              onAddComment={handleAddComment}
+                            />
+                          )
+                        ) : !hasProject ? (
+                          <WelcomeWorkspace
+                            embedded
+                            recentWorkspaces={recentWorkspaces}
+                            onOpenProject={() => void handleOpenExistingProject()}
+                            onCreateProject={() => void handleCreateNewProject()}
+                            onLinkCloudProject={handleLinkCloudProjectFromWelcome}
+                            onOpenRecentWorkspace={(rootPath) => void activateWorkspace(rootPath)}
+                          />
+                        ) : (
+                          <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>
+                            {loadingFilePath
+                              ? "正在加载文件…"
+                              : activeFileLoadError
+                                ? `文件加载失败：${activeFileLoadError}`
+                                : "选择一个文本文件开始编辑"}
+                          </div>
+                        )}
                       </div>
-                    ) : activeFile ? (
-                      editorMode === "visual" && activeFile.path.endsWith(".tex") ? (
-                        <VisualEditor
-                          content={activeFile.content}
-                          onChange={handleEditorChange}
-                          onSave={handleSaveCurrentFile}
-                          onSwitchToCode={() => setEditorMode("code")}
-                        />
+                    </div>
+
+                    <div
+                      className="workspace-main-resize-handle"
+                      onMouseDown={handlePreviewResizeStart}
+                      role="separator"
+                      aria-label="调整编辑区和预览区宽度"
+                    />
+
+                    <div className="preview-area" style={{ flexBasis: `${previewPaneWidth}%`, width: `${previewPaneWidth}%` }}>
+                      {previewState ? (
+                        <PdfPane preview={previewState} />
                       ) : (
-                        <EditorPane
-                          file={activeFile}
-                          isDirty={dirtyPathSet.has(activeFile.path)}
-                          targetLine={editorJumpTarget?.path === activeFile.path ? editorJumpTarget.line : undefined}
-                          targetNonce={editorJumpTarget?.path === activeFile.path ? editorJumpTarget.nonce : undefined}
-                          onChange={handleEditorChange}
-                          onCursorChange={handleEditorCursorChange}
-                          onSave={handleEditorSave}
-                          onRunAgent={handleEditorRunAgent}
-                          onCompile={handleEditorCompile}
-                          onForwardSync={handleEditorForwardSync}
-                          yText={activeCollaborativeDoc.yText}
-                          awareness={activeCollaborativeDoc.awareness}
-                          collabStatus={currentCollabStatus}
-                          comments={activeDocComments}
-                          onAddComment={handleAddComment}
-                        />
-                      )
-                    ) : !hasProject ? (
-                      <WelcomeWorkspace
-                        embedded
-                        recentWorkspaces={recentWorkspaces}
-                        onOpenProject={() => void handleOpenExistingProject()}
-                        onCreateProject={() => void handleCreateNewProject()}
-                        onLinkCloudProject={handleLinkCloudProjectFromWelcome}
-                        onOpenRecentWorkspace={(rootPath) => void activateWorkspace(rootPath)}
-                      />
-                    ) : (
-                      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)" }}>
-                        {loadingFilePath
-                          ? "正在加载文件…"
-                          : activeFileLoadError
-                            ? `文件加载失败：${activeFileLoadError}`
-                            : "选择一个文本文件开始编辑"}
-                      </div>
-                    )}
+                        <div className="pdf-placeholder">暂无预览内容</div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 <div
-                  className="workspace-main-resize-handle"
-                  onMouseDown={handlePreviewResizeStart}
-                  role="separator"
-                  aria-label="调整编辑区和预览区宽度"
-                />
-
-                <div className="preview-area" style={{ flexBasis: `${previewPaneWidth}%`, width: `${previewPaneWidth}%` }}>
-                  {previewState ? (
-                    <PdfPane preview={previewState} />
-                  ) : (
-                    <div className="pdf-placeholder">暂无预览内容</div>
-                  )}
+                  className={`terminal-panel-shell ${isTerminalVisible ? "is-visible" : ""}`}
+                  style={{ height: isTerminalVisible ? terminalPanelHeight : 0 }}
+                >
+                  <div
+                    className="terminal-panel-resize-handle"
+                    onMouseDown={handleTerminalResizeStart}
+                    role="separator"
+                    aria-label="调整终端高度"
+                  />
+                  <TerminalPanel
+                    workspaceRoot={snapshot.projectConfig.rootPath}
+                    isVisible={isTerminalVisible}
+                    height={terminalPanelHeight}
+                    commandRequest={terminalCommandRequest}
+                    onHide={() => setIsTerminalVisible(false)}
+                  />
                 </div>
-              </div>
-            </div>
-
-            <div
-              className={`terminal-panel-shell ${isTerminalVisible ? "is-visible" : ""}`}
-              style={{ height: isTerminalVisible ? terminalPanelHeight : 0 }}
-            >
-              <div
-                className="terminal-panel-resize-handle"
-                onMouseDown={handleTerminalResizeStart}
-                role="separator"
-                aria-label="调整终端高度"
-              />
-              <TerminalPanel
-                workspaceRoot={snapshot.projectConfig.rootPath}
-                isVisible={isTerminalVisible}
-                height={terminalPanelHeight}
-                commandRequest={terminalCommandRequest}
-                onHide={() => setIsTerminalVisible(false)}
-              />
-            </div>
+              </>
+            )}
           </div>
         </div>
 

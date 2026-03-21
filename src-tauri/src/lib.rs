@@ -52,7 +52,7 @@ pub fn run() {
             if let Some(workspace_root) = workspace_root.as_ref() {
                 services::skill::discover_skills(
                     &conn,
-                    &[workspace_root.join("skills")],
+                    &services::research::project_skill_roots(workspace_root),
                     "project",
                 )
                 .expect("failed to discover project skills");
@@ -82,6 +82,7 @@ pub fn run() {
             commands::read_asset,
             commands::switch_project,
             commands::create_project,
+            commands::ensure_research_scaffold,
             commands::launch_workspace_window,
             commands::sync_app_menu,
             commands::save_file,
