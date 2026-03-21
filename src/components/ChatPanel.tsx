@@ -669,6 +669,7 @@ function AgentRuntimeSetup({
   activeProfile,
   activeProviderId,
   isStreaming,
+  compact = false,
   onSelectProviderVendor,
   onSelectModel,
 }: {
@@ -676,6 +677,7 @@ function AgentRuntimeSetup({
   activeProfile: AgentProfile | null;
   activeProviderId?: string;
   isStreaming?: boolean;
+  compact?: boolean;
   onSelectProviderVendor: (vendor: AgentVendor) => Promise<void>;
   onSelectModel: (model: string) => Promise<void>;
 }) {
@@ -747,39 +749,41 @@ function AgentRuntimeSetup({
   }, [activeVendor, currentModel]);
 
   return (
-    <div className="ag-runtime-setup" ref={runtimeRef}>
-      <div className="ag-runtime-head">
-        <div>
-          <div className="ag-runtime-inline-label">对话运行时</div>
-          <div className="ag-runtime-inline-sub">
-            进入前可选，进入后也能继续切换模型与思考强度。
+    <div className={`ag-runtime-setup${compact ? " ag-runtime-setup--compact" : ""}`} ref={runtimeRef}>
+      {!compact && (
+        <div className="ag-runtime-head">
+          <div>
+            <div className="ag-runtime-inline-label">对话运行时</div>
+            <div className="ag-runtime-inline-sub">
+              进入前可选，进入后也能继续切换模型与思考强度。
+            </div>
+          </div>
+          <div className="ag-runtime-head-actions">
+            <span
+              className={`ag-runtime-status${hasMissingRuntime ? " is-missing" : ""}`}
+              title={activeStatus?.path || activeBrand.label}
+            >
+              {detectingCli
+                ? "检测中…"
+                : activeStatus?.available
+                  ? activeStatus.version
+                    ? `v${activeStatus.version}`
+                    : "已就绪"
+                  : "未检测到"}
+            </span>
+            {hasMissingRuntime && (
+              <button
+                type="button"
+                className="ag-runtime-refresh"
+                disabled={Boolean(isStreaming)}
+                onClick={() => void loadCliStatus()}
+              >
+                重试
+              </button>
+            )}
           </div>
         </div>
-        <div className="ag-runtime-head-actions">
-          <span
-            className={`ag-runtime-status${hasMissingRuntime ? " is-missing" : ""}`}
-            title={activeStatus?.path || activeBrand.label}
-          >
-            {detectingCli
-              ? "检测中…"
-              : activeStatus?.available
-                ? activeStatus.version
-                  ? `v${activeStatus.version}`
-                  : "已就绪"
-                : "未检测到"}
-          </span>
-          {hasMissingRuntime && (
-            <button
-              type="button"
-              className="ag-runtime-refresh"
-              disabled={Boolean(isStreaming)}
-              onClick={() => void loadCliStatus()}
-            >
-              重试
-            </button>
-          )}
-        </div>
-      </div>
+      )}
 
       <div className="ag-runtime-inline">
         <div className="ag-runtime-vendors" role="tablist" aria-label="选择 Agent 运行时">
@@ -827,8 +831,9 @@ function AgentRuntimeSetup({
             <span className="ag-runtime-model-copy">
               <span className="ag-runtime-model-primary">{currentVariant.label}</span>
               <span className="ag-runtime-model-secondary">
-                {currentVariant.description}
-                {currentVariant.effort ? ` · ${formatEffortLabel(currentVariant.effort)} effort` : ""}
+                {compact
+                  ? `${activeBrand.label}${currentVariant.effort ? ` · ${formatEffortLabel(currentVariant.effort)}` : ""}`
+                  : `${currentVariant.description}${currentVariant.effort ? ` · ${formatEffortLabel(currentVariant.effort)} effort` : ""}`}
               </span>
             </span>
             <span className="ag-runtime-model-caret" aria-hidden="true">▾</span>
@@ -863,6 +868,23 @@ function AgentRuntimeSetup({
             </div>
           )}
         </div>
+
+        {compact && (
+          <div className="ag-runtime-head-actions ag-runtime-head-actions--compact">
+            <span
+              className={`ag-runtime-status${hasMissingRuntime ? " is-missing" : ""}`}
+              title={activeStatus?.path || activeBrand.label}
+            >
+              {detectingCli
+                ? "检测中…"
+                : activeStatus?.available
+                  ? activeStatus.version
+                    ? `v${activeStatus.version}`
+                    : "已就绪"
+                  : "未检测到"}
+            </span>
+          </div>
+        )}
       </div>
 
       {hasMissingRuntime && (
@@ -1255,6 +1277,13 @@ export function ChatPanel({
     onSelectSession(sessionId);
     setIsSessionPickerOpen(false);
   }, [onSelectSession]);
+  const hasConversationContent =
+    messages.length > 0 ||
+    Boolean(activeSessionId) ||
+    Boolean(streamContent) ||
+    Boolean(streamThinkingText) ||
+    Boolean(streamThinkingHistoryText) ||
+    Boolean(streamError);
 
   return (
     <div className="ag-panel">
@@ -1381,9 +1410,20 @@ export function ChatPanel({
         </div>
       )}
 
+      {!hasConversationContent && (
+        <AgentRuntimeSetup
+          providers={providers}
+          activeProfile={activeProfile}
+          activeProviderId={activeProviderId}
+          isStreaming={isStreaming}
+          onSelectProviderVendor={onSelectProviderVendor}
+          onSelectModel={onSelectModel}
+        />
+      )}
+
       {/* Messages scroll area */}
       <div className="ag-messages">
-        {messages.length === 0 && !isStreaming && (
+        {!hasConversationContent && !isStreaming && (
           <div className="ag-empty">
             <div className="ag-empty-glyph">✦</div>
             <div className="ag-empty-title">开始一个新对话</div>
@@ -1421,14 +1461,17 @@ export function ChatPanel({
         <div ref={endRef} />
       </div>
 
-      <AgentRuntimeSetup
-        providers={providers}
-        activeProfile={activeProfile}
-        activeProviderId={activeProviderId}
-        isStreaming={isStreaming}
-        onSelectProviderVendor={onSelectProviderVendor}
-        onSelectModel={onSelectModel}
-      />
+      {hasConversationContent && (
+        <AgentRuntimeSetup
+          providers={providers}
+          activeProfile={activeProfile}
+          activeProviderId={activeProviderId}
+          isStreaming={isStreaming}
+          compact
+          onSelectProviderVendor={onSelectProviderVendor}
+          onSelectModel={onSelectModel}
+        />
+      )}
 
       {/* Input box */}
       <div className="ag-input-wrap">

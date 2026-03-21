@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -360,16 +360,28 @@ export function ResearchCanvas({
     localizedResearch ? defaultResearchSelection(localizedResearch) : null,
   );
   const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
+  const didInitializeRef = useRef(false);
 
   useEffect(() => {
     if (!localizedResearch) {
+      didInitializeRef.current = false;
       setSelectionId(null);
       setNodes([]);
       return;
     }
 
     setSelectionId(defaultResearchSelection(localizedResearch));
-    setNodes(graph.nodes);
+    setNodes((currentNodes) => {
+      const currentPositionById = new Map(currentNodes.map((node) => [node.id, node.position]));
+      if (!didInitializeRef.current) {
+        didInitializeRef.current = true;
+        return graph.nodes;
+      }
+      return graph.nodes.map((node) => ({
+        ...node,
+        position: currentPositionById.get(node.id) ?? node.position,
+      }));
+    });
   }, [graph.nodes, localizedResearch, setNodes]);
 
   if (needsBootstrap) {
@@ -435,7 +447,7 @@ export function ResearchCanvas({
             onNodesChange={onNodesChange}
             onNodeClick={(_event, node) => setSelectionId(node.id)}
             onPaneClick={() => setSelectionId(null)}
-            nodesDraggable={false}
+            nodesDraggable
             nodesConnectable={false}
             fitView
             fitViewOptions={{ padding: 0.16, maxZoom: 1.08 }}

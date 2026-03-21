@@ -26,13 +26,13 @@ const STAGE_ORDER: ResearchStage[] = [
 
 const STAGE_CENTER_X = 760;
 const STAGE_NODE_WIDTH = 300;
-const STAGE_NODE_HEIGHT = 140;
+const STAGE_NODE_HEIGHT = 182;
 const TASK_NODE_WIDTH = 250;
-const TASK_NODE_HEIGHT = 124;
+const TASK_NODE_HEIGHT = 186;
 const TASK_COLUMN_GAP = 56;
-const TASK_ROW_GAP = 74;
-const STAGE_TO_TASK_GAP = 82;
-const STAGE_BLOCK_GAP = 132;
+const TASK_ROW_GAP = 104;
+const STAGE_TO_TASK_GAP = 118;
+const STAGE_BLOCK_GAP = 172;
 const STAGE_TOP = 40;
 
 function stageNodeId(stage: ResearchStage) {

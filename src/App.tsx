@@ -17,7 +17,6 @@ import { ProjectSidebar } from "./components/ProjectSidebar";
 import { Sidebar } from "./components/Sidebar";
 import { SyncSidebar } from "./components/SyncSidebar";
 import { TerminalPanel } from "./components/TerminalPanel";
-import { WelcomeWorkspace } from "./components/WelcomeWorkspace";
 import { WorkspaceMenuBar } from "./components/WorkspaceMenuBar";
 import { CollabLoginModal } from "./components/CollabLoginModal";
 import { CollabProjectModal } from "./components/CollabProjectModal";
@@ -445,6 +444,68 @@ function upsertWorkspaceEntry(entries: WorkspaceEntry[], rootPath: string, max: 
   return [nextEntry, ...entries.filter((entry) => entry.rootPath !== rootPath)].slice(0, max);
 }
 
+function WorkspaceEmptyState({
+  locale,
+  recentWorkspaces,
+  onOpenProject,
+  onCreateProject,
+  onLinkCloudProject,
+  onOpenRecentWorkspace,
+}: {
+  locale: AppLocale;
+  recentWorkspaces: WorkspaceEntry[];
+  onOpenProject: () => void;
+  onCreateProject: () => void;
+  onLinkCloudProject: () => void;
+  onOpenRecentWorkspace: (rootPath: string) => void;
+}) {
+  const isZh = locale === "zh-CN";
+  const visibleRecentWorkspaces = recentWorkspaces.slice(0, 5);
+
+  return (
+    <div className="workspace-empty-state">
+      <div className="workspace-empty-state__eyebrow">{isZh ? "工作区" : "Workspace"}</div>
+      <h2>{isZh ? "打开或创建一个项目" : "Open or create a project"}</h2>
+      <p>{isZh ? "左右两侧现在默认收起，直接从主工作区开始。" : "Both side panes start collapsed so you can enter the main workspace immediately."}</p>
+
+      <div className="workspace-empty-state__actions">
+        <button className="btn-primary workspace-empty-state__btn" type="button" onClick={onOpenProject}>
+          {isZh ? "打开项目" : "Open Project"}
+        </button>
+        <button className="btn-secondary workspace-empty-state__btn" type="button" onClick={onCreateProject}>
+          {isZh ? "创建项目" : "Create Project"}
+        </button>
+        <button className="btn-secondary workspace-empty-state__btn" type="button" onClick={onLinkCloudProject}>
+          {isZh ? "关联云项目" : "Link Cloud Project"}
+        </button>
+      </div>
+
+      <div className="workspace-empty-state__recent">
+        <div className="workspace-empty-state__recent-label">{isZh ? "最近项目" : "Recent Projects"}</div>
+        {visibleRecentWorkspaces.length > 0 ? (
+          <div className="workspace-empty-state__recent-list">
+            {visibleRecentWorkspaces.map((workspace) => (
+              <button
+                key={workspace.rootPath}
+                type="button"
+                className="workspace-empty-state__recent-card"
+                onClick={() => onOpenRecentWorkspace(workspace.rootPath)}
+              >
+                <span className="workspace-empty-state__recent-title">{workspace.label}</span>
+                <span className="workspace-empty-state__recent-path">{workspace.rootPath}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="workspace-empty-state__recent-empty">
+            {isZh ? "暂无最近项目" : "No recent projects yet"}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [bootstrapError, setBootstrapError] = useState("");
@@ -465,7 +526,7 @@ function App() {
     readStoredBoolean(AUTO_SAVE_STORAGE_KEY, false),
   );
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("project");
-  const [isDrawerVisible, setIsDrawerVisible] = useState(true);
+  const [isDrawerVisible, setIsDrawerVisible] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTerminalVisible, setIsTerminalVisible] = useState(false);
   const [terminalPanelHeight, setTerminalPanelHeight] = useState(TERMINAL_PANEL_DEFAULT_HEIGHT);
@@ -473,6 +534,7 @@ function App() {
   const terminalCommandCounterRef = useRef(0);
   const [workspacePaneMode, setWorkspacePaneMode] = useState<WorkspacePaneMode>("files");
   const [previewPaneWidth, setPreviewPaneWidth] = useState(42);
+  const [isPreviewPaneVisible, setIsPreviewPaneVisible] = useState(false);
   const [cursorLine, setCursorLine] = useState(1);
   const [cursorColumn, setCursorColumn] = useState(1);
   const [selectedText, setSelectedText] = useState("");
@@ -856,6 +918,14 @@ function App() {
   const openImageFile = useEffectEvent((path: string) => {
     openImageFileBase(path);
     setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
+  });
+
+  const openPreviewPane = useEffectEvent(() => {
+    setIsPreviewPaneVisible(true);
+  });
+
+  const closePreviewPane = useEffectEvent(() => {
+    setIsPreviewPaneVisible(false);
   });
 
   const closeImageTab = useEffectEvent((path: string) => {
@@ -1253,7 +1323,10 @@ function App() {
       setSelectedText("");
       setLastAutoWritingHandoffKey("");
       setWorkspaceSurface(nextSnapshot.projectConfig.rootPath ? "research" : "writing");
-      setIsDrawerVisible(true);
+      if (!nextSnapshot.projectConfig.rootPath) {
+        setIsDrawerVisible(false);
+        setIsPreviewPaneVisible(false);
+      }
       setIsSettingsOpen(false);
     }
     setSelectedBrief((current) =>
@@ -1468,6 +1541,7 @@ function App() {
 
     await saveOpenFiles(dirtyPaths);
     setPreviewSelection({ kind: "compile" });
+    openPreviewPane();
     await executeCompile(activeFilePath || snapshot.projectConfig.mainTex);
   });
 
@@ -1798,9 +1872,11 @@ function App() {
     if (isPreviewableFileType(fileType)) {
       if (fileType === "pdf" && compilePreviewPath && path === compilePreviewPath) {
         setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
+        openPreviewPane();
         return;
       }
       setPreviewSelection({ kind: "asset", path });
+      openPreviewPane();
       void loadAsset(path);
       return;
     }
@@ -1811,6 +1887,7 @@ function App() {
       title: path.split("/").at(-1) ?? path,
       description: "该研究产物暂时不支持内置预览。",
     });
+    openPreviewPane();
   });
 
   const enableSkillsById = useEffectEvent(async (skillIds: string[]) => {
@@ -1860,6 +1937,7 @@ function App() {
     if (node.isPreviewable) {
       if (node.fileType === "pdf" && compilePreviewPath && node.path === compilePreviewPath) {
         setPreviewSelection((current) => (current.kind === "compile" ? current : { kind: "compile" }));
+        openPreviewPane();
         return;
       }
       if (node.fileType === "image") {
@@ -1867,6 +1945,7 @@ function App() {
         return;
       }
       setPreviewSelection({ kind: "asset", path: node.path });
+      openPreviewPane();
       void loadAsset(node.path);
       return;
     }
@@ -1876,6 +1955,7 @@ function App() {
       title: node.name,
       description: "该文件类型暂时不支持内置预览。",
     });
+    openPreviewPane();
   }
 
   async function handleCreateBrief() {
@@ -3325,6 +3405,9 @@ function App() {
         className={`topbar ${hasProject ? "" : "topbar--welcome"} ${isMacOverlayWindow ? "topbar--overlay" : ""} ${isWindows ? "topbar--windows" : ""}`}
         data-tauri-drag-region={(isMacOverlayWindow || isWindows) ? "true" : undefined}
       >
+        {(isMacOverlayWindow || isWindows) && (
+          <div className="topbar-drag-surface" data-tauri-drag-region="true" aria-hidden="true" />
+        )}
         <div className="topbar-left">
           {!hasProject ? (
             <span className="brand-title brand-title--welcome">
@@ -3881,9 +3964,8 @@ function App() {
                             />
                           )
                         ) : !hasProject ? (
-                          <WelcomeWorkspace
+                          <WorkspaceEmptyState
                             locale={locale}
-                            embedded
                             recentWorkspaces={recentWorkspaces}
                             onOpenProject={() => void handleOpenExistingProject()}
                             onCreateProject={() => void handleCreateNewProject()}
@@ -3902,20 +3984,49 @@ function App() {
                       </div>
                     </div>
 
-                    <div
-                      className="workspace-main-resize-handle"
-                      onMouseDown={handlePreviewResizeStart}
-                      role="separator"
-                      aria-label="调整编辑区和预览区宽度"
-                    />
+                    {isPreviewPaneVisible ? (
+                      <>
+                        <div
+                          className="workspace-main-resize-handle"
+                          onMouseDown={handlePreviewResizeStart}
+                          role="separator"
+                          aria-label="调整编辑区和预览区宽度"
+                        />
 
-                    <div className="preview-area" style={{ flexBasis: `${previewPaneWidth}%`, width: `${previewPaneWidth}%` }}>
-                      {previewState ? (
-                        <PdfPane preview={previewState} />
-                      ) : (
-                        <div className="pdf-placeholder">暂无预览内容</div>
-                      )}
-                    </div>
+                        <div className="preview-area" style={{ flexBasis: `${previewPaneWidth}%`, width: `${previewPaneWidth}%` }}>
+                          <button
+                            type="button"
+                            className="preview-area__collapse-btn"
+                            onClick={() => closePreviewPane()}
+                            aria-label={isZh ? "折叠预览面板" : "Collapse preview pane"}
+                            title={isZh ? "折叠预览面板" : "Collapse preview pane"}
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="m15 18-6-6 6-6" />
+                            </svg>
+                          </button>
+                          {previewState ? (
+                            <PdfPane preview={previewState} />
+                          ) : (
+                            <div className="pdf-placeholder">暂无预览内容</div>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="preview-collapsed-rail">
+                        <button
+                          type="button"
+                          className="preview-collapsed-rail__btn"
+                          onClick={() => openPreviewPane()}
+                          aria-label={isZh ? "展开预览面板" : "Expand preview pane"}
+                          title={isZh ? "展开预览面板" : "Expand preview pane"}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="m9 18 6-6-6-6" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
