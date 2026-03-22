@@ -253,16 +253,30 @@ export function TerminalPanel({ workspaceRoot, isVisible, height, commandRequest
       void desktop.resizeTerminal(sessionIdRef.current, cols, rows);
     });
 
+    let rafId = 0;
+    const scheduleFit = () => {
+      if (rafId) {
+        return;
+      }
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0;
+        fitTerminal();
+      });
+    };
+
     const observer = new ResizeObserver(() => {
-      fitTerminal();
+      scheduleFit();
     });
     observer.observe(host);
 
     queueMicrotask(() => {
-      fitTerminal();
+      scheduleFit();
     });
 
     return () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
       observer.disconnect();
       inputDisposable.dispose();
       resizeDisposable.dispose();

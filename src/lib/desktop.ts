@@ -326,8 +326,12 @@ export const desktop = {
     );
   },
   applyResearchTaskSuggestion(request: ApplyResearchTaskSuggestionRequest) {
+    const fallbackTaskId = request.taskId
+      ?? request.operations?.find((operation) => "taskId" in operation)?.taskId
+      ?? request.operations?.find((operation) => operation.type === "add")?.task.id
+      ?? "__viewerleaf_task_plan__";
     const normalizedRequest = {
-      taskId: request.taskId ?? null,
+      taskId: fallbackTaskId,
       changes: request.changes ?? null,
       operations: request.operations ?? null,
       workingMemory: request.workingMemory ?? null,

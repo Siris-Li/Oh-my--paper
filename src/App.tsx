@@ -418,6 +418,14 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function isIgnorableRuntimeIssue(error: unknown) {
+  const message = stringifyRuntimeIssue(error);
+  return (
+    message.includes("ResizeObserver loop completed with undelivered notifications") ||
+    message.includes("ResizeObserver loop limit exceeded")
+  );
+}
+
 function stringifyRuntimeIssue(error: unknown) {
   if (error instanceof Error) {
     return error.stack || error.message || String(error);
@@ -1797,10 +1805,21 @@ function App() {
     const bounds = container.getBoundingClientRect();
     const activityBarWidth = activityBarShellRef.current?.getBoundingClientRect().width ?? 0;
     const maxWidth = Math.min(DRAWER_MAX_WIDTH, Math.max(DRAWER_MIN_WIDTH, bounds.width - activityBarWidth - 360));
+    let rafId: number | null = null;
+    let pendingWidth: number | null = null;
 
     const updateWidth = (clientX: number) => {
       const nextWidth = clientX - bounds.left - activityBarWidth;
-      setDrawerWidth(clampNumber(nextWidth, DRAWER_MIN_WIDTH, maxWidth));
+      pendingWidth = clampNumber(nextWidth, DRAWER_MIN_WIDTH, maxWidth);
+      if (rafId !== null) {
+        return;
+      }
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        if (pendingWidth !== null) {
+          setDrawerWidth(pendingWidth);
+        }
+      });
     };
 
     updateWidth(event.clientX);
@@ -1813,6 +1832,13 @@ function App() {
     const handlePointerUp = () => {
       window.removeEventListener("mousemove", handlePointerMove);
       window.removeEventListener("mouseup", handlePointerUp);
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      if (pendingWidth !== null) {
+        setDrawerWidth(pendingWidth);
+      }
     };
 
     window.addEventListener("mousemove", handlePointerMove);
@@ -1914,6 +1940,11 @@ function App() {
 
   useEffect(() => {
     function handleError(event: ErrorEvent) {
+      if (isIgnorableRuntimeIssue(event.error ?? event.message)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       const detail = event.error?.stack || event.message || "Unknown window error";
       appendRuntimeLog("error", detail);
       setRuntimeNotice({
@@ -1924,6 +1955,11 @@ function App() {
     }
 
     function handleUnhandledRejection(event: PromiseRejectionEvent) {
+      if (isIgnorableRuntimeIssue(event.reason)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       const reason = stringifyRuntimeIssue(event.reason);
       appendRuntimeLog("promise", reason);
       setRuntimeNotice({

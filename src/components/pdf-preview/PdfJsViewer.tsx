@@ -301,11 +301,17 @@ function PdfJsViewerInner({
     }
 
     let timeoutId = 0;
+    let rafId = 0;
     const resizeListener = () => {
       window.clearTimeout(timeoutId);
-      timeoutId = window.setTimeout(() => {
-        pdfJsWrapper.updateOnResize();
-      }, 120);
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+      rafId = window.requestAnimationFrame(() => {
+        timeoutId = window.setTimeout(() => {
+          pdfJsWrapper.updateOnResize();
+        }, 80);
+      });
     };
 
     const resizeObserver = new ResizeObserver(resizeListener);
@@ -314,6 +320,9 @@ function PdfJsViewerInner({
 
     return () => {
       window.clearTimeout(timeoutId);
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
       resizeObserver.disconnect();
       window.removeEventListener("resize", resizeListener);
     };
