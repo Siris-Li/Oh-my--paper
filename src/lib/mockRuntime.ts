@@ -378,8 +378,8 @@ function buildMockResearch(): ResearchCanvasSnapshot {
     ?? researchTasks.find((task) => task.status === "pending")
     ?? null;
   const currentStage = (nextTask?.stage
-    ?? RESEARCH_STAGE_ORDER.find((stage) => !initializedResearchStages.includes(stage))
-    ?? researchBrief.pipeline.currentStage) as ResearchStage;
+    ?? researchBrief.pipeline.currentStage
+    ?? RESEARCH_STAGE_ORDER.find((stage) => !initializedResearchStages.includes(stage))) as ResearchStage;
 
   const stageSummaries: ResearchStageSummary[] = RESEARCH_STAGE_ORDER.map((stage) => {
     const stageTasks = researchTasks.filter((task) => task.stage === stage);
@@ -945,13 +945,7 @@ function nextMockTaskId(stage: ResearchStage) {
 }
 
 function normalizeSuggestionOperations(request: ApplyResearchTaskSuggestionRequest): ResearchTaskPlanOperation[] {
-  if (request.operations?.length) {
-    return request.operations;
-  }
-  if (request.taskId && request.changes) {
-    return [{ type: "update", taskId: request.taskId, changes: request.changes }];
-  }
-  return [];
+  return request.operations ?? [];
 }
 
 function sortMockResearchTasks() {
@@ -995,10 +989,14 @@ export const mockRuntime = {
     return this.openProject();
   },
 
-  async ensureResearchScaffold(_startStage?: string): Promise<WorkspaceSnapshot> {
+  async ensureResearchScaffold(startStage?: string): Promise<WorkspaceSnapshot> {
+    const normalizedStage = (startStage && RESEARCH_STAGE_ORDER.includes(startStage as ResearchStage)
+      ? startStage
+      : "survey") as ResearchStage;
     researchTasks.splice(0, researchTasks.length);
     initializedResearchStages.splice(0, initializedResearchStages.length);
-    researchBrief.pipeline.currentStage = "survey";
+    researchBrief.pipeline.startStage = normalizedStage;
+    researchBrief.pipeline.currentStage = normalizedStage;
     return this.openProject();
   },
 

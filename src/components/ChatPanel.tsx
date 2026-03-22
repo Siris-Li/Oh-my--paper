@@ -25,6 +25,7 @@ import type {
   ProjectNode,
   ProviderConfig,
   ResearchTaskDraft,
+  ResearchTaskUpdateChanges,
   SkillManifest,
   TaskUpdateSuggestion,
   UsageRecord,
@@ -425,7 +426,7 @@ function parseStreamBlocks(raw: string): StreamBlock {
 }
 
 const TASK_UPDATE_BLOCK_RE = /```viewerleaf_task_update\s*([\s\S]*?)```/gi;
-type SuggestionOperation = NonNullable<TaskUpdateSuggestion["operations"]>[number];
+type SuggestionOperation = TaskUpdateSuggestion["operations"][number];
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
@@ -460,7 +461,7 @@ function sanitizeTaskDraft(value: unknown) {
   } satisfies NonNullable<NonNullable<TaskUpdateSuggestion["operations"]>[number] & { type: "add" }>["task"];
 }
 
-function sanitizeTaskPlanOperations(value: unknown): NonNullable<TaskUpdateSuggestion["operations"]> {
+function sanitizeTaskPlanOperations(value: unknown): TaskUpdateSuggestion["operations"] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -473,11 +474,7 @@ function sanitizeTaskPlanOperations(value: unknown): NonNullable<TaskUpdateSugge
     const type = typeof record.type === "string" ? record.type.trim() : "";
     if (type === "update") {
       const taskId = typeof record.taskId === "string" ? record.taskId.trim() : "";
-      const changes = sanitizeTaskUpdateSuggestion({
-        taskId,
-        reason: "operation",
-        changes: record.changes,
-      })?.changes;
+      const changes = sanitizeTaskUpdateChanges(record.changes);
       if (taskId && changes) {
         operations.push({ type: "update", taskId, changes });
       }
@@ -505,22 +502,12 @@ function sanitizeTaskPlanOperations(value: unknown): NonNullable<TaskUpdateSugge
   }, []);
 }
 
-function sanitizeTaskUpdateSuggestion(value: unknown): TaskUpdateSuggestion | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const record = value as Record<string, unknown>;
-  const reason = typeof record.reason === "string" ? record.reason.trim() : "";
-  const taskId = typeof record.taskId === "string" ? record.taskId.trim() : "";
-  const changes = record.changes && typeof record.changes === "object"
-    ? (record.changes as Record<string, unknown>)
+function sanitizeTaskUpdateChanges(value: unknown): ResearchTaskUpdateChanges | null {
+  const changes = value && typeof value === "object"
+    ? (value as Record<string, unknown>)
     : null;
-  const operations = sanitizeTaskPlanOperations(record.operations);
-  if (!reason || (!taskId || !changes) && operations.length === 0) {
-    return null;
-  }
 
-  const nextChanges: TaskUpdateSuggestion["changes"] = {};
+  const nextChanges: ResearchTaskUpdateChanges = {};
   if (typeof changes?.title === "string" && changes.title.trim()) nextChanges.title = changes.title.trim();
   if (typeof changes?.status === "string" && changes.status.trim()) nextChanges.status = changes.status.trim();
   if (typeof changes?.stage === "string" && changes.stage.trim()) nextChanges.stage = changes.stage.trim() as ResearchTaskDraft["stage"];
@@ -536,16 +523,39 @@ function sanitizeTaskUpdateSuggestion(value: unknown): TaskUpdateSuggestion | nu
   if (typeof changes?.taskPrompt === "string" && changes.taskPrompt.trim()) nextChanges.taskPrompt = changes.taskPrompt.trim();
   if (typeof changes?.agentEntryLabel === "string" && changes.agentEntryLabel.trim()) nextChanges.agentEntryLabel = changes.agentEntryLabel.trim();
 
-  if (Object.keys(nextChanges).length === 0 && operations.length === 0) {
+  return Object.keys(nextChanges).length > 0 ? nextChanges : null;
+}
+
+function sanitizeTaskUpdateSuggestion(value: unknown): TaskUpdateSuggestion | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const reason = typeof record.reason === "string" ? record.reason.trim() : "";
+  const taskId = typeof record.taskId === "string" ? record.taskId.trim() : "";
+  const changes = sanitizeTaskUpdateChanges(record.changes);
+  const operations = sanitizeTaskPlanOperations(record.operations);
+  if (!reason) {
+    return null;
+  }
+
+  const legacyUpdateOperation: SuggestionOperation | null = taskId && changes
+    ? { type: "update", taskId, changes }
+    : null;
+  const normalizedOperations = operations.length > 0
+    ? operations
+    : legacyUpdateOperation
+      ? [legacyUpdateOperation]
+      : [];
+
+  if (normalizedOperations.length === 0) {
     return null;
   }
 
   return {
-    taskId: taskId || undefined,
     reason,
     confidence: typeof record.confidence === "number" ? record.confidence : undefined,
-    changes: Object.keys(nextChanges).length > 0 ? nextChanges : undefined,
-    operations: operations.length > 0 ? operations : undefined,
+    operations: normalizedOperations,
     workingMemory: typeof record.workingMemory === "string" && record.workingMemory.trim()
       ? record.workingMemory.trim()
       : undefined,
@@ -913,12 +923,8 @@ function TaskSuggestionCard({
 }) {
   const [isApplying, setIsApplying] = useState(false);
   const [applyError, setApplyError] = useState("");
-  const operations: SuggestionOperation[] = suggestion.operations?.length
-    ? suggestion.operations
-    : suggestion.taskId && suggestion.changes
-      ? [{ type: "update", taskId: suggestion.taskId, changes: suggestion.changes }]
-      : [];
-  const changeLabels: Array<[keyof NonNullable<TaskUpdateSuggestion["changes"]>, string]> = [
+  const operations: SuggestionOperation[] = suggestion.operations;
+  const changeLabels: Array<[keyof ResearchTaskUpdateChanges, string]> = [
     ["title", "标题"],
     ["status", "状态"],
     ["stage", "阶段"],
@@ -940,7 +946,7 @@ function TaskSuggestionCard({
     ? changeLabels.filter(([key]) => updateOperation.changes[key] !== undefined)
     : [];
   const firstOperation = operations[0];
-  let title = suggestion.taskId ?? "计划调整";
+  let title = "计划调整";
   if (updateOperation?.type === "update") {
     title = activeTask?.taskId === updateOperation.taskId ? activeTask.title : updateOperation.taskId;
   } else if (firstOperation?.type === "add") {
@@ -1571,7 +1577,7 @@ export function ChatPanel({
       if (!suggestion) {
         return false;
       }
-      const key = `${message.sessionId}:${message.id}:${suggestion.taskId}`;
+      const key = `${message.sessionId}:${message.id}`;
       return !dismissedSuggestionKeys.includes(key);
     });
     if (!candidate) {
@@ -1582,7 +1588,7 @@ export function ChatPanel({
       return null;
     }
     return {
-      key: `${candidate.sessionId}:${candidate.id}:${suggestion.taskId}`,
+      key: `${candidate.sessionId}:${candidate.id}`,
       suggestion,
     };
   }, [dismissedSuggestionKeys, messages]);

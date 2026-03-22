@@ -326,20 +326,10 @@ export const desktop = {
     );
   },
   applyResearchTaskSuggestion(request: ApplyResearchTaskSuggestionRequest) {
-    const fallbackTaskId = request.taskId
-      ?? request.operations?.find((operation) => "taskId" in operation)?.taskId
-      ?? request.operations?.find((operation) => operation.type === "add")?.task.id
-      ?? "__viewerleaf_task_plan__";
-    const normalizedRequest = {
-      taskId: fallbackTaskId,
-      changes: request.changes ?? null,
-      operations: request.operations ?? null,
-      workingMemory: request.workingMemory ?? null,
-    } satisfies ApplyResearchTaskSuggestionRequest;
     return runOrMock<WorkspaceSnapshot>(
       "apply_research_task_suggestion",
-      { request: normalizedRequest },
-      () => mockRuntime.applyResearchTaskSuggestion(normalizedRequest),
+      { request },
+      () => mockRuntime.applyResearchTaskSuggestion(request),
     );
   },
   applyAgentPatch(filePath: string, content: string) {

@@ -604,11 +604,7 @@ pub enum ResearchTaskPlanOperation {
 #[serde(rename_all = "camelCase")]
 pub struct ApplyResearchTaskSuggestionRequest {
     #[serde(default)]
-    pub task_id: Option<String>,
-    #[serde(default)]
-    pub changes: Option<ResearchTaskUpdateChanges>,
-    #[serde(default)]
-    pub operations: Option<Vec<ResearchTaskPlanOperation>>,
+    pub operations: Vec<ResearchTaskPlanOperation>,
     #[serde(default)]
     pub working_memory: Option<String>,
 }
@@ -747,8 +743,6 @@ mod tests {
     #[test]
     fn apply_task_suggestion_request_accepts_operation_only_payloads() {
         let payload = serde_json::json!({
-            "taskId": null,
-            "changes": null,
             "operations": [
                 {
                     "type": "add",
@@ -765,10 +759,8 @@ mod tests {
         let request: ApplyResearchTaskSuggestionRequest =
             serde_json::from_value(payload).expect("request should deserialize");
 
-        assert!(request.task_id.is_none());
-        assert!(request.changes.is_none());
         assert!(request.working_memory.is_none());
-        let operations = request.operations.expect("operations should be present");
+        let operations = request.operations;
         assert_eq!(operations.len(), 1);
         match &operations[0] {
             ResearchTaskPlanOperation::Add {

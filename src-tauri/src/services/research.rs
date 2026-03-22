@@ -1336,18 +1336,18 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
         .as_ref()
         .map(|task| task.stage.clone())
         .or_else(|| {
-            STAGE_ORDER
-                .iter()
-                .find(|stage| !initialized_stages.iter().any(|value| value == *stage))
-                .map(|stage| (*stage).to_string())
-        })
-        .or_else(|| {
             brief
                 .as_ref()
                 .and_then(|(_, meta)| meta.pipeline.as_ref())
                 .and_then(|pipeline| pipeline.current_stage.as_deref())
                 .map(Some)
                 .map(normalize_stage)
+        })
+        .or_else(|| {
+            STAGE_ORDER
+                .iter()
+                .find(|stage| !initialized_stages.iter().any(|value| value == *stage))
+                .map(|stage| (*stage).to_string())
         })
         .unwrap_or_else(|| start_stage.clone());
 
@@ -1462,22 +1462,7 @@ pub fn apply_task_suggestion(
     let tasks_path = pipeline_root(root).join("tasks").join("tasks.json");
     let brief_path = pipeline_root(root).join("docs").join("research_brief.json");
     let mut tasks = read_tasks(&tasks_path);
-    let operations = if let Some(operations) = request
-        .operations
-        .as_ref()
-        .filter(|items| !items.is_empty())
-    {
-        operations.clone()
-    } else if let (Some(task_id), Some(changes)) =
-        (request.task_id.as_ref(), request.changes.as_ref())
-    {
-        vec![ResearchTaskPlanOperation::Update {
-            task_id: task_id.clone(),
-            changes: changes.clone(),
-        }]
-    } else {
-        Vec::new()
-    };
+    let operations = request.operations.clone();
 
     if operations.is_empty() {
         bail!("no task operations provided");
@@ -1637,9 +1622,7 @@ mod tests {
         apply_task_suggestion(
             &root,
             &ApplyResearchTaskSuggestionRequest {
-                task_id: None,
-                changes: None,
-                operations: Some(vec![ResearchTaskPlanOperation::Add {
+                operations: vec![ResearchTaskPlanOperation::Add {
                     task: ResearchTaskDraft {
                         title: "Check venue scope".into(),
                         stage: "survey".into(),
@@ -1652,7 +1635,7 @@ mod tests {
                         ..ResearchTaskDraft::default()
                     },
                     after_task_id: None,
-                }]),
+                }],
                 working_memory: None,
             },
         )
@@ -1677,11 +1660,9 @@ mod tests {
         apply_task_suggestion(
             &root,
             &ApplyResearchTaskSuggestionRequest {
-                task_id: None,
-                changes: None,
-                operations: Some(vec![ResearchTaskPlanOperation::Remove {
+                operations: vec![ResearchTaskPlanOperation::Remove {
                     task_id: "survey-2".into(),
-                }]),
+                }],
                 working_memory: None,
             },
         )

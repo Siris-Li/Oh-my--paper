@@ -2171,9 +2171,7 @@ function App() {
     try {
       const nextSnapshot = await loadSnapshotWithCollab(() =>
         desktop.applyResearchTaskSuggestion({
-          taskId: suggestion.taskId ?? null,
-          changes: suggestion.changes ?? null,
-          operations: suggestion.operations ?? null,
+          operations: suggestion.operations,
           workingMemory: suggestion.workingMemory ?? null,
         }),
       );
@@ -2195,8 +2193,6 @@ function App() {
     try {
       const nextSnapshot = await loadSnapshotWithCollab(() =>
         desktop.applyResearchTaskSuggestion({
-          taskId: null,
-          changes: null,
           operations: [{ type: "add", task: draft }],
           workingMemory: null,
         }),
