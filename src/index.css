@@ -7824,10 +7824,20 @@ div.ve-tok-math-rendered .katex { font-size: 1.15em; }
   background: var(--bg-surface);
   color: var(--text-primary);
   text-align: left;
+  overflow: hidden;
+  min-width: 0;
 }
 
 .research-artifact-list button:hover {
   background: var(--bg-surface-hover);
+}
+
+.research-artifact-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  font-size: 13px;
 }
 
 .research-handoff-banner {

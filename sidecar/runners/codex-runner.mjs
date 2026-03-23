@@ -51,7 +51,7 @@ function mapReasoningEffort(reasoningEffort) {
     case "max":
       return "xhigh";
     default:
-      return undefined;
+      return "medium"; // fallback — avoid letting the model use max reasoning
   }
 }
 
@@ -61,13 +61,25 @@ function mapReasoningEffort(reasoningEffort) {
  */
 function transformCodexEvent(event) {
   switch (event.type) {
+    // ── Thread lifecycle ──────────────────────────────────────
+    case "thread.started": {
+      // Capture the thread ID for session persistence / resume
+      return { type: "_thread_id", threadId: event.thread_id || "" };
+    }
+
     case "item.started":
     case "item.completed": {
       const item = event.item;
       if (!item) return null;
+      // Every Codex SDK item carries a unique `id` — use it as toolUseId
+      // so the frontend can pair start → result on a single card.
+      const itemId = item.id || "";
 
       switch (item.type) {
         case "agent_message": {
+          // Only emit on item.completed to avoid partial/raw content
+          // (e.g. grep output) leaking into the stream mid-turn.
+          if (event.type === "item.started") return null;
           const text = item.text || "";
           if (!text.trim()) return null;
           return { type: "text_delta", content: text };
@@ -91,6 +103,7 @@ function transformCodexEvent(event) {
             return {
               type: "tool_call_start",
               toolId: "bash",
+              toolUseId: itemId,
               args: { command },
             };
           }
@@ -104,6 +117,7 @@ function transformCodexEvent(event) {
           return {
             type: "tool_call_result",
             toolId: "bash",
+            toolUseId: itemId,
             output: output.length > 4000 ? output.slice(0, 4000) + "\n[truncated]" : output,
             status,
           };
@@ -113,27 +127,40 @@ function transformCodexEvent(event) {
           if (event.type === "item.started") {
             const changes = item.changes || [];
             const summary = changes
-              .map((c) => `${c.type || "modify"}: ${c.file || "unknown"}`)
+              .map((c) => `${c.kind || c.type || "modify"}: ${c.path || c.file || "unknown"}`)
               .join(", ");
             return {
               type: "tool_call_start",
               toolId: "file_change",
+              toolUseId: itemId,
               args: { changes: summary },
             };
           }
           return {
             type: "tool_call_result",
             toolId: "file_change",
+            toolUseId: itemId,
             output: "file changes applied",
             status: "completed",
           };
         }
 
         case "web_search": {
+          if (event.type === "item.started") {
+            return {
+              type: "tool_call_start",
+              toolId: "web_search",
+              toolUseId: itemId,
+              args: { query: item.query || "" },
+            };
+          }
+          // item.completed — close the card
           return {
-            type: "tool_call_start",
+            type: "tool_call_result",
             toolId: "web_search",
-            args: { query: item.query || "" },
+            toolUseId: itemId,
+            output: "search completed",
+            status: "completed",
           };
         }
 
@@ -143,6 +170,7 @@ function transformCodexEvent(event) {
             return {
               type: "tool_call_start",
               toolId,
+              toolUseId: itemId,
               args: item.arguments ?? {},
             };
           }
@@ -154,8 +182,23 @@ function transformCodexEvent(event) {
           return {
             type: "tool_call_result",
             toolId,
+            toolUseId: itemId,
             output,
             status,
+          };
+        }
+
+        case "todo_list": {
+          // Display agent's to-do list as a status update
+          const todoItems = item.items || [];
+          if (todoItems.length === 0) return null;
+          const todoSummary = todoItems
+            .map((t) => `${t.completed ? "✅" : "⬜"} ${t.text}`)
+            .join("\n");
+          return {
+            type: "status_update",
+            status: "todo",
+            message: todoSummary,
           };
         }
 
@@ -170,9 +213,34 @@ function transformCodexEvent(event) {
       }
     }
 
-    case "item.updated":
-      // Skip streaming noise
+    // ── Streaming item updates (intermediate progress) ────────
+    case "item.updated": {
+      const item = event.item;
+      if (!item) return null;
+      // Emit tool_progress for in-progress commands so UI shows activity
+      if (item.type === "command_execution" && item.status === "in_progress") {
+        return {
+          type: "tool_progress",
+          toolUseId: item.id || "",
+          toolName: "bash",
+          elapsedSeconds: 0,
+        };
+      }
+      // Updated todo list — refresh the status
+      if (item.type === "todo_list") {
+        const todoItems = item.items || [];
+        if (todoItems.length === 0) return null;
+        const todoSummary = todoItems
+          .map((t) => `${t.completed ? "✅" : "⬜"} ${t.text}`)
+          .join("\n");
+        return {
+          type: "status_update",
+          status: "todo",
+          message: todoSummary,
+        };
+      }
       return null;
+    }
 
     case "turn.started":
       return null;
@@ -245,6 +313,7 @@ export async function runCodex(request) {
 
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
+  let capturedThreadId = null;
 
   const abortController = new AbortController();
 
@@ -299,6 +368,12 @@ export async function runCodex(request) {
         continue;
       }
 
+      // Internal thread ID event — capture for session persistence
+      if (transformed.type === "_thread_id") {
+        capturedThreadId = transformed.threadId || null;
+        continue;
+      }
+
       emit(transformed);
     }
   } catch (error) {
@@ -323,5 +398,6 @@ export async function runCodex(request) {
       outputTokens: totalOutputTokens,
       model: model || "codex",
     },
+    remoteSessionId: capturedThreadId,
   });
 }

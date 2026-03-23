@@ -302,8 +302,8 @@ function TaskInspector({
           <div className="research-inspector__label">{isZh ? "产物" : "Artifacts"}</div>
           <div className="research-artifact-list">
             {task.artifactPaths.map((path) => (
-              <button key={path} type="button" onClick={() => onOpenArtifact(path)}>
-                {path}
+              <button key={path} type="button" onClick={() => onOpenArtifact(path)} title={path}>
+                <span className="research-artifact-name">{path.split("/").pop() || path}</span>
               </button>
             ))}
           </div>
@@ -401,8 +401,8 @@ function StageInspector({
           <div className="research-inspector__label">{isZh ? "产物" : "Artifacts"}</div>
           <div className="research-artifact-list">
             {stage.artifactPaths.map((path) => (
-              <button key={path} type="button" onClick={() => onOpenArtifact(path)}>
-                {path}
+              <button key={path} type="button" onClick={() => onOpenArtifact(path)} title={path}>
+                <span className="research-artifact-name">{path.split("/").pop() || path}</span>
               </button>
             ))}
           </div>
