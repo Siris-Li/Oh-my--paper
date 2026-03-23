@@ -2132,7 +2132,7 @@ export function ChatPanel({
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           onCompositionStart={() => { isComposingRef.current = true; }}
-          onCompositionEnd={() => { isComposingRef.current = false; }}
+          onCompositionEnd={() => { setTimeout(() => { isComposingRef.current = false; }, 0); }}
           placeholder={
             isStreaming
               ? "AI 正在回复…"

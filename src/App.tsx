@@ -1222,6 +1222,7 @@ function App() {
     handleSelectSession: selectSessionBase,
     handleApplyPatch: applyPatchBase,
     handleDismissPatch,
+    handleCancelAgent,
     handleRespondElicitation,
     resetForSnapshot: resetAgentChatForSnapshot,
   } = agentChat;
@@ -4224,6 +4225,7 @@ function App() {
                       isStreaming={isStreaming}
                       onSendMessage={handleSendMessage}
                       onDismissPatch={handleDismissPatch}
+                      onCancelAgent={handleCancelAgent}
                       activeResearchTask={activeLocalizedTaskContext}
                       composerPreset={taskComposerPreset}
                       onExitResearchTaskMode={handleExitResearchTaskMode}
