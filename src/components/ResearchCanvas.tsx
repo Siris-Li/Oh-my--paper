@@ -1,24 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Background,
-  Controls,
-  Handle,
-  Position,
-  ReactFlow,
-  useNodesState,
-  type NodeProps,
-  type NodeTypes,
-} from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
-  buildResearchCanvasGraph,
+  flattenTasksForTree,
   defaultResearchSelection,
   selectionToEntity,
-  type ResearchStageContainerNode,
-  type ResearchTaskNode,
 } from "../lib/researchCanvasGraph";
-import { desktop } from "../lib/desktop";
+
 import { localizeResearchSnapshot } from "../lib/researchLocale";
 import type {
   AppLocale,
@@ -45,6 +32,8 @@ interface ResearchCanvasProps {
   onOpenLiteratureForTask: (taskId: string) => void;
   onOpenWriting: () => void;
 }
+
+/* ─── Helpers ─── */
 
 function formatTaskStatus(task: ResearchTask, isZh: boolean) {
   if (!isZh) {
@@ -74,18 +63,6 @@ function formatPriority(task: ResearchTask, isZh: boolean) {
 interface ResearchTaskExecutionState {
   executableTaskIds: Set<string>;
   blockedTaskIds: Set<string>;
-}
-
-interface TaskComposerState {
-  stage: ResearchStage;
-  title: string;
-  description: string;
-  priority: string;
-  taskType: string;
-  dependencies: string[];
-  inputsNeeded: string;
-  suggestedSkills: string;
-  nextActionPrompt: string;
 }
 
 function resolveResearchTaskExecutionState(research: ResearchCanvasSnapshot): ResearchTaskExecutionState {
@@ -126,6 +103,18 @@ function splitComposerList(value: string) {
     .filter(Boolean);
 }
 
+interface TaskComposerState {
+  stage: ResearchStage;
+  title: string;
+  description: string;
+  priority: string;
+  taskType: string;
+  dependencies: string[];
+  inputsNeeded: string;
+  suggestedSkills: string;
+  nextActionPrompt: string;
+}
+
 function createTaskComposerState(stage: ResearchStage, dependencies: string[] = [], suggestedSkills: string[] = []): TaskComposerState {
   return {
     stage,
@@ -140,233 +129,7 @@ function createTaskComposerState(stage: ResearchStage, dependencies: string[] = 
   };
 }
 
-/* ── Stage Container Node ── */
-function StageContainerNode({ data, selected }: NodeProps<ResearchStageContainerNode>) {
-  const stage = data.stage;
-  const isCollapsed = data.isCollapsed;
-  const completion = stage.totalTasks > 0 ? Math.round((stage.doneTasks / stage.totalTasks) * 100) : 0;
-  const isZh = /[\u4e00-\u9fff]/.test(stage.label);
-
-  return (
-    <div
-      className={`research-stage-container is-${stage.status}${selected ? " is-selected" : ""}${isCollapsed ? " is-collapsed" : ""}`}
-      style={{ width: data.containerWidth, height: data.containerHeight }}
-    >
-      <Handle
-        id="stage-flow-in"
-        type="target"
-        position={Position.Top}
-        className="research-node-handle research-node-handle--stage-flow-in"
-      />
-      <Handle
-        id="stage-task-entry"
-        type="source"
-        position={Position.Top}
-        className="research-node-handle research-node-handle--stage-task-entry"
-      />
-
-      <div className="research-stage-container__header">
-        <div className="research-stage-container__stripe" />
-        <div className="research-stage-container__info">
-          <div className="research-stage-container__eyebrow">{stage.label}</div>
-          <div className="research-stage-container__desc">{stage.description}</div>
-        </div>
-        <div className="research-stage-container__right">
-          <div className="research-stage-container__progress">
-            <span className="research-stage-container__pct">{completion}%</span>
-            <div className="research-stage-container__progress-bar">
-              <div className="research-stage-container__progress-fill" style={{ width: `${completion}%` }} />
-            </div>
-          </div>
-          <div className="research-stage-container__stats">
-            <span>{stage.doneTasks}/{stage.totalTasks || 0}</span>
-            <span>{stage.taskCounts.inProgress} {isZh ? "进行中" : "active"}</span>
-            <span>{stage.artifactCount} {isZh ? "产物" : "assets"}</span>
-          </div>
-          {stage.canInitialize ? (
-            <button
-              type="button"
-              className="research-task-node__agent-btn"
-              onClick={(event) => {
-                event.stopPropagation();
-                void data.onInitializeStage?.(stage.stage as ResearchStage);
-              }}
-            >
-              {isZh ? "开始本阶段" : "Start Stage"}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="research-stage-container__add"
-            onClick={(event) => {
-              event.stopPropagation();
-              data.onAddTask?.({
-                stage: stage.stage as ResearchStage,
-                title: "",
-                suggestedSkills: stage.suggestedSkills,
-              });
-            }}
-          >
-            {isZh ? "添加任务" : "Add Task"}
-          </button>
-          <button
-            type="button"
-            className="research-stage-container__toggle"
-            onClick={(event) => {
-              event.stopPropagation();
-              data.onToggleCollapse?.(stage.stage as ResearchStage);
-            }}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              style={{ transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.2s ease" }}
-            >
-              <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {stage.suggestedSkills.length > 0 && !isCollapsed ? (
-        <div className="research-stage-container__chips">
-          {stage.suggestedSkills.slice(0, 2).map((skill) => (
-            <span key={skill} className="research-node-chip">{skill}</span>
-          ))}
-        </div>
-      ) : null}
-
-      <Handle
-        id="stage-flow-out"
-        type="source"
-        position={Position.Bottom}
-        className="research-node-handle research-node-handle--stage-flow-out"
-      />
-    </div>
-  );
-}
-
-/* ── Task Node (preserved from original) ── */
-function TaskNode({ data, selected }: NodeProps<ResearchTaskNode>) {
-  const task = data.task;
-  const isZh = /[\u4e00-\u9fff]/.test(task.title);
-  const isExecutable = Boolean(data.isExecutableTask);
-  const isBlocked = Boolean(data.isBlockedTask);
-  const statusIcon =
-    task.status === "done"
-      ? "check"
-      : task.status === "in-progress" || task.status === "review"
-        ? "pulse"
-        : isBlocked
-          ? "lock"
-          : "pending";
-  return (
-    <div
-      className={
-        `research-task-node is-${task.status}${selected ? " is-selected" : ""}${data.isCurrentTask ? " is-current-task" : ""}${isExecutable ? " is-executable" : ""}${isBlocked ? " is-blocked" : ""}`
-      }
-    >
-      <Handle id="task-flow-in" type="target" position={Position.Top} className="research-node-handle" />
-      <div className="research-task-node__stripe" />
-      <div className="research-task-node__header">
-        <span className={`research-task-node__status is-${statusIcon}`}>
-          <span className={`research-task-node__status-dot is-${statusIcon}`} />
-          {formatTaskStatus(task, isZh)}
-        </span>
-        <span className="research-task-node__priority">{formatPriority(task, isZh)}</span>
-      </div>
-      <div className="research-task-node__title">{task.title}</div>
-      <div className="research-task-node__body">{task.description}</div>
-      <div className="research-task-node__meta">
-        <span>{task.inputsNeeded.length} {isZh ? "输入" : "inputs"}</span>
-        <span>{task.artifactPaths.length} {isZh ? "产物" : "artifacts"}</span>
-        {(data.literatureCount ?? 0) > 0 && (
-          <span
-            className="research-task-node__lit-count"
-            onClick={(event) => {
-              event.stopPropagation();
-              data.onNavigateToLiterature?.(task.id);
-            }}
-            title={isZh ? "查看关联文献" : "View linked literature"}
-          >
-            📚 {data.literatureCount}
-          </span>
-        )}
-        <span>{isExecutable ? (isZh ? "可执行" : "ready") : isBlocked ? (isZh ? "阻塞" : "blocked") : (isZh ? "等待中" : "waiting")}</span>
-      </div>
-      <div className="research-task-node__actions">
-        <button
-          type="button"
-          className="research-task-node__agent-btn"
-          onClick={(event) => {
-            event.stopPropagation();
-            void data.onEnterTask?.(task);
-          }}
-          disabled={!isExecutable}
-        >
-          {isExecutable ? (task.agentEntryLabel || (isZh ? "进入 Agent" : "Enter Agent")) : (isZh ? "等待前置任务" : "Waiting on dependencies")}
-        </button>
-      </div>
-      {task.suggestedSkills.length > 0 ? (
-        <div className="research-node-chips">
-          {task.suggestedSkills.slice(0, 2).map((skill) => (
-            <span key={skill} className="research-node-chip">{skill}</span>
-          ))}
-        </div>
-      ) : null}
-      <Handle id="task-flow-out" type="source" position={Position.Bottom} className="research-node-handle" />
-    </div>
-  );
-}
-
-const nodeTypes = {
-  stageContainer: StageContainerNode,
-  researchTask: TaskNode,
-} satisfies NodeTypes;
-
-function buildNodeLayoutSignature(nodes: ReadonlyArray<{
-  id: string;
-  type?: string;
-  parentId?: string;
-  position: { x: number; y: number };
-  style?: { width?: string | number; height?: string | number };
-}>) {
-  return nodes.map((node) => [
-    node.id,
-    node.type,
-    node.parentId ?? "",
-    node.position.x,
-    node.position.y,
-    String(node.style?.width ?? ""),
-    String(node.style?.height ?? ""),
-  ].join(":")).join("|");
-}
-
-function resolveFallbackSelection(
-  research: ResearchCanvasSnapshot,
-  selectionId: string | null,
-  visibleNodeIds: Set<string>,
-) {
-  if (selectionId && visibleNodeIds.has(selectionId)) {
-    return selectionId;
-  }
-
-  if (selectionId?.startsWith("task:")) {
-    const taskId = selectionId.slice("task:".length);
-    const task = research.tasks.find((item) => item.id === taskId);
-    if (task) {
-      const stageId = `stage:${task.stage}`;
-      if (visibleNodeIds.has(stageId)) {
-        return stageId;
-      }
-    }
-  }
-
-  const defaultSelection = defaultResearchSelection(research);
-  return visibleNodeIds.has(defaultSelection) ? defaultSelection : null;
-}
+/* ─── Onboarding (kept) ─── */
 
 function ResearchOnboarding({
   locale,
@@ -415,6 +178,8 @@ function ResearchOnboarding({
   );
 }
 
+/* ─── TaskInspector (kept, with button fix) ─── */
+
 function TaskInspector({
   locale,
   task,
@@ -431,6 +196,41 @@ function TaskInspector({
   onOpenWriting: () => void;
 }) {
   const isZh = locale === "zh-CN";
+
+  /* Resolve button state based on actual task status */
+  const isDone = task.status === "done";
+  const isInProgress = task.status === "in-progress";
+  const isReview = task.status === "review";
+  const isCancelled = task.status === "cancelled";
+  const isDeferred = task.status === "deferred";
+  const isClosed = isDone || isCancelled || isDeferred;
+
+  let buttonLabel: string;
+  let buttonDisabled: boolean;
+
+  if (isDone) {
+    buttonLabel = isZh ? "✓ 已完成" : "✓ Completed";
+    buttonDisabled = true;
+  } else if (isCancelled) {
+    buttonLabel = isZh ? "已取消" : "Cancelled";
+    buttonDisabled = true;
+  } else if (isDeferred) {
+    buttonLabel = isZh ? "已延后" : "Deferred";
+    buttonDisabled = true;
+  } else if (isInProgress) {
+    buttonLabel = isZh ? "进行中..." : "In Progress...";
+    buttonDisabled = true;
+  } else if (isReview) {
+    buttonLabel = isZh ? "待检查" : "In Review";
+    buttonDisabled = false;
+  } else if (canUseTask) {
+    buttonLabel = isZh ? "发送到聊天" : "Use in Chat";
+    buttonDisabled = false;
+  } else {
+    buttonLabel = isZh ? "等待前置任务" : "Waiting on dependencies";
+    buttonDisabled = true;
+  }
+
   return (
     <div className="research-inspector__section">
       <div className="research-inspector__eyebrow">{task.stage}</div>
@@ -457,10 +257,15 @@ function TaskInspector({
         </>
       ) : null}
       <div className="research-inspector__actions">
-        <button type="button" className="research-primary-btn" onClick={() => void onUseTaskInChat(task)} disabled={!canUseTask}>
-          {canUseTask ? (isZh ? "发送到聊天" : "Use in Chat") : (isZh ? "等待轮到该任务" : "Wait until this task is ready")}
+        <button
+          type="button"
+          className={`research-primary-btn${isDone ? " is-done" : ""}`}
+          onClick={() => void onUseTaskInChat(task)}
+          disabled={buttonDisabled}
+        >
+          {buttonLabel}
         </button>
-        {task.stage === "publication" ? (
+        {task.stage === "publication" && !isClosed ? (
           <button type="button" className="research-secondary-btn" onClick={onOpenWriting}>
             {isZh ? "进入写作台" : "Enter Writing Desk"}
           </button>
@@ -482,6 +287,8 @@ function TaskInspector({
     </div>
   );
 }
+
+/* ─── StageInspector (kept) ─── */
 
 function StageInspector({
   locale,
@@ -579,6 +386,8 @@ function StageInspector({
   );
 }
 
+/* ─── TaskComposer dialog (kept) ─── */
+
 function TaskComposerDialog({
   locale,
   draft,
@@ -604,7 +413,7 @@ function TaskComposerDialog({
             <div className="research-inspector__eyebrow">{isZh ? "手动添加任务" : "Add Task"}</div>
             <h3>{isZh ? "向当前阶段插入一个新任务" : "Insert a task into this stage"}</h3>
           </div>
-          <button type="button" className="research-stage-container__toggle" onClick={onClose}>×</button>
+          <button type="button" className="task-tree__stage-toggle" onClick={onClose}>×</button>
         </div>
         <label className="research-task-composer__field">
           <span>{isZh ? "标题" : "Title"}</span>
@@ -676,41 +485,23 @@ function TaskComposerDialog({
   );
 }
 
-function ResearchStageRail({
-  locale,
-  stages,
-  activeSelectionId,
-  onSelectStage,
-}: {
-  locale: AppLocale;
-  stages: ResearchStageSummary[];
-  activeSelectionId: string | null;
-  onSelectStage: (stage: ResearchStageSummary) => void;
-}) {
-  const isZh = locale === "zh-CN";
+/* ─── Git Task Tree View (NEW) ─── */
+
+function TaskTreeNodeDot({ status, isActive }: { status: string; isActive: boolean }) {
+  const colorClass =
+    status === "done"
+      ? "is-done"
+      : status === "in-progress" || status === "review"
+        ? "is-active"
+        : status === "cancelled" || status === "deferred"
+          ? "is-dimmed"
+          : "is-pending";
   return (
-    <div className="research-canvas__rail">
-      {stages.map((stage, index) => {
-        const completion = stage.totalTasks > 0 ? Math.round((stage.doneTasks / stage.totalTasks) * 100) : 0;
-        const isSelected = activeSelectionId === `stage:${stage.stage}`;
-        return (
-          <button
-            key={stage.stage}
-            type="button"
-            className={`research-canvas__rail-item is-${stage.status}${isSelected ? " is-selected" : ""}`}
-            onClick={() => onSelectStage(stage)}
-          >
-            <span className="research-canvas__rail-index">{index + 1}</span>
-            <span className="research-canvas__rail-main">
-              <strong>{stage.label}</strong>
-              <small>{completion}% · {stage.doneTasks}/{stage.totalTasks || 0} {isZh ? "任务" : "tasks"}</small>
-            </span>
-          </button>
-        );
-      })}
-    </div>
+    <span className={`task-tree__dot ${colorClass}${isActive ? " is-current" : ""}`} />
   );
 }
+
+/* ─── Main Component ─── */
 
 export function ResearchCanvas({
   locale,
@@ -723,9 +514,7 @@ export function ResearchCanvas({
   onInitializeStage,
   onOpenArtifact,
   onUseTaskInChat,
-  onEnterTask,
   onAddTask,
-  onOpenLiteratureForTask,
   onOpenWriting,
 }: ResearchCanvasProps) {
   const isZh = locale === "zh-CN";
@@ -738,11 +527,13 @@ export function ResearchCanvas({
     () => (localizedResearch ? resolveResearchTaskExecutionState(localizedResearch) : { executableTaskIds: new Set<string>(), blockedTaskIds: new Set<string>() }),
     [localizedResearch],
   );
-  const [literatureCounts, setLiteratureCounts] = useState<Record<string, number>>({});
+
+  const [selectionId, setSelectionId] = useState<string | null>(
+    localizedResearch ? defaultResearchSelection(localizedResearch) : null,
+  );
+  const [collapsedStages, setCollapsedStages] = useState<Set<ResearchStage>>(new Set());
   const [taskComposer, setTaskComposer] = useState<TaskComposerState | null>(null);
 
-  /* Collapse state: which stages are collapsed */
-  const [collapsedStages, setCollapsedStages] = useState<Set<ResearchStage>>(new Set());
   const handleToggleCollapse = useCallback((stage: ResearchStage) => {
     setCollapsedStages((prev) => {
       const next = new Set(prev);
@@ -755,220 +546,172 @@ export function ResearchCanvas({
     });
   }, []);
 
-  const graph = useMemo(
-    () => (localizedResearch ? buildResearchCanvasGraph(localizedResearch, collapsedStages) : { nodes: [], edges: [] }),
-    [localizedResearch, collapsedStages],
-  );
-
-  useEffect(() => {
-    if (!localizedResearch) {
-      setLiteratureCounts({});
-      return;
-    }
-
-    let cancelled = false;
-    const loadCounts = async () => {
-      try {
-        const entries = await Promise.all(
-          localizedResearch.tasks.map(async (task) => [task.id, await desktop.countLiteratureForTask(task.id)] as const),
-        );
-        if (!cancelled) {
-          setLiteratureCounts(Object.fromEntries(entries));
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to load literature counts:", error);
-          setLiteratureCounts({});
-        }
-      }
-    };
-
-    void loadCounts();
-    return () => {
-      cancelled = true;
-    };
-  }, [localizedResearch]);
-
-  const enrichedNodes = useMemo(
-    () => graph.nodes.map((node) => {
-      if (node.type === "researchTask") {
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            isCurrentTask: node.data.task.id === activeTaskId || node.data.task.id === localizedResearch?.nextTask?.id,
-            isExecutableTask: taskExecutionState.executableTaskIds.has(node.data.task.id),
-            isBlockedTask: taskExecutionState.blockedTaskIds.has(node.data.task.id),
-            literatureCount: literatureCounts[node.data.task.id] ?? 0,
-            onEnterTask,
-            onNavigateToLiterature: onOpenLiteratureForTask,
-          },
-        };
-      }
-      /* stageContainer */
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          onInitializeStage,
-          onAddTask: (draft: ResearchTaskDraft) => {
-            const dependencyDefaults = localizedResearch?.tasks
-              .filter((task) => task.stage === draft.stage && task.status !== "cancelled")
-              .filter((task) => taskExecutionState.executableTaskIds.has(task.id))
-              .map((task) => task.id) ?? [];
-            setTaskComposer(createTaskComposerState(draft.stage, dependencyDefaults, draft.suggestedSkills ?? []));
-          },
-          onToggleCollapse: handleToggleCollapse,
-        },
-      };
-    }),
-    [activeTaskId, graph.nodes, literatureCounts, localizedResearch?.nextTask?.id, localizedResearch?.tasks, onEnterTask, onInitializeStage, onOpenLiteratureForTask, handleToggleCollapse, taskExecutionState.blockedTaskIds, taskExecutionState.executableTaskIds],
-  );
-  const layoutSignature = useMemo(() => buildNodeLayoutSignature(enrichedNodes), [enrichedNodes]);
-  const visibleNodeIds = useMemo(() => new Set(enrichedNodes.map((node) => node.id)), [enrichedNodes]);
-
-  const [selectionId, setSelectionId] = useState<string | null>(
-    localizedResearch ? defaultResearchSelection(localizedResearch) : null,
-  );
-  const [nodes, setNodes, onNodesChange] = useNodesState(enrichedNodes);
-  const didInitializeRef = useRef(false);
-  const previousLayoutSignatureRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!localizedResearch) {
-      didInitializeRef.current = false;
-      previousLayoutSignatureRef.current = null;
-      const frame = window.requestAnimationFrame(() => {
-        setSelectionId(null);
-        setNodes([]);
-      });
-      return () => {
-        window.cancelAnimationFrame(frame);
-      };
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      setSelectionId((currentSelectionId) => resolveFallbackSelection(localizedResearch, currentSelectionId, visibleNodeIds));
-      setNodes((currentNodes) => {
-        if (!didInitializeRef.current) {
-          didInitializeRef.current = true;
-          previousLayoutSignatureRef.current = layoutSignature;
-          return enrichedNodes;
-        }
-
-        const shouldResetLayout = previousLayoutSignatureRef.current !== layoutSignature;
-        previousLayoutSignatureRef.current = layoutSignature;
-        if (shouldResetLayout) {
-          return enrichedNodes;
-        }
-
-        const currentPositionById = new Map(currentNodes.map((node) => [node.id, node.position]));
-        return enrichedNodes.map((node) => ({
-          ...node,
-          position: currentPositionById.get(node.id) ?? node.position,
-        }));
-      });
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [enrichedNodes, layoutSignature, localizedResearch, setNodes, visibleNodeIds]);
-
+  /* Sync external selection requests */
   useEffect(() => {
     if (!localizedResearch || requestedSelectionNonce === 0) {
       return;
     }
-    const nextSelection = requestedSelectionId
-      ? resolveFallbackSelection(localizedResearch, requestedSelectionId, visibleNodeIds)
-      : defaultResearchSelection(localizedResearch);
+    const nextSelection = requestedSelectionId || defaultResearchSelection(localizedResearch);
     setSelectionId(nextSelection);
-  }, [localizedResearch, requestedSelectionId, requestedSelectionNonce, visibleNodeIds]);
+  }, [localizedResearch, requestedSelectionId, requestedSelectionNonce]);
+
+  /* Keep selection stable when data updates */
+  useEffect(() => {
+    if (!localizedResearch) {
+      setSelectionId(null);
+      return;
+    }
+    setSelectionId((current) => {
+      if (!current) {
+        return defaultResearchSelection(localizedResearch);
+      }
+      // Verify the selection still exists
+      const entity = selectionToEntity(localizedResearch, current);
+      if (entity.task || entity.stage) {
+        return current;
+      }
+      return defaultResearchSelection(localizedResearch);
+    });
+  }, [localizedResearch]);
 
   if (needsBootstrap) {
     return <ResearchOnboarding locale={locale} research={localizedResearch} isBusy={isBusy} onBootstrap={onBootstrap} />;
   }
 
+  const stageGroups = flattenTasksForTree(localizedResearch);
   const resolved = selectionToEntity(localizedResearch, selectionId);
+
   const totalTasks = localizedResearch.tasks.length;
-  const doneTasks = localizedResearch.tasks.filter((task) => task.status === "done").length;
-  const reviewTasks = localizedResearch.tasks.filter((task) => task.status === "review").length;
-  const inProgressTasks = localizedResearch.tasks.filter((task) => task.status === "in-progress").length;
+  const doneTasks = localizedResearch.tasks.filter((t) => t.status === "done").length;
   const completion = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
-  const currentStageLabel =
-    localizedResearch.stageSummaries.find((item) => item.stage === localizedResearch.currentStage)?.label ??
-    localizedResearch.currentStage;
+
   const taskComposerDependencyOptions = taskComposer
     ? localizedResearch.tasks.filter((task) =>
       (task.stage === taskComposer.stage || task.status === "done" || taskExecutionState.executableTaskIds.has(task.id)))
     : [];
 
   return (
-    <div className="research-canvas-shell">
-      <div className="research-canvas__board">
-        <div className="research-canvas__header">
-          <div>
-            <div className="research-canvas__eyebrow">{isZh ? "研究工作流" : "Research Workflow"}</div>
-            <h2>{localizedResearch.briefTopic}</h2>
-            <p>{localizedResearch.briefGoal}</p>
+    <div className="task-tree-shell">
+      {/* Left: Tree */}
+      <div className="task-tree__board">
+        {/* Compact progress header */}
+        <div className="task-tree__progress-header">
+          <div className="task-tree__progress-info">
+            <span className="task-tree__progress-label">{isZh ? "总体进度" : "Progress"}</span>
+            <span className="task-tree__progress-pct">{completion}%</span>
+            <span className="task-tree__progress-count">{doneTasks}/{totalTasks}</span>
           </div>
-          <div className="research-canvas__header-meta">
-            <span>{isZh ? "当前阶段" : "Current stage"}: {currentStageLabel}</span>
-            {localizedResearch.nextTask ? <span>{isZh ? "下一任务" : "Next task"}: {localizedResearch.nextTask.title}</span> : null}
-          </div>
-        </div>
-
-        <div className="research-canvas__overview">
-          <div className="research-canvas__metric">
-            <strong>{completion}%</strong>
-            <span>{isZh ? "总体完成度" : "Overall completion"}</span>
-          </div>
-          <div className="research-canvas__metric">
-            <strong>{inProgressTasks}</strong>
-            <span>{isZh ? "进行中任务" : "Tasks in progress"}</span>
-          </div>
-          <div className="research-canvas__metric">
-            <strong>{reviewTasks}</strong>
-            <span>{isZh ? "待检查任务" : "Tasks in review"}</span>
-          </div>
-          <div className="research-canvas__metric">
-            <strong>{localizedResearch.artifactPaths.publication.length}</strong>
-            <span>{isZh ? "写作产物" : "Publication artifacts"}</span>
+          <div className="task-tree__progress-bar">
+            <div className="task-tree__progress-fill" style={{ width: `${completion}%` }} />
           </div>
         </div>
 
-        <ResearchStageRail
-          locale={locale}
-          stages={localizedResearch.stageSummaries}
-          activeSelectionId={selectionId}
-          onSelectStage={(stage) => setSelectionId(`stage:${stage.stage}`)}
-        />
+        {/* Git tree */}
+        <div className="task-tree__scroll">
+          <div className="task-tree__trunk">
+            {stageGroups.map((group, groupIndex) => {
+              const isCollapsed = collapsedStages.has(group.stage);
+              const stageCompletion = group.summary.totalTasks > 0
+                ? Math.round((group.summary.doneTasks / group.summary.totalTasks) * 100)
+                : 0;
+              const stageSelected = selectionId === `stage:${group.stage}`;
+              const isCurrentStage = localizedResearch.currentStage === group.stage;
 
-        <div className="research-canvas__flow">
-          <ReactFlow
-            nodes={nodes}
-            edges={graph.edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onNodeClick={(_event, node) => setSelectionId(node.id)}
-            onPaneClick={() => setSelectionId(null)}
-            nodesDraggable
-            nodesConnectable={false}
-            fitView
-            fitViewOptions={{ padding: 0.16, maxZoom: 1.08 }}
-            minZoom={0.45}
-            maxZoom={1.45}
-            panOnScroll
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background color="rgba(15, 23, 42, 0.14)" gap={22} size={1.3} />
-            <Controls showInteractive={false} />
-          </ReactFlow>
+              return (
+                <div key={group.stage} className="task-tree__stage-group">
+                  {/* Stage divider */}
+                  <div
+                    className={`task-tree__stage-divider${stageSelected ? " is-selected" : ""}${isCurrentStage ? " is-current" : ""}`}
+                    onClick={() => setSelectionId(`stage:${group.stage}`)}
+                  >
+                    <button
+                      type="button"
+                      className="task-tree__stage-toggle"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleCollapse(group.stage);
+                      }}
+                    >
+                      <svg
+                        width="14" height="14" viewBox="0 0 16 16" fill="none"
+                        style={{ transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.2s ease" }}
+                      >
+                        <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                    <span className="task-tree__stage-label">{group.summary.label}</span>
+                    <span className="task-tree__stage-stats">
+                      {group.summary.doneTasks}/{group.summary.totalTasks || 0}
+                    </span>
+                    {stageCompletion === 100 ? (
+                      <span className="task-tree__stage-check">✓</span>
+                    ) : null}
+                    {group.summary.canInitialize ? (
+                      <button
+                        type="button"
+                        className="task-tree__stage-init-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void onInitializeStage(group.stage);
+                        }}
+                      >
+                        {isZh ? "开始" : "Start"}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="task-tree__stage-add-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const dependencyDefaults = localizedResearch.tasks
+                          .filter((t) => t.stage === group.stage && taskExecutionState.executableTaskIds.has(t.id))
+                          .map((t) => t.id);
+                        setTaskComposer(createTaskComposerState(group.stage, dependencyDefaults, group.summary.suggestedSkills ?? []));
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {/* Task nodes */}
+                  {!isCollapsed && group.tasks.map((task, taskIndex) => {
+                    const isActive = task.id === activeTaskId || task.id === localizedResearch.nextTask?.id;
+                    const isSelected = selectionId === `task:${task.id}`;
+                    const isLast = taskIndex === group.tasks.length - 1 && groupIndex === stageGroups.length - 1;
+
+                    return (
+                      <div
+                        key={task.id}
+                        className={`task-tree__node${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}`}
+                        onClick={() => setSelectionId(`task:${task.id}`)}
+                      >
+                        <div className="task-tree__node-rail">
+                          <TaskTreeNodeDot status={task.status} isActive={isActive} />
+                          {!isLast ? <div className="task-tree__node-line" /> : null}
+                        </div>
+                        <div className="task-tree__node-content">
+                          <span className="task-tree__node-title">{task.title}</span>
+                          <span className="task-tree__node-status">{formatTaskStatus(task, isZh)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Trunk connector between stages */}
+                  {groupIndex < stageGroups.length - 1 && !isCollapsed && group.tasks.length === 0 ? (
+                    <div className="task-tree__stage-connector" />
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
+      {/* Right: Inspector */}
       <aside className="research-inspector">
         <div className="research-inspector__header">
-          <div className="research-inspector__eyebrow">{isZh ? "检查面板" : "Inspector"}</div>
+          <div className="research-inspector__eyebrow">{isZh ? "详情" : "Details"}</div>
           <h3>{resolved.task ? (isZh ? "任务详情" : "Task Detail") : (isZh ? "阶段详情" : "Stage Detail")}</h3>
         </div>
         {resolved.task ? (
@@ -997,7 +740,7 @@ export function ResearchCanvas({
           />
         ) : (
           <div className="research-inspector__empty">
-            {isZh ? "选择一个阶段或任务节点，查看下一步操作。" : "Select a stage or task node to inspect its next action."}
+            {isZh ? "选择一个阶段或任务节点查看详情。" : "Select a stage or task node to see details."}
           </div>
         )}
       </aside>

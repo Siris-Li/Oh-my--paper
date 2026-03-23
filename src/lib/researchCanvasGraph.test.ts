@@ -2,11 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import type { ResearchCanvasSnapshot } from "../types";
 import {
-  buildResearchCanvasGraph,
+  flattenTasksForTree,
   defaultResearchSelection,
   selectionToEntity,
-  type ResearchStageContainerNode,
-  type ResearchTaskNode,
 } from "./researchCanvasGraph";
 
 const sampleResearch: ResearchCanvasSnapshot = {
@@ -152,26 +150,28 @@ const sampleResearch: ResearchCanvasSnapshot = {
 };
 
 describe("research canvas graph", () => {
-  it("builds stage container and task nodes for the workflow", () => {
-    const graph = buildResearchCanvasGraph(sampleResearch);
-    const stageContainer = graph.nodes.find((node): node is ResearchStageContainerNode => node.id === "stage:publication");
-    expect(stageContainer).toBeDefined();
-    expect(stageContainer?.type).toBe("stageContainer");
+  it("flattenTasksForTree returns stage groups with tasks", () => {
+    const groups = flattenTasksForTree(sampleResearch);
+    expect(groups.length).toBe(5);
 
-    const taskNode = graph.nodes.find((node): node is ResearchTaskNode => node.id === "task:publication-1");
-    expect(taskNode).toBeDefined();
-    expect(taskNode?.parentId).toBe("stage:publication");
+    const surveyGroup = groups.find((g) => g.stage === "survey");
+    expect(surveyGroup).toBeDefined();
+    expect(surveyGroup?.tasks.length).toBe(1);
+    expect(surveyGroup?.tasks[0].id).toBe("survey-1");
 
-    expect(graph.edges.some((edge) => edge.id === "dep:survey-1:publication-1")).toBe(true);
+    const publicationGroup = groups.find((g) => g.stage === "publication");
+    expect(publicationGroup).toBeDefined();
+    expect(publicationGroup?.tasks.length).toBe(1);
+
+    const ideationGroup = groups.find((g) => g.stage === "ideation");
+    expect(ideationGroup).toBeDefined();
+    expect(ideationGroup?.tasks.length).toBe(0);
   });
 
-  it("routes stage entry edges from the stage top handle into the first task top handle", () => {
-    const graph = buildResearchCanvasGraph(sampleResearch);
-    const stageEntryEdge = graph.edges.find((edge) => edge.id === "stage:publication:publication-1");
-
-    expect(stageEntryEdge).toBeDefined();
-    expect(stageEntryEdge?.sourceHandle).toBe("stage-task-entry");
-    expect(stageEntryEdge?.targetHandle).toBe("task-flow-in");
+  it("stage groups are in STAGE_ORDER", () => {
+    const groups = flattenTasksForTree(sampleResearch);
+    const stages = groups.map((g) => g.stage);
+    expect(stages).toEqual(["survey", "ideation", "experiment", "publication", "promotion"]);
   });
 
   it("defaults selection to the next task", () => {
@@ -183,68 +183,19 @@ describe("research canvas graph", () => {
     expect(resolved.task?.title).toBe("Write");
   });
 
-  it("spreads sibling tasks into aligned rows without overlap", () => {
-    const graph = buildResearchCanvasGraph({
-      ...sampleResearch,
-      tasks: [
-        ...sampleResearch.tasks,
-        {
-          ...sampleResearch.tasks[0],
-          id: "publication-2",
-          title: "C",
-          stage: "publication",
-          dependencies: [],
-        },
-        {
-          ...sampleResearch.tasks[0],
-          id: "publication-3",
-          title: "A",
-          stage: "publication",
-          dependencies: [],
-        },
-        {
-          ...sampleResearch.tasks[0],
-          id: "publication-4",
-          title: "B",
-          stage: "publication",
-          dependencies: ["publication-3"],
-        },
-      ],
-    });
-
-    const publicationTasks = graph.nodes.filter((node) => node.id.startsWith("task:publication-"));
-    const positions = publicationTasks.map((node) => `${node.position.x}:${node.position.y}`);
-    expect(new Set(positions).size).toBe(publicationTasks.length);
-    expect(Math.max(...publicationTasks.map((node) => node.position.y))).toBeGreaterThan(
-      Math.min(...publicationTasks.map((node) => node.position.y)),
-    );
+  it("resolves stage selections back to entities", () => {
+    const resolved = selectionToEntity(sampleResearch, "stage:survey");
+    expect(resolved.stage?.label).toBe("Survey");
   });
 
-  it("collapses stages without generating child task nodes", () => {
-    const collapsed = new Set<"survey" | "ideation" | "experiment" | "publication" | "promotion">(["publication"]);
-    const graph = buildResearchCanvasGraph(sampleResearch, collapsed);
-
-    /* Container should still exist */
-    const container = graph.nodes.find((node): node is ResearchStageContainerNode => node.id === "stage:publication");
-    expect(container).toBeDefined();
-    expect(container?.data.isCollapsed).toBe(true);
-
-    /* Task node should NOT exist */
-    expect(graph.nodes.find((node) => node.id === "task:publication-1")).toBeUndefined();
+  it("returns empty for null selection", () => {
+    const resolved = selectionToEntity(sampleResearch, null);
+    expect(resolved.task).toBeUndefined();
+    expect(resolved.stage).toBeUndefined();
   });
 
-  it("removes dependency edges that point to collapsed upstream tasks", () => {
-    const collapsed = new Set<"survey" | "ideation" | "experiment" | "publication" | "promotion">(["survey"]);
-    const graph = buildResearchCanvasGraph(sampleResearch, collapsed);
-
-    expect(graph.nodes.find((node) => node.id === "task:survey-1")).toBeUndefined();
-    expect(graph.edges.find((edge) => edge.id === "dep:survey-1:publication-1")).toBeUndefined();
-  });
-
-  it("container width is at least CONTAINER_MIN_WIDTH", () => {
-    const graph = buildResearchCanvasGraph(sampleResearch);
-    const container = graph.nodes.find((node): node is ResearchStageContainerNode => node.id === "stage:survey");
-    expect(container).toBeDefined();
-    expect(container?.data.containerWidth).toBeGreaterThanOrEqual(960);
+  it("defaults selection to current stage when no next task", () => {
+    const noNextTask = { ...sampleResearch, nextTask: null };
+    expect(defaultResearchSelection(noNextTask)).toBe("stage:publication");
   });
 });
