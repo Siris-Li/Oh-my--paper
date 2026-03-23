@@ -108,6 +108,13 @@ async function buildSdkOptions(request) {
   // Enable periodic AI-generated progress summaries for sub-agents.
   options.agentProgressSummaries = true;
 
+  // Enable fast mode so Claude Code routes simple operations (e.g. file reads)
+  // to Haiku automatically, reducing cost and latency.
+  options.settings = {
+    ...(typeof options.settings === 'object' ? options.settings : {}),
+    fastMode: true,
+  };
+
   // ── Elicitation callback ──────────────────────────────────
   // When an MCP server requests user input (form fields, OAuth, etc.),
   // emit the request for frontend display and auto-accept.

@@ -27,7 +27,12 @@ export function flattenTasksForTree(research: ResearchCanvasSnapshot): TaskTreeS
       }
       const tasks = research.tasks
         .filter((t) => t.stage === stage)
-        .sort((a, b) => a.title.localeCompare(b.title, "zh-CN"));
+        .sort((a, b) => {
+          const numA = parseInt(a.id, 10);
+          const numB = parseInt(b.id, 10);
+          if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+          return a.id.localeCompare(b.id);
+        });
       return { stage, summary, tasks };
     })
     .filter((g): g is TaskTreeStageGroup => g !== null);

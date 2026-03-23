@@ -1742,7 +1742,7 @@ export function ChatPanel({
   streamThinkingHistoryText,
   streamThinkingDurationMs,
   streamContent, streamError, streamSubagentLabel, streamStatusMessage,
-  promptSuggestions, activeModelInfo, pendingElicitation, isStreaming,
+  promptSuggestions, pendingElicitation, isStreaming,
   skills, onToggleSkill,
   usageRecords, projectTree,
   activeResearchTask,
@@ -2191,17 +2191,8 @@ export function ChatPanel({
           />
         )}
 
-        {/* Model info badge */}
-        {activeModelInfo && activeModelInfo.model && (
-          <div className="ag-model-badge">
-            <span className="ag-model-badge-label">⚡ {activeModelInfo.model}</span>
-            {activeModelInfo.fastModeState !== "off" && (
-              <span className="ag-model-badge-fast">
-                {activeModelInfo.fastModeState === "on" ? "Fast Mode" : "Cooldown"}
-              </span>
-            )}
-          </div>
-        )}
+
+
 
         {/* Elicitation notice */}
         {pendingElicitation && (

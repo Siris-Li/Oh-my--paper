@@ -714,8 +714,12 @@ export function ResearchCanvas({
                           {!isLast ? <div className="task-tree__node-line" /> : null}
                         </div>
                         <div className="task-tree__node-content">
-                          <span className="task-tree__node-title">{task.title}</span>
+                          <span className="task-tree__node-title">
+                            <span className="task-tree__node-seq">{task.id}.</span>
+                            {task.title}
+                          </span>
                           <span className="task-tree__node-status">{formatTaskStatus(task, isZh)}</span>
+                          {isActive && <span className="task-tree__node-next-badge">{isZh ? "▶ 下一步" : "▶ Next"}</span>}
                         </div>
                       </div>
                     );
