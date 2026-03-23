@@ -8,9 +8,9 @@ use serde_json::{json, Value};
 use walkdir::WalkDir;
 
 use crate::models::{
-    ApplyResearchTaskSuggestionRequest, ResearchBootstrapState, ResearchCanvasSnapshot,
-    ResearchStageSummary, ResearchTask, ResearchTaskCounts, ResearchTaskDraft,
-    ResearchTaskPlanOperation, ResearchTaskUpdateChanges,
+    ApplyResearchTaskSuggestionRequest, PipelineArtifact, ResearchBootstrapState,
+    ResearchCanvasSnapshot, ResearchStageSummary, ResearchTask, ResearchTaskCounts,
+    ResearchTaskDraft, ResearchTaskPlanOperation, ResearchTaskUpdateChanges,
 };
 
 const STAGE_ORDER: [&str; 5] = [
@@ -1452,7 +1452,61 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
         brief_goal,
         system_prompt,
         working_memory,
+        pipeline_artifacts: collect_pipeline_artifacts(root),
     })
+}
+
+fn collect_pipeline_artifacts(root: &Path) -> Vec<PipelineArtifact> {
+    let docs_dir = pipeline_root(root).join("docs");
+    if !docs_dir.exists() {
+        return Vec::new();
+    }
+
+    let label_map: &[(&str, &str)] = &[
+        ("research_brief.json", "研究摘要 / Research Brief"),
+        ("domain_map.md", "领域地图 / Domain Map"),
+        ("paper_bank.json", "文献库 / Paper Bank"),
+        ("gap_matrix.md", "差距矩阵 / Gap Matrix"),
+        ("idea_board.json", "创意板 / Idea Board"),
+        ("idea_eval.md", "创意评估 / Idea Evaluation"),
+        ("selected_idea.md", "选定方向 / Selected Idea"),
+        ("experiment_plan.md", "实验计划 / Experiment Plan"),
+        ("result_summary.md", "结果摘要 / Result Summary"),
+        ("promo_plan.md", "推广计划 / Promotion Plan"),
+    ];
+
+    let mut artifacts = Vec::new();
+    for (filename, label) in label_map {
+        let file_path = docs_dir.join(filename);
+        if file_path.exists() {
+            let ext = filename.rsplit('.').next().unwrap_or("txt");
+            artifacts.push(PipelineArtifact {
+                label: label.to_string(),
+                path: relative_path(root, &file_path),
+                file_type: ext.to_string(),
+            });
+        }
+    }
+
+    // Also pick up any other files not in the label map
+    if let Ok(entries) = fs::read_dir(&docs_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let fname = entry.file_name().to_string_lossy().to_string();
+            if label_map.iter().any(|(name, _)| *name == fname) {
+                continue;
+            }
+            if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                let ext = fname.rsplit('.').next().unwrap_or("txt").to_string();
+                artifacts.push(PipelineArtifact {
+                    label: fname.clone(),
+                    path: relative_path(root, &entry.path()),
+                    file_type: ext,
+                });
+            }
+        }
+    }
+
+    artifacts
 }
 
 pub fn apply_task_suggestion(

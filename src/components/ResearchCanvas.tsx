@@ -594,6 +594,30 @@ export function ResearchCanvas({
     <div className="task-tree-shell">
       {/* Left: Tree */}
       <div className="task-tree__board">
+        {/* Pipeline artifacts bar */}
+        {localizedResearch.pipelineArtifacts && localizedResearch.pipelineArtifacts.length > 0 && (
+          <div className="pipeline-artifacts-bar">
+            <div className="pipeline-artifacts-bar__label">{isZh ? "📋 研究产物" : "📋 Pipeline Artifacts"}</div>
+            <div className="pipeline-artifacts-bar__grid">
+              {localizedResearch.pipelineArtifacts.map((artifact) => (
+                <button
+                  key={artifact.path}
+                  type="button"
+                  className="pipeline-artifact-card"
+                  onClick={() => onOpenArtifact(artifact.path)}
+                  title={artifact.path}
+                >
+                  <span className="pipeline-artifact-card__icon">
+                    {artifact.fileType === "json" ? "📊" : artifact.fileType === "md" ? "📝" : "📄"}
+                  </span>
+                  <span className="pipeline-artifact-card__label">{artifact.label}</span>
+                  <span className="pipeline-artifact-card__badge">{artifact.fileType}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Compact progress header */}
         <div className="task-tree__progress-header">
           <div className="task-tree__progress-info">

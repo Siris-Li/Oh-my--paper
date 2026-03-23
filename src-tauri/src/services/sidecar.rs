@@ -28,6 +28,14 @@ pub fn spawn_sidecar(state: &AppState, command: &str, payload: &str) -> Result<C
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    // Place sidecar in its own process group so cancel_agent can kill
+    // the entire tree (Node entry + Claude CLI child) with a single signal.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        process.process_group(0);
+    }
+
     #[cfg(target_os = "windows")]
     process.creation_flags(CREATE_NO_WINDOW);
 

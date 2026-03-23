@@ -476,8 +476,14 @@ pub fn cancel_agent(state: &AppState) -> Result<bool> {
     if let Some(pid) = active.take() {
         #[cfg(unix)]
         {
+            // Kill entire process group (sidecar + Claude CLI children).
+            // The sidecar is spawned with process_group(0), so its PID == PGID.
             let _ = std::process::Command::new("kill")
-                .arg(pid.to_string())
+                .args(["-TERM", &format!("-{}", pid)])
+                .output();
+            // Fallback: also signal the specific PID in case pgid kill missed it
+            let _ = std::process::Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
                 .output();
         }
         #[cfg(not(unix))]

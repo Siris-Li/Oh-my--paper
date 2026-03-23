@@ -506,6 +506,7 @@ export interface ResearchCanvasSnapshot {
   briefGoal: string;
   systemPrompt?: string;
   workingMemory?: string;
+  pipelineArtifacts?: { label: string; path: string; fileType: string }[];
 }
 
 export interface ResearchTaskUpdateChanges {

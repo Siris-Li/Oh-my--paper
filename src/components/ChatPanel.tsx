@@ -1576,6 +1576,7 @@ export function ChatPanel({
   const [inputText, setInputText] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isComposingRef = useRef(false);
   const sessionSearchRef = useRef<HTMLInputElement>(null);
   const [isSessionPickerOpen, setIsSessionPickerOpen] = useState(false);
   const [sessionQuery, setSessionQuery] = useState("");
@@ -1797,7 +1798,7 @@ export function ChatPanel({
       if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); insertSlashCommand(filteredCommands[slashIndex]); return; }
       if (e.key === "Escape") { e.preventDefault(); setShowSlashMenu(false); return; }
     }
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    if (e.key === "Enter" && !e.shiftKey && !isComposingRef.current && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); }
   }, [handleSend, showAtMenu, filteredFiles, atIndex, insertAtMention, showSlashMenu, filteredCommands, slashIndex, insertSlashCommand]);
 
   const handleOpenSessionPicker = useCallback(() => {
@@ -2130,6 +2131,8 @@ export function ChatPanel({
           value={inputText}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
+          onCompositionStart={() => { isComposingRef.current = true; }}
+          onCompositionEnd={() => { isComposingRef.current = false; }}
           placeholder={
             isStreaming
               ? "AI 正在回复…"

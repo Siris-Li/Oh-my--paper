@@ -595,6 +595,16 @@ pub struct ResearchCanvasSnapshot {
     pub system_prompt: String,
     #[serde(default)]
     pub working_memory: String,
+    #[serde(default)]
+    pub pipeline_artifacts: Vec<PipelineArtifact>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineArtifact {
+    pub label: String,
+    pub path: String,
+    pub file_type: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

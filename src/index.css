@@ -6962,6 +6962,65 @@ div.ve-tok-math-rendered .katex { font-size: 1.15em; }
     linear-gradient(180deg, #fafbff, #f0f2f5);
 }
 
+/* ─── Pipeline artifacts bar ────────────────────────────── */
+.pipeline-artifacts-bar {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(228, 231, 236, 0.6);
+}
+.pipeline-artifacts-bar__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+}
+.pipeline-artifacts-bar__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pipeline-artifact-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(203, 213, 225, 0.5);
+  background: rgba(248, 250, 252, 0.9);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.1s;
+}
+.pipeline-artifact-card:hover {
+  background: rgba(241, 245, 249, 1);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  transform: translateY(-1px);
+}
+.pipeline-artifact-card__icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.pipeline-artifact-card__label {
+  font-weight: 600;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pipeline-artifact-card__badge {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--text-tertiary);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
 .task-tree__board {
   min-width: 0;
   display: flex;
