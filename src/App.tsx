@@ -26,6 +26,7 @@ import { ResearchCanvas } from "./components/ResearchCanvas";
 import { LiteratureManager } from "./components/LiteratureManager";
 import { ShareLinkModal } from "./components/ShareLinkModal";
 import { SkillArsenalModal } from "./components/SkillArsenalModal";
+import { ArtifactPreviewModal } from "./components/ArtifactPreviewModal";
 import { PaneErrorBoundary } from "./components/PaneErrorBoundary";
 import { createLocalAdapter } from "./lib/adapters";
 import {
@@ -710,6 +711,7 @@ function App() {
     nonce: 0,
   });
   const [literatureTaskFilterId, setLiteratureTaskFilterId] = useState<string | null>(null);
+  const [artifactPreviewPath, setArtifactPreviewPath] = useState<string | null>(null);
   const [taskComposerPreset, setTaskComposerPreset] = useState<{ id: number; text: string } | null>(null);
   const [isResearchBootstrapBusy, setIsResearchBootstrapBusy] = useState(false);
   const [lastAutoWritingHandoffKey, setLastAutoWritingHandoffKey] = useState("");
@@ -2205,6 +2207,13 @@ function App() {
 
   const handleOpenResearchArtifact = useEffectEvent((path: string) => {
     const fileType = detectProjectFileType(path);
+
+    /* MD / JSON → floating preview modal (no navigation) */
+    if (fileType === "markdown" || fileType === "json") {
+      setArtifactPreviewPath(path);
+      return;
+    }
+
     setWorkspaceSurface("writing");
 
     if (isTextFileType(fileType)) {
@@ -4657,6 +4666,15 @@ function App() {
         onToggleSkill={handleToggleSkill}
         onSkillsChanged={handleSkillsChanged}
       />
+
+      {artifactPreviewPath && (
+        <ArtifactPreviewModal
+          path={artifactPreviewPath}
+          locale={locale}
+          onClose={() => setArtifactPreviewPath(null)}
+          onOpenLiterature={handleOpenLiteratureLibrary}
+        />
+      )}
     </div>
   );
 }
