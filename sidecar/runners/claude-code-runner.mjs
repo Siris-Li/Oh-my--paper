@@ -88,6 +88,32 @@ async function buildSdkOptions(request) {
     options.appendSystemPrompt = request.systemPrompt;
   }
 
+  // ── NEW: Enable full SDK event stream ──────────────────────
+  // Include partial/streaming message events so we can extract
+  // tool_use content blocks from the raw API stream.
+  options.includePartialMessages = true;
+
+  // Enable periodic AI-generated progress summaries for sub-agents.
+  options.agentProgressSummaries = true;
+
+  // ── Elicitation callback ──────────────────────────────────
+  // When an MCP server requests user input (form fields, OAuth, etc.),
+  // emit the request for frontend display and auto-accept.
+  // TODO: Implement full round-trip once stdin-based IPC is supported.
+  options.onElicitation = async (request) => {
+    const requestId = `elicit-${Date.now()}`;
+    emit({
+      type: "elicitation_request",
+      requestId,
+      serverName: request.serverName || "",
+      message: request.message || "",
+      mode: request.mode || "form",
+    });
+    // Auto-accept for now; a full implementation would wait for
+    // a frontend response written back via stdin IPC.
+    return { action: "accept" };
+  };
+
   return options;
 }
 
@@ -121,6 +147,10 @@ export async function runClaudeCode(request) {
   let capturedSessionId = request.remoteSessionId || null;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
+
+  // Track tool_use IDs we've already emitted so partial messages don't
+  // double-emit tool starts that were already handled by `tool_use` events.
+  const emittedToolUseIds = new Set();
 
   try {
     await streamQuery(options);
@@ -181,18 +211,43 @@ export async function runClaudeCode(request) {
     if (!event) return;
 
     switch (event.type) {
-      // Assistant text message
+      // ═══════════════════════════════════════════════════════════
+      // Assistant text message (complete — after API turn finishes)
+      // ═══════════════════════════════════════════════════════════
       case "assistant": {
-        const text = event.message?.content;
-        if (typeof text === "string" && text.trim()) {
-          if (!isSystemPromptContent(text)) {
-            emit({ type: "text_delta", content: text });
+        const msg = event.message;
+        // The message content can be a string or an array of content blocks.
+        if (typeof msg?.content === "string" && msg.content.trim()) {
+          if (!isSystemPromptContent(msg.content)) {
+            emit({ type: "text_delta", content: msg.content });
+          }
+        } else if (Array.isArray(msg?.content)) {
+          for (const block of msg.content) {
+            if (block.type === "text" && block.text?.trim()) {
+              if (!isSystemPromptContent(block.text)) {
+                emit({ type: "text_delta", content: block.text });
+              }
+            } else if (block.type === "thinking" && block.thinking) {
+              emit({ type: "thinking_delta", content: block.thinking });
+              emit({ type: "thinking_commit" });
+            } else if (block.type === "tool_use") {
+              // Emit tool_call_start from the finalized assistant message
+              // if it wasn't already emitted by a stream_event or tool_use event.
+              if (!emittedToolUseIds.has(block.id)) {
+                emittedToolUseIds.add(block.id);
+                emit({
+                  type: "tool_call_start",
+                  toolId: block.name || "tool",
+                  args: block.input || {},
+                });
+              }
+            }
           }
         }
 
         // Extract usage info
-        if (event.message?.usage) {
-          const budget = extractTokenBudget(event.message.usage);
+        if (msg?.usage) {
+          const budget = extractTokenBudget(msg.usage);
           if (budget) {
             totalInputTokens = budget.inputTokens;
             totalOutputTokens += budget.outputTokens;
@@ -201,7 +256,9 @@ export async function runClaudeCode(request) {
         break;
       }
 
-      // Text streaming delta
+      // ═══════════════════════════════════════════════════════════
+      // Streaming delta (text, thinking, or tool_use input json)
+      // ═══════════════════════════════════════════════════════════
       case "content_block_delta": {
         if (event.delta?.type === "text_delta" && event.delta.text) {
           emit({ type: "text_delta", content: event.delta.text });
@@ -211,10 +268,57 @@ export async function runClaudeCode(request) {
         break;
       }
 
-      // Tool use events
+      // ═══════════════════════════════════════════════════════════
+      // Partial assistant message (raw API stream events)
+      // ═══════════════════════════════════════════════════════════
+      case "stream_event": {
+        const rawEvent = event.event;
+        if (!rawEvent) break;
+
+        // content_block_start with tool_use → emit tool_call_start
+        if (
+          rawEvent.type === "content_block_start" &&
+          rawEvent.content_block?.type === "tool_use"
+        ) {
+          const block = rawEvent.content_block;
+          if (!emittedToolUseIds.has(block.id)) {
+            emittedToolUseIds.add(block.id);
+            emit({
+              type: "tool_call_start",
+              toolId: block.name || "tool",
+              args: block.input || {},
+            });
+          }
+        }
+
+        // Streaming text deltas from partial messages
+        if (
+          rawEvent.type === "content_block_delta" &&
+          rawEvent.delta?.type === "text_delta" &&
+          rawEvent.delta.text
+        ) {
+          emit({ type: "text_delta", content: rawEvent.delta.text });
+        }
+
+        // Streaming thinking deltas from partial messages
+        if (
+          rawEvent.type === "content_block_delta" &&
+          rawEvent.delta?.type === "thinking_delta" &&
+          rawEvent.delta.thinking
+        ) {
+          emit({ type: "thinking_delta", content: rawEvent.delta.thinking });
+        }
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Tool use events (from internal execution)
+      // ═══════════════════════════════════════════════════════════
       case "tool_use": {
         const toolName = event.name || event.tool_name || "tool";
         const input = event.input || {};
+        const toolId = event.tool_use_id || event.id;
+        if (toolId) emittedToolUseIds.add(toolId);
         emit({ type: "tool_call_start", toolId: toolName, args: input });
         break;
       }
@@ -230,7 +334,32 @@ export async function runClaudeCode(request) {
         break;
       }
 
-      // Thinking events
+      // ═══════════════════════════════════════════════════════════
+      // Tool use summary (aggregated description of recent tools)
+      // ═══════════════════════════════════════════════════════════
+      case "tool_use_summary": {
+        if (event.summary) {
+          emit({ type: "tool_use_summary", summary: event.summary });
+        }
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Tool progress (elapsed time for running tools)
+      // ═══════════════════════════════════════════════════════════
+      case "tool_progress": {
+        emit({
+          type: "tool_progress",
+          toolUseId: event.tool_use_id || "",
+          toolName: event.tool_name || "",
+          elapsedSeconds: event.elapsed_time_seconds || 0,
+        });
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Thinking events (standalone)
+      // ═══════════════════════════════════════════════════════════
       case "thinking": {
         if (event.thinking) {
           emit({ type: "thinking_delta", content: event.thinking });
@@ -238,10 +367,118 @@ export async function runClaudeCode(request) {
         break;
       }
 
-      // Result/turn events
+      // ═══════════════════════════════════════════════════════════
+      // System events (init, status, sub-agent, hooks, etc.)
+      // ═══════════════════════════════════════════════════════════
+      case "system": {
+        switch (event.subtype) {
+          case "task_started":
+            emit({
+              type: "subagent_start",
+              taskId: event.task_id || "",
+              description: event.description || "",
+            });
+            break;
+
+          case "task_progress":
+            emit({
+              type: "subagent_progress",
+              taskId: event.task_id || "",
+              description: event.description || "",
+              toolName: event.last_tool_name || "",
+              summary: event.summary || "",
+            });
+            break;
+
+          case "task_notification":
+            emit({
+              type: "subagent_done",
+              taskId: event.task_id || "",
+              summary: event.summary || "",
+              status: event.status || "completed",
+            });
+            break;
+
+          case "status":
+            if (event.status === "compacting") {
+              emit({
+                type: "status_update",
+                status: "compacting",
+                message: "正在压缩上下文…",
+              });
+            }
+            break;
+
+          case "init":
+            // Emit model and fast-mode info from session init
+            if (event.model || event.fast_mode_state) {
+              emit({
+                type: "model_info",
+                model: event.model || "",
+                fastModeState: event.fast_mode_state || "off",
+              });
+            }
+            break;
+
+          default:
+            // Other system subtypes (hook events, etc.) — ignore silently
+            break;
+        }
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Rate limit events
+      // ═══════════════════════════════════════════════════════════
+      case "rate_limit_event": {
+        const info = event.rate_limit_info;
+        if (info?.status === "rejected") {
+          const resetAt = info.resetsAt
+            ? new Date(info.resetsAt * 1000).toLocaleTimeString()
+            : "";
+          emit({
+            type: "status_update",
+            status: "rate_limited",
+            message: resetAt
+              ? `已达速率限制，${resetAt} 后恢复`
+              : "已达速率限制",
+          });
+        } else if (info?.status === "allowed_warning") {
+          emit({
+            type: "status_update",
+            status: "rate_limit_warning",
+            message: `接近速率限制 (${Math.round((info.utilization || 0) * 100)}%)`,
+          });
+        }
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Auth status
+      // ═══════════════════════════════════════════════════════════
+      case "auth_status": {
+        if (event.error) {
+          emit({
+            type: "status_update",
+            status: "auth_error",
+            message: event.error,
+          });
+        }
+        break;
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Result / turn completion
+      // ═══════════════════════════════════════════════════════════
       case "result": {
-        if (event.result) {
+        if (event.result && !event.is_error) {
           emit({ type: "text_delta", content: event.result });
+        }
+        if (event.is_error && event.errors?.length) {
+          emit({
+            type: "error",
+            message: event.errors.join("; "),
+          });
         }
         if (event.usage) {
           const budget = extractTokenBudget(event.usage);
@@ -249,6 +486,17 @@ export async function runClaudeCode(request) {
             totalInputTokens = budget.inputTokens;
             totalOutputTokens += budget.outputTokens;
           }
+        }
+        // Emit model info with fast-mode state and per-model usage breakdown
+        if (event.fast_mode_state || event.modelUsage) {
+          const usedModels = event.modelUsage
+            ? Object.keys(event.modelUsage).join(", ")
+            : "";
+          emit({
+            type: "model_info",
+            model: usedModels || request.provider?.model || "claude-code",
+            fastModeState: event.fast_mode_state || "off",
+          });
         }
         break;
       }
@@ -261,8 +509,32 @@ export async function runClaudeCode(request) {
         break;
       }
 
+      // ═══════════════════════════════════════════════════════════
+      // Silently ignored event types
+      // ═══════════════════════════════════════════════════════════
+      case "user":
+        // User message replays — skip
+        break;
+
+      case "prompt_suggestion": {
+        if (event.suggestion) {
+          emit({
+            type: "prompt_suggestion",
+            suggestion: event.suggestion,
+          });
+        }
+        break;
+      }
+
       default:
-        // Ignore unknown event types silently
+        // Log unhandled events for debugging
+        if (process.env.VIWERLEAF_DEBUG) {
+          console.error(
+            "UNHANDLED SDK EVENT:",
+            event.type,
+            JSON.stringify(event).slice(0, 300),
+          );
+        }
         break;
     }
   }

@@ -338,6 +338,13 @@ export const desktop = {
   cancelAgent() {
     return runOrMock("cancel_agent", {}, () => Promise.resolve(true));
   },
+  respondElicitation(_requestId: string, _action: "accept" | "decline") {
+    // Stub: the sidecar currently auto-accepts elicitations.
+    // When full stdin IPC round-trip is implemented, this will
+    // write the response back to the running sidecar process.
+    console.debug("[desktop.respondElicitation] stub called:", _requestId, _action);
+    return Promise.resolve();
+  },
   getAgentMessages(sessionId?: string) {
     return runOrMock<AgentMessage[]>("get_agent_messages", { sessionId }, () => mockRuntime.getAgentMessages(sessionId));
   },

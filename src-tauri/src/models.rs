@@ -394,6 +394,58 @@ pub enum StreamChunk {
     },
     #[serde(rename = "error")]
     Error { message: String },
+    #[serde(rename = "subagent_start")]
+    SubagentStart {
+        task_id: String,
+        description: String,
+    },
+    #[serde(rename = "subagent_progress")]
+    SubagentProgress {
+        task_id: String,
+        description: String,
+        #[serde(default)]
+        tool_name: String,
+        #[serde(default)]
+        summary: String,
+    },
+    #[serde(rename = "subagent_done")]
+    SubagentDone {
+        task_id: String,
+        summary: String,
+        status: String,
+    },
+    #[serde(rename = "tool_progress")]
+    ToolProgress {
+        tool_use_id: String,
+        tool_name: String,
+        #[serde(default)]
+        elapsed_seconds: f64,
+    },
+    #[serde(rename = "tool_use_summary")]
+    ToolUseSummary { summary: String },
+    #[serde(rename = "status_update")]
+    StatusUpdate { status: String, message: String },
+    #[serde(rename = "prompt_suggestion")]
+    PromptSuggestion { suggestion: String },
+    #[serde(rename = "model_info")]
+    ModelInfo {
+        model: String,
+        #[serde(default)]
+        fast_mode_state: String,
+    },
+    #[serde(rename = "elicitation_request")]
+    ElicitationRequest {
+        request_id: String,
+        server_name: String,
+        message: String,
+        #[serde(default)]
+        mode: String,
+    },
+    #[serde(rename = "elicitation_response")]
+    ElicitationResponse {
+        request_id: String,
+        action: String,
+    },
     #[serde(rename = "done")]
     Done {
         usage: UsageInfo,

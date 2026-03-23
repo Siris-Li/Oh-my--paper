@@ -25,6 +25,7 @@ Use this skill when the user needs to define or revise the project-level researc
 4. Do not invent citations, datasets, or experimental outcomes.
 5. **When entering ideation stage, use the `research-idea-convergence` skill** to generate candidate directions and let the user choose. Never autonomously decide the research direction.
 6. Ensure every stage transition involves a user checkpoint — do not skip stages or auto-advance without user confirmation.
+7. **严格线性执行**：任务必须按顺序执行，当前任务未完成前不得跳至下一任务。调研未完成 → 不得进入构思；构思未完成 → 不得进入实验。每个阶段的所有任务 done 后才能进入下一阶段。
 
 ## Expected Outputs
 

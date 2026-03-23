@@ -260,6 +260,15 @@ export type StreamChunk =
   | { type: "tool_call_result"; toolId: string; output: string; status?: "completed" | "error" }
   | { type: "patch"; filePath: string; startLine: number; endLine: number; newContent: string; diff?: DiffLine[] }
   | { type: "error"; message: string }
+  | { type: "subagent_start"; taskId: string; description: string }
+  | { type: "subagent_progress"; taskId: string; description: string; toolName?: string; summary?: string }
+  | { type: "subagent_done"; taskId: string; summary: string; status: string }
+  | { type: "tool_progress"; toolUseId: string; toolName: string; elapsedSeconds: number }
+  | { type: "tool_use_summary"; summary: string }
+  | { type: "status_update"; status: string; message: string }
+  | { type: "prompt_suggestion"; suggestion: string }
+  | { type: "model_info"; model: string; fastModeState: string }
+  | { type: "elicitation_request"; requestId: string; serverName: string; message: string; mode?: string }
   | { type: "done"; usage: { inputTokens: number; outputTokens: number; model: string }; remoteSessionId?: string };
 
 export interface FigureBriefDraft {

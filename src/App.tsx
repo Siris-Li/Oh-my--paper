@@ -1210,6 +1210,11 @@ function App() {
     streamThinkingDurationMs,
     streamContent,
     streamError,
+    streamSubagentLabel,
+    streamStatusMessage,
+    promptSuggestions,
+    activeModelInfo,
+    pendingElicitation,
     pendingPatch,
     handleRunAgent: runAgentBase,
     handleSendMessage: sendMessageBase,
@@ -1217,6 +1222,7 @@ function App() {
     handleSelectSession: selectSessionBase,
     handleApplyPatch: applyPatchBase,
     handleDismissPatch,
+    handleRespondElicitation,
     resetForSnapshot: resetAgentChatForSnapshot,
   } = agentChat;
 
@@ -4210,6 +4216,11 @@ function App() {
                       streamThinkingDurationMs={streamThinkingDurationMs}
                       streamContent={streamContent}
                       streamError={streamError}
+                      streamSubagentLabel={streamSubagentLabel}
+                      streamStatusMessage={streamStatusMessage}
+                      promptSuggestions={promptSuggestions}
+                      activeModelInfo={activeModelInfo}
+                      pendingElicitation={pendingElicitation}
                       isStreaming={isStreaming}
                       onSendMessage={handleSendMessage}
                       onDismissPatch={handleDismissPatch}
@@ -4218,6 +4229,8 @@ function App() {
                       onExitResearchTaskMode={handleExitResearchTaskMode}
                       onOpenResearchCanvas={() => setWorkspaceSurface("research")}
                       onApplyTaskUpdateSuggestion={handleApplyResearchTaskSuggestion}
+                      onRespondElicitation={handleRespondElicitation}
+                      onSelectSuggestion={(s) => handleSendMessage(s)}
                       collabAuthSession={collabAuthSession}
                       collabConfig={collabConfigState}
                       cloudCollab={snapshot.collab ?? null}

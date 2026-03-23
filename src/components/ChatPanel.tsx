@@ -790,6 +790,8 @@ function AssistantMessage({ msg, streaming }: {
     thinkingDurationMs?: number;
     content: string;
     streamError?: string;
+    subagentLabel?: string;
+    statusMessage?: string;
   };
 }) {
   const raw = msg?.content ?? streaming?.content ?? "";
@@ -806,13 +808,17 @@ function AssistantMessage({ msg, streaming }: {
   const streamStatusLabel = streaming
     ? streamError
       ? "响应出错"
-      : clean
-        ? "正在生成"
-        : runningToolCalls > 0
-          ? "正在处理"
-          : thinkingText
-            ? "正在思考"
-            : "已发送"
+      : streaming.subagentLabel
+        ? streaming.subagentLabel
+        : streaming.statusMessage
+          ? streaming.statusMessage
+          : clean
+            ? "正在生成"
+            : runningToolCalls > 0
+              ? "正在处理"
+              : thinkingText
+                ? "正在思考"
+                : "已发送"
     : "";
 
   return (
@@ -1528,6 +1534,11 @@ export interface ChatPanelProps {
   streamThinkingDurationMs?: number;
   streamContent?: string;
   streamError?: string;
+  streamSubagentLabel?: string;
+  streamStatusMessage?: string;
+  promptSuggestions?: string[];
+  activeModelInfo?: { model: string; fastModeState: string } | null;
+  pendingElicitation?: { requestId: string; serverName: string; message: string; mode?: string } | null;
   isStreaming?: boolean;
   skills: SkillManifest[];
   onToggleSkill: (skill: SkillManifest) => Promise<void>;
@@ -1538,6 +1549,8 @@ export interface ChatPanelProps {
   onExitResearchTaskMode?: () => void;
   onOpenResearchCanvas?: () => void;
   onApplyTaskUpdateSuggestion?: (suggestion: TaskUpdateSuggestion) => Promise<void> | void;
+  onRespondElicitation?: (requestId: string, action: "accept" | "decline") => void;
+  onSelectSuggestion?: (suggestion: string) => void;
 }
 
 export function ChatPanel({
@@ -1548,7 +1561,8 @@ export function ChatPanel({
   streamThinkingText,
   streamThinkingHistoryText,
   streamThinkingDurationMs,
-  streamContent, streamError, isStreaming,
+  streamContent, streamError, streamSubagentLabel, streamStatusMessage,
+  promptSuggestions, activeModelInfo, pendingElicitation, isStreaming,
   skills, onToggleSkill,
   usageRecords, projectTree,
   activeResearchTask,
@@ -1556,6 +1570,8 @@ export function ChatPanel({
   onExitResearchTaskMode,
   onOpenResearchCanvas,
   onApplyTaskUpdateSuggestion,
+  onRespondElicitation,
+  onSelectSuggestion,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
@@ -1986,8 +2002,63 @@ export function ChatPanel({
               thinkingDurationMs: streamThinkingDurationMs,
               content: streamContent,
               streamError,
+              subagentLabel: streamSubagentLabel,
+              statusMessage: streamStatusMessage,
             }}
           />
+        )}
+
+        {/* Model info badge */}
+        {activeModelInfo && activeModelInfo.model && (
+          <div className="ag-model-badge">
+            <span className="ag-model-badge-label">⚡ {activeModelInfo.model}</span>
+            {activeModelInfo.fastModeState !== "off" && (
+              <span className="ag-model-badge-fast">
+                {activeModelInfo.fastModeState === "on" ? "Fast Mode" : "Cooldown"}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Elicitation notice */}
+        {pendingElicitation && (
+          <div className="ag-elicitation-card">
+            <div className="ag-elicitation-header">
+              <span className="ag-elicitation-icon">🔐</span>
+              <span className="ag-elicitation-server">{pendingElicitation.serverName}</span>
+            </div>
+            <div className="ag-elicitation-message">{pendingElicitation.message}</div>
+            <div className="ag-elicitation-actions">
+              <button
+                className="ag-elicitation-btn ag-elicitation-btn--accept"
+                onClick={() => onRespondElicitation?.(pendingElicitation.requestId, "accept")}
+              >
+                允许
+              </button>
+              <button
+                className="ag-elicitation-btn ag-elicitation-btn--decline"
+                onClick={() => onRespondElicitation?.(pendingElicitation.requestId, "decline")}
+              >
+                拒绝
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Prompt suggestion chips */}
+        {!isStreaming && promptSuggestions && promptSuggestions.length > 0 && (
+          <div className="ag-prompt-suggestions">
+            {promptSuggestions.map((suggestion, i) => (
+              <button
+                key={i}
+                className="ag-prompt-suggestion-chip"
+                onClick={() => onSelectSuggestion?.(suggestion)}
+                title={suggestion}
+              >
+                {suggestion.length > 80 ? suggestion.slice(0, 77) + "…" : suggestion}
+              </button>
+            ))}
+          </div>
         )}
 
         {pendingPatchSummary && (

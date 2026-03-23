@@ -69,6 +69,11 @@ interface SidebarProps {
   streamThinkingDurationMs?: number;
   streamContent?: string;
   streamError?: string;
+  streamSubagentLabel?: string;
+  streamStatusMessage?: string;
+  promptSuggestions?: string[];
+  activeModelInfo?: { model: string; fastModeState: string } | null;
+  pendingElicitation?: { requestId: string; serverName: string; message: string; mode?: string } | null;
   isStreaming?: boolean;
   onSendMessage: (text: string) => void;
   onDismissPatch: () => void;
@@ -80,6 +85,8 @@ interface SidebarProps {
   onExitResearchTaskMode?: () => void;
   onOpenResearchCanvas?: () => void;
   onApplyTaskUpdateSuggestion?: (suggestion: TaskUpdateSuggestion) => Promise<void> | void;
+  onRespondElicitation?: (requestId: string, action: "accept" | "decline") => void;
+  onSelectSuggestion?: (suggestion: string) => void;
   // Collab props
   collabAuthSession: CollabAuthSession | null;
   collabConfig: CollabConfig | null;
@@ -196,6 +203,11 @@ export function Sidebar({
   streamThinkingDurationMs,
   streamContent,
   streamError,
+  streamSubagentLabel,
+  streamStatusMessage,
+  promptSuggestions,
+  activeModelInfo,
+  pendingElicitation,
   isStreaming,
   onSendMessage,
   onDismissPatch,
@@ -207,6 +219,8 @@ export function Sidebar({
   onExitResearchTaskMode,
   onOpenResearchCanvas,
   onApplyTaskUpdateSuggestion,
+  onRespondElicitation,
+  onSelectSuggestion,
   collabAuthSession,
   collabConfig: collabConfigProp,
   cloudCollab,
@@ -429,6 +443,11 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
             streamThinkingDurationMs={streamThinkingDurationMs}
             streamContent={streamContent}
             streamError={streamError}
+            streamSubagentLabel={streamSubagentLabel}
+            streamStatusMessage={streamStatusMessage}
+            promptSuggestions={promptSuggestions}
+            activeModelInfo={activeModelInfo}
+            pendingElicitation={pendingElicitation}
             isStreaming={isStreaming}
             providers={providers}
             activeProfile={activeChatProfile}
@@ -444,6 +463,8 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
             onExitResearchTaskMode={onExitResearchTaskMode}
             onOpenResearchCanvas={onOpenResearchCanvas}
             onApplyTaskUpdateSuggestion={onApplyTaskUpdateSuggestion}
+            onRespondElicitation={onRespondElicitation}
+            onSelectSuggestion={onSelectSuggestion}
           />
         </div>
       )}

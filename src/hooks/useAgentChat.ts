@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { desktop } from "../lib/desktop";
 import { useStableCallback as useEffectEvent } from "./useStableCallback";
@@ -95,6 +95,11 @@ export interface AgentChatState {
   streamThinkingDurationMs: number;
   streamContent: string;
   streamError: string;
+  streamSubagentLabel: string;
+  streamStatusMessage: string;
+  promptSuggestions: string[];
+  activeModelInfo: { model: string; fastModeState: string } | null;
+  pendingElicitation: { requestId: string; serverName: string; message: string; mode?: string } | null;
   pendingPatch: { filePath: string; content: string; summary: string; diff?: DiffLine[] } | null;
   setActiveProfileId: (profileId: AgentProfileId) => void;
   handleRunAgent: () => Promise<void>;
@@ -107,6 +112,7 @@ export interface AgentChatState {
   handleApplyPatch: () => Promise<void>;
   handleDismissPatch: () => void;
   handleCancelAgent: () => Promise<void>;
+  handleRespondElicitation: (requestId: string, action: "accept" | "decline") => Promise<void>;
   resetForSnapshot: () => void;
 }
 
@@ -130,6 +136,11 @@ export function useAgentChat({
   const [streamThinkingDurationMs, setStreamThinkingDurationMs] = useState(0);
   const [streamContent, setStreamContent] = useState("");
   const [streamError, setStreamError] = useState("");
+  const [streamSubagentLabel, setStreamSubagentLabel] = useState("");
+  const [streamStatusMessage, setStreamStatusMessage] = useState("");
+  const [promptSuggestions, setPromptSuggestions] = useState<string[]>([]);
+  const [activeModelInfo, setActiveModelInfo] = useState<{ model: string; fastModeState: string } | null>(null);
+  const [pendingElicitation, setPendingElicitation] = useState<{ requestId: string; serverName: string; message: string; mode?: string } | null>(null);
   const [pendingPatch, setPendingPatch] = useState<{ filePath: string; content: string; summary: string; diff?: DiffLine[] } | null>(
     null,
   );
@@ -234,6 +245,9 @@ export function useAgentChat({
     setStreamThinkingDurationMs(0);
     setStreamContent("");
     setStreamError("");
+    setStreamSubagentLabel("");
+    setStreamStatusMessage("");
+    setPromptSuggestions([]);
   });
 
   const appendStreamMarker = useEffectEvent((marker: string) => {
@@ -422,6 +436,50 @@ export function useAgentChat({
             diff: chunk.diff,
           });
           break;
+        case "subagent_start":
+          setStreamSubagentLabel(chunk.description || "子任务执行中");
+          flushStreamBuffer();
+          appendStreamMarker(`[Subagent: ${chunk.description}]`);
+          break;
+        case "subagent_progress":
+          setStreamSubagentLabel(chunk.summary || chunk.description || "子任务执行中");
+          break;
+        case "subagent_done":
+          setStreamSubagentLabel("");
+          flushStreamBuffer();
+          appendStreamMarker(`[Subagent Done: ${chunk.summary || chunk.taskId}] (${chunk.status})`);
+          break;
+        case "tool_progress":
+          if (chunk.toolName && chunk.elapsedSeconds > 3) {
+            setStreamStatusMessage(`${chunk.toolName} (${Math.round(chunk.elapsedSeconds)}s)`);
+          }
+          break;
+        case "tool_use_summary":
+          flushStreamBuffer();
+          appendStreamMarker(`[Summary]\n${chunk.summary}\n[/Summary]`);
+          break;
+        case "status_update":
+          setStreamStatusMessage(chunk.message);
+          if (chunk.status === "rate_limited" || chunk.status === "auth_error") {
+            flushStreamBuffer();
+            appendStreamMarker(`[Status: ${chunk.message}]`);
+          }
+          break;
+        case "prompt_suggestion":
+          setPromptSuggestions(prev => [...prev, chunk.suggestion]);
+          break;
+        case "model_info":
+          setActiveModelInfo({ model: chunk.model, fastModeState: chunk.fastModeState });
+          break;
+        case "elicitation_request":
+          setPendingElicitation({
+            requestId: chunk.requestId,
+            serverName: chunk.serverName,
+            message: chunk.message,
+            mode: chunk.mode,
+          });
+          setStreamStatusMessage(`${chunk.serverName} 请求授权`);
+          break;
         case "error":
           appendInterruptedStreamMessage();
           clearThinkingText();
@@ -434,6 +492,8 @@ export function useAgentChat({
           break;
         case "done":
           flushStreamBuffer();
+          setStreamSubagentLabel("");
+          setStreamStatusMessage("");
           stopStream();
           void Promise.all([desktop.listAgentSessions(), desktop.getUsageStats()]).then(([nextSessions, nextUsage]) => {
             setAgentSessions(nextSessions);
@@ -582,6 +642,50 @@ export function useAgentChat({
             diff: chunk.diff,
           });
           break;
+        case "subagent_start":
+          setStreamSubagentLabel(chunk.description || "子任务执行中");
+          flushStreamBuffer();
+          appendStreamMarker(`[Subagent: ${chunk.description}]`);
+          break;
+        case "subagent_progress":
+          setStreamSubagentLabel(chunk.summary || chunk.description || "子任务执行中");
+          break;
+        case "subagent_done":
+          setStreamSubagentLabel("");
+          flushStreamBuffer();
+          appendStreamMarker(`[Subagent Done: ${chunk.summary || chunk.taskId}] (${chunk.status})`);
+          break;
+        case "tool_progress":
+          if (chunk.toolName && chunk.elapsedSeconds > 3) {
+            setStreamStatusMessage(`${chunk.toolName} (${Math.round(chunk.elapsedSeconds)}s)`);
+          }
+          break;
+        case "tool_use_summary":
+          flushStreamBuffer();
+          appendStreamMarker(`[Summary]\n${chunk.summary}\n[/Summary]`);
+          break;
+        case "status_update":
+          setStreamStatusMessage(chunk.message);
+          if (chunk.status === "rate_limited" || chunk.status === "auth_error") {
+            flushStreamBuffer();
+            appendStreamMarker(`[Status: ${chunk.message}]`);
+          }
+          break;
+        case "prompt_suggestion":
+          setPromptSuggestions(prev => [...prev, chunk.suggestion]);
+          break;
+        case "model_info":
+          setActiveModelInfo({ model: chunk.model, fastModeState: chunk.fastModeState });
+          break;
+        case "elicitation_request":
+          setPendingElicitation({
+            requestId: chunk.requestId,
+            serverName: chunk.serverName,
+            message: chunk.message,
+            mode: chunk.mode,
+          });
+          setStreamStatusMessage(`${chunk.serverName} 请求授权`);
+          break;
         case "error":
           appendInterruptedStreamMessage();
           clearThinkingText();
@@ -594,6 +698,8 @@ export function useAgentChat({
           break;
         case "done":
           flushStreamBuffer();
+          setStreamSubagentLabel("");
+          setStreamStatusMessage("");
           stopStream();
           void Promise.all([desktop.listAgentSessions(), desktop.getUsageStats()]).then(([nextSessions, nextUsage]) => {
             setAgentSessions(nextSessions);
@@ -645,6 +751,16 @@ export function useAgentChat({
     }
   });
 
+  const handleRespondElicitation = useCallback(async (requestId: string, action: "accept" | "decline") => {
+    setPendingElicitation(null);
+    setStreamStatusMessage("");
+    try {
+      await desktop.respondElicitation(requestId, action);
+    } catch (error) {
+      console.error("Failed to respond to elicitation:", error);
+    }
+  }, []);
+
   return {
     messages,
     agentSessions,
@@ -658,6 +774,11 @@ export function useAgentChat({
     streamThinkingDurationMs,
     streamContent,
     streamError,
+    streamSubagentLabel,
+    streamStatusMessage,
+    promptSuggestions,
+    activeModelInfo,
+    pendingElicitation,
     pendingPatch,
     setActiveProfileId,
     handleRunAgent,
@@ -667,6 +788,7 @@ export function useAgentChat({
     handleApplyPatch,
     handleDismissPatch,
     handleCancelAgent,
+    handleRespondElicitation,
     resetForSnapshot,
   };
 }
