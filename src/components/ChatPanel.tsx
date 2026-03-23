@@ -1092,6 +1092,33 @@ function PatchCard({ summary, diff, onApply, onDismiss }: {
   );
 }
 
+/** Fields that represent "progress reporting" — auto-applicable without user confirmation */
+const AUTO_APPLY_FIELDS = new Set<keyof ResearchTaskUpdateChanges>([
+  "status",
+  "artifactPaths",
+  "contextNotes",
+  "nextActionPrompt",
+  "description",
+]);
+
+/**
+ * A suggestion is auto-applicable when it only contains "update" operations
+ * that modify progress-report fields (status, artifactPaths, etc.).
+ * Plan changes (add/remove tasks, changing stage/priority/dependencies) need confirmation.
+ */
+function isAutoApplicableSuggestion(suggestion: TaskUpdateSuggestion): boolean {
+  if (!suggestion.operations || suggestion.operations.length === 0) {
+    return false;
+  }
+  return suggestion.operations.every((op) => {
+    if (op.type !== "update") {
+      return false; // add/remove always need confirmation
+    }
+    const changedKeys = Object.keys(op.changes) as (keyof ResearchTaskUpdateChanges)[];
+    return changedKeys.length > 0 && changedKeys.every((key) => AUTO_APPLY_FIELDS.has(key));
+  });
+}
+
 function TaskSuggestionCard({
   suggestion,
   activeTask,
@@ -1794,6 +1821,37 @@ export function ChatPanel({
     };
   }, [dismissedSuggestionKeys, messages]);
 
+  /* Auto-apply simple task completion updates (status/artifact changes) */
+  const autoApplyInFlightRef = useRef(false);
+  useEffect(() => {
+    if (
+      !latestTaskSuggestion ||
+      !onApplyTaskUpdateSuggestion ||
+      isStreaming ||
+      autoApplyInFlightRef.current
+    ) {
+      return;
+    }
+    if (!isAutoApplicableSuggestion(latestTaskSuggestion.suggestion)) {
+      return;
+    }
+    // Auto-apply and dismiss
+    autoApplyInFlightRef.current = true;
+    void (async () => {
+      try {
+        console.log("[ChatPanel] auto-applying task completion update", latestTaskSuggestion.key);
+        await onApplyTaskUpdateSuggestion(latestTaskSuggestion.suggestion);
+      } catch (err) {
+        console.warn("[ChatPanel] auto-apply failed, leaving card for manual apply", err);
+        autoApplyInFlightRef.current = false;
+        return; // don't dismiss so user can retry manually
+      }
+      _appliedSuggestionKeys.add(latestTaskSuggestion.key);
+      setDismissedSuggestionKeys((current) => [...current, latestTaskSuggestion.key]);
+      autoApplyInFlightRef.current = false;
+    })();
+  }, [latestTaskSuggestion, onApplyTaskUpdateSuggestion, isStreaming]);
+
   // @ file mention state
   const [showAtMenu, setShowAtMenu] = useState(false);
   const [atFilter, setAtFilter] = useState("");
@@ -2247,7 +2305,7 @@ export function ChatPanel({
           />
         )}
 
-        {latestTaskSuggestion && onApplyTaskUpdateSuggestion && (
+        {latestTaskSuggestion && onApplyTaskUpdateSuggestion && !isAutoApplicableSuggestion(latestTaskSuggestion.suggestion) && (
           <TaskSuggestionCard
             suggestion={latestTaskSuggestion.suggestion}
             activeTask={activeResearchTask}
