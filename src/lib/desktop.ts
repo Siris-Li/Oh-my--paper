@@ -537,6 +537,27 @@ export const desktop = {
     }
     return isTauriRuntime() ? toAssetUrl(path) : path;
   },
+
+  // ─── Compute Node (SSH) ───
+  loadComputeNodes() {
+    return runOrMock<{ nodes: import("../components/ComputeNodePanel").ComputeNodeConfig[]; activeNodeId: string | null }>(
+      "load_compute_nodes", {}, () => Promise.resolve({ nodes: [], activeNodeId: null }),
+    );
+  },
+  saveComputeNode(node: import("../components/ComputeNodePanel").ComputeNodeConfig) {
+    return runOrMock("save_compute_node", { node }, () => Promise.resolve());
+  },
+  deleteComputeNode(nodeId: string) {
+    return runOrMock("delete_compute_node", { nodeId }, () => Promise.resolve());
+  },
+  setActiveComputeNode(nodeId: string) {
+    return runOrMock("set_active_compute_node", { nodeId }, () => Promise.resolve());
+  },
+  testComputeNode(nodeId: string) {
+    return runOrMock<{ success: boolean; message: string }>(
+      "test_compute_node", { nodeId }, () => Promise.resolve({ success: true, message: "ok" }),
+    );
+  },
 };
 
 export type { WorkspaceSnapshot };

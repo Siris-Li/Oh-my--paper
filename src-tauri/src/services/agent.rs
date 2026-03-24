@@ -737,17 +737,21 @@ fn build_assistant_message_content(
     if !trimmed_thinking.is_empty() {
         parts.push(format!("<think>\n{trimmed_thinking}\n</think>"));
     }
+    // Strip any <think> blocks already present in the model's text output
+    // to avoid duplication with the system-managed thinking above.
+    let sanitized_text = sanitize_agent_message_for_display(text);
     if timeline.is_empty() {
-        if !text.trim().is_empty() {
-            parts.push(text.to_string());
+        if !sanitized_text.trim().is_empty() {
+            parts.push(sanitized_text);
         }
         return parts.join("\n");
     }
     for item in timeline {
         match item {
             AssistantTimelineItem::Text(content) => {
-                if !content.trim().is_empty() {
-                    parts.push(content.clone());
+                let cleaned = sanitize_agent_message_for_display(content);
+                if !cleaned.trim().is_empty() {
+                    parts.push(cleaned);
                 }
             }
             AssistantTimelineItem::Tool {

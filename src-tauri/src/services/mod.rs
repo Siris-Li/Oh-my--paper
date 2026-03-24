@@ -2,6 +2,7 @@ use std::path::Path;
 
 pub mod agent;
 pub mod compile;
+pub mod compute_node;
 pub mod figure;
 pub mod literature;
 pub mod profile;

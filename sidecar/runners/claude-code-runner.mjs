@@ -178,6 +178,9 @@ export async function runClaudeCode(request) {
   const emittedToolUseIds = new Set();
   const completedToolUseIds = new Set();
   let toolUseCounter = 0;
+  // Track whether we've received any streaming deltas — if so, the
+  // `assistant` event is a duplicate replay and text/thinking should be skipped.
+  let hasReceivedStreamDeltas = false;
 
   try {
     await streamQuery(options);
@@ -244,17 +247,15 @@ export async function runClaudeCode(request) {
       case "assistant": {
         const msg = event.message;
         // The message content can be a string or an array of content blocks.
-        if (typeof msg?.content === "string" && msg.content.trim()) {
-          if (!isSystemPromptContent(msg.content)) {
-            emit({ type: "text_delta", content: msg.content });
-          }
-        } else if (Array.isArray(msg?.content)) {
+        // When hasReceivedStreamDeltas is true, text and thinking were already
+        // emitted by stream_event / content_block_delta — skip to avoid dupes.
+        if (Array.isArray(msg?.content)) {
           for (const block of msg.content) {
-            if (block.type === "text" && block.text?.trim()) {
+            if (block.type === "text" && block.text?.trim() && !hasReceivedStreamDeltas) {
               if (!isSystemPromptContent(block.text)) {
                 emit({ type: "text_delta", content: block.text });
               }
-            } else if (block.type === "thinking" && block.thinking) {
+            } else if (block.type === "thinking" && block.thinking && !hasReceivedStreamDeltas) {
               emit({ type: "thinking_delta", content: block.thinking });
               emit({ type: "thinking_commit" });
             } else if (block.type === "tool_use") {
@@ -284,6 +285,10 @@ export async function runClaudeCode(request) {
               }
             }
           }
+        } else if (typeof msg?.content === "string" && msg.content.trim() && !hasReceivedStreamDeltas) {
+          if (!isSystemPromptContent(msg.content)) {
+            emit({ type: "text_delta", content: msg.content });
+          }
         }
 
         // Extract usage info
@@ -302,8 +307,10 @@ export async function runClaudeCode(request) {
       // ═══════════════════════════════════════════════════════════
       case "content_block_delta": {
         if (event.delta?.type === "text_delta" && event.delta.text) {
+          hasReceivedStreamDeltas = true;
           emit({ type: "text_delta", content: event.delta.text });
         } else if (event.delta?.type === "thinking_delta" && event.delta.thinking) {
+          hasReceivedStreamDeltas = true;
           emit({ type: "thinking_delta", content: event.delta.thinking });
         }
         break;
@@ -351,6 +358,7 @@ export async function runClaudeCode(request) {
           rawEvent.delta?.type === "text_delta" &&
           rawEvent.delta.text
         ) {
+          hasReceivedStreamDeltas = true;
           emit({ type: "text_delta", content: rawEvent.delta.text });
         }
 
@@ -360,6 +368,7 @@ export async function runClaudeCode(request) {
           rawEvent.delta?.type === "thinking_delta" &&
           rawEvent.delta.thinking
         ) {
+          hasReceivedStreamDeltas = true;
           emit({ type: "thinking_delta", content: rawEvent.delta.thinking });
         }
         break;
@@ -537,7 +546,7 @@ export async function runClaudeCode(request) {
       // Result / turn completion
       // ═══════════════════════════════════════════════════════════
       case "result": {
-        if (event.result && !event.is_error) {
+        if (event.result && !event.is_error && !hasReceivedStreamDeltas) {
           emit({ type: "text_delta", content: event.result });
         }
         if (event.is_error && event.errors?.length) {

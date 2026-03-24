@@ -436,7 +436,12 @@ function parseStreamBlocks(raw: string): StreamBlock {
     .filter((value) => value.length > 0)
     .join("\n\n");
 
-  const serialized = parseSerializedToolBlocks(raw);
+  // Pre-strip <think> blocks before tool-block parsing to prevent
+  // fragmentation across different text blocks.
+  const preStripped = raw
+    .replace(/<think>[\s\S]*?<\/think>/g, "")
+    .replace(/<\/?think>/g, "");
+  const serialized = parseSerializedToolBlocks(preStripped);
   toolCalls.push(...serialized.toolCalls);
   blocks.push(...serialized.blocks);
 

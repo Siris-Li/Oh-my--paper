@@ -28,6 +28,7 @@ import { ShareLinkModal } from "./components/ShareLinkModal";
 import { SkillArsenalModal } from "./components/SkillArsenalModal";
 import { ArtifactPreviewModal } from "./components/ArtifactPreviewModal";
 import { PaneErrorBoundary } from "./components/PaneErrorBoundary";
+import { SettingsModal } from "./components/SettingsModal";
 import { createLocalAdapter } from "./lib/adapters";
 import {
   createCloudProject,
@@ -1442,20 +1443,7 @@ function App() {
     writeStoredNumber(DRAWER_WIDTH_STORAGE_KEY, drawerWidth);
   }, [drawerWidth]);
 
-  useEffect(() => {
-    if (!isSettingsOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: MouseEvent) {
-      if (!activityBarShellRef.current?.contains(event.target as Node)) {
-        setIsSettingsOpen(false);
-      }
-    }
-
-    window.addEventListener("mousedown", handlePointerDown);
-    return () => window.removeEventListener("mousedown", handlePointerDown);
-  }, [isSettingsOpen]);
+  // Settings modal is now a centered overlay — no outside-click handler needed.
 
   useEffect(() => {
     writeStoredWorkspaceEntries(RECENT_WORKSPACE_STORAGE_KEY, recentWorkspaces);
@@ -4134,30 +4122,7 @@ function App() {
               </svg>
             </button>
           </div>
-          {isSettingsOpen && (
-            <div className="activity-settings-popover">
-              <div className="activity-settings-popover__eyebrow">{isZh ? "设置" : "Settings"}</div>
-              <div className="activity-settings-popover__section">
-                <div className="activity-settings-popover__label">{isZh ? "界面语言" : "Interface language"}</div>
-                <div className="activity-settings-popover__options">
-                  <button
-                    type="button"
-                    className={`activity-settings-popover__option ${locale === "zh-CN" ? "is-active" : ""}`}
-                    onClick={() => setLocale("zh-CN")}
-                  >
-                    中文
-                  </button>
-                  <button
-                    type="button"
-                    className={`activity-settings-popover__option ${locale === "en-US" ? "is-active" : ""}`}
-                    onClick={() => setLocale("en-US")}
-                  >
-                    English
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+
           </div>
 
           {isDrawerVisible && (
@@ -4679,6 +4644,30 @@ function App() {
           onOpenLiterature={handleOpenLiteratureLibrary}
         />
       )}
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        locale={locale}
+        onLocaleChange={setLocale}
+        providers={snapshot?.providers ?? []}
+        activeProviderId={activeProfile?.providerId || snapshot?.providers.find((p) => p.isEnabled)?.id}
+        onActivateProvider={(id) => {
+          const provider = snapshot?.providers.find((p) => p.id === id);
+          if (provider?.vendor) void handleSelectChatVendor(provider.vendor as "claude-code" | "codex");
+        }}
+        onAddProvider={async (provider) => {
+          await desktop.addProvider(provider);
+          await refreshAgentProvidersAndProfiles();
+        }}
+        onUpdateProvider={async (id, patch) => {
+          await desktop.updateProvider(id, patch);
+        }}
+        onDeleteProvider={(id) => {
+          void desktop.deleteProvider(id).then(() => refreshAgentProvidersAndProfiles());
+        }}
+        onRefreshProviders={() => void refreshAgentProvidersAndProfiles()}
+      />
     </div>
   );
 }
