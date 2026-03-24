@@ -3908,18 +3908,36 @@ button {
   color: var(--text-tertiary);
   animation: ag-scramble-fade 0.6s ease-in-out infinite alternate;
 }
-.ag-scramble-text--slow {
-  letter-spacing: 0.18em;
-  animation: ag-scramble-fade-slow 4s ease-in-out infinite alternate;
-}
 @keyframes ag-scramble-fade {
   0% { opacity: 0.4; }
   100% { opacity: 0.8; }
 }
-@keyframes ag-scramble-fade-slow {
-  0% { opacity: 0.3; }
-  50% { opacity: 0.65; }
-  100% { opacity: 0.35; }
+
+/* Claude Code style thinking verb */
+.ag-thinking-verb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.ag-thinking-verb-icon {
+  color: #ea580c;
+  animation: ag-thinking-pulse 2s ease-in-out infinite;
+}
+.ag-thinking-verb-text {
+  color: var(--text-secondary);
+  transition: opacity 0.3s ease;
+}
+.ag-thinking-verb-tag {
+  color: var(--text-tertiary);
+  font-weight: 500;
+  font-size: 11.5px;
+}
+@keyframes ag-thinking-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.9); }
 }
 
 /* Streaming cursor */

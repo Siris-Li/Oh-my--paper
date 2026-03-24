@@ -57,6 +57,12 @@ export const AGENT_BRANDS: Record<AgentVendor, AgentBrand> = {
     defaultModel: "claude-sonnet-4-6",
     models: [
       {
+        value: "cli-default",
+        label: "CLI 默认",
+        description: "使用 Claude Code CLI 自身配置的模型（支持自定义模型如 MiniMax 等）。",
+        badge: "CLI",
+      },
+      {
         value: "claude-sonnet-4-6",
         label: "Claude Sonnet 4.6",
         description: "主力编码模型，平衡速度、质量和稳定性。",

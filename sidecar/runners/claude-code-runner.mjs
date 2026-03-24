@@ -42,9 +42,10 @@ async function buildSdkOptions(request) {
     options.cwd = request.context.projectRoot;
   }
 
-  // Model
-  if (request.provider?.model) {
-    options.model = request.provider.model;
+  // Model — skip when "cli-default" so the CLI uses its own configured model
+  const modelValue = request.provider?.model;
+  if (modelValue && modelValue !== "cli-default") {
+    options.model = modelValue;
   }
 
   if (request.provider?.reasoningEffort) {

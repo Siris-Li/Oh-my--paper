@@ -732,20 +732,45 @@ function buildToolOutputPreview(output?: string) {
   return lines.length > 240 ? `${lines.slice(0, 240)}…` : lines;
 }
 
-/* ─── Scramble indicator (Claude Code style) ─────────── */
+/* ─── Thinking indicator (Claude Code style) ─────────── */
 const SCRAMBLE_CHARS = "abcdefghijklmnopqrstuvwxyz";
 function makeScramble(len: number) {
   return Array.from({ length: len }, () => SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)]).join("");
 }
+
+const THINKING_VERBS = [
+  "Thinking", "Reasoning", "Analyzing", "Processing",
+  "Catapulting", "Launching", "Synthesizing", "Connecting",
+  "Exploring", "Weaving", "Sculpting", "Orchestrating",
+  "Contemplating", "Reflecting", "Evaluating", "Assembling",
+];
+function pickVerb() {
+  return THINKING_VERBS[Math.floor(Math.random() * THINKING_VERBS.length)];
+}
+
 function ScrambleIndicator({ slow }: { slow?: boolean }) {
-  const charLen = slow ? 12 : 6;
-  const intervalMs = slow ? 30_000 : 60;
-  const [text, setText] = useState(() => makeScramble(charLen));
+  if (slow) {
+    // Claude Code style: "✦ Catapulting… (thinking)"
+    const [verb, setVerb] = useState(pickVerb);
+    useEffect(() => {
+      const id = setInterval(() => setVerb(pickVerb()), 3000);
+      return () => clearInterval(id);
+    }, []);
+    return (
+      <span className="ag-thinking-verb">
+        <span className="ag-thinking-verb-icon">✦</span>{" "}
+        <span className="ag-thinking-verb-text">{verb}…</span>{" "}
+        <span className="ag-thinking-verb-tag">(thinking)</span>
+      </span>
+    );
+  }
+  // Fast scramble for tool progress
+  const [text, setText] = useState(() => makeScramble(6));
   useEffect(() => {
-    const id = setInterval(() => setText(makeScramble(charLen)), intervalMs);
+    const id = setInterval(() => setText(makeScramble(6)), 60);
     return () => clearInterval(id);
-  }, [charLen, intervalMs]);
-  return <span className={`ag-scramble-text${slow ? " ag-scramble-text--slow" : ""}`}>{text}</span>;
+  }, []);
+  return <span className="ag-scramble-text">{text}</span>;
 }
 
 /* ─── Tool call card ──────────────────────────────────── */
