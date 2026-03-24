@@ -319,7 +319,7 @@ export async function runCodex(request) {
 
   try {
     const codexPathOverride = await requireCliExecutable("codex");
-    const effectiveMcpServers = await buildEffectiveMcpServers(request.provider?.mcpServers);
+    const effectiveMcpServers = await buildEffectiveMcpServers(request.provider?.mcpServers, request.context);
     const config = buildCodexMcpConfig(effectiveMcpServers);
     const codex = new Codex({
       codexPathOverride,

@@ -71,7 +71,7 @@ async function buildSdkOptions(request) {
   // Use the tools preset for full built-in tool set
   options.tools = { type: "preset", preset: "claude_code" };
 
-  const mcpServers = await buildEffectiveMcpServers(request.provider?.mcpServers);
+  const mcpServers = await buildEffectiveMcpServers(request.provider?.mcpServers, request.context);
   if (Object.keys(mcpServers).length > 0) {
     options.mcpServers = mcpServers;
   }

@@ -149,6 +149,7 @@ pub fn run_agent(
     user_message: Option<&str>,
     task_mode: bool,
     task_context: Option<&AgentTaskContext>,
+    sidecar_pid_out: Option<&std::sync::atomic::AtomicU32>,
 ) -> Result<AgentRunResult> {
     // Reset cancellation flag at the start of each run
     state.sidecar_cancelled.store(false, Ordering::SeqCst);
@@ -183,6 +184,11 @@ pub fn run_agent(
         } else {
             "密码认证".to_string()
         };
+        let ssh_cmd = if node.auth_method == "key" && !node.key_path.is_empty() {
+            format!("ssh -i {} -p {} {}@{}", node.key_path, node.port, node.user, node.host)
+        } else {
+            format!("ssh -p {} {}@{}", node.port, node.user, node.host)
+        };
         let node_block = format!(
             "\n\n<compute_node>\n\
              你有一台可用的远程计算节点，可以通过 SSH 执行远程命令：\n\
@@ -190,13 +196,13 @@ pub fn run_agent(
              - 地址: {}@{}:{}\n\
              - 认证方式: {}\n\
              - 工作目录: {}\n\
-             连接命令: ssh -p {} {}@{}\n\
+             连接命令: {}\n\
              当用户要求你在远程服务器上执行操作（如跑实验、训练模型、查看 GPU 状态等），\n\
              请使用上述 SSH 命令连接服务器并执行。\n\
              </compute_node>",
             node.name, node.user, node.host, node.port,
             auth_info, node.work_dir,
-            node.port, node.user, node.host,
+            ssh_cmd,
         );
         system_prompt.push_str(&node_block);
     }
@@ -289,6 +295,10 @@ pub fn run_agent(
             .lock()
             .expect("active_sidecar lock poisoned");
         *active = Some(pid);
+        // Also write to caller-provided output if given (used by experiment daemon)
+        if let Some(out) = sidecar_pid_out {
+            out.store(pid, Ordering::SeqCst);
+        }
     }
 
     let stdout = child.stdout.take().context("sidecar stdout unavailable")?;

@@ -1,4 +1,6 @@
 import { resolveExecutable } from "./resolve-cli.mjs";
+import { fileURLToPath } from "url";
+import path from "path";
 
 function isStringRecord(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -61,7 +63,7 @@ export function buildCodexMcpConfig(mcpServers) {
   };
 }
 
-export async function buildEffectiveMcpServers(mcpServers) {
+export async function buildEffectiveMcpServers(mcpServers, context) {
   const normalized = normalizeStdioMcpServers(mcpServers);
 
   if (!normalized.zotero) {
@@ -75,6 +77,22 @@ export async function buildEffectiveMcpServers(mcpServers) {
         },
       };
     }
+  }
+
+  const isExperimentStage = context?.taskMode && context?.taskContext?.stage === 'experiment';
+  const forceEnable = process.env.VIWERLEAF_ENABLE_REMOTE_EXPERIMENT === 'true';
+
+  if (!normalized["remote-experiment"] && (isExperimentStage || forceEnable)) {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const experimentScriptPath = path.join(__dirname, "../runners/experiment-mcp-server.mjs");
+    normalized["remote-experiment"] = {
+      type: "stdio",
+      command: process.execPath,
+      args: [experimentScriptPath],
+      env: {
+        ...(context?.projectRoot ? { TARGET_PROJECT_ROOT: context.projectRoot } : {})
+      }
+    };
   }
 
   return normalized;

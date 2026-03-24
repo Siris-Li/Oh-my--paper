@@ -342,6 +342,7 @@ pub fn run_agent(
             user_message2.as_deref(),
             task_mode2,
             task_context2.as_ref(),
+            None, // No PID capture needed for normal agent runs
         ) {
             let _ = app_handle2.emit(
                 "agent:stream",
@@ -357,6 +358,39 @@ pub fn run_agent(
         message: None,
         suggested_patch: None,
     })
+}
+
+#[tauri::command]
+pub fn run_auto_experiment(
+    app_handle: AppHandle,
+    payload: crate::services::experiment::AutomatePayload,
+) -> Result<bool, String> {
+    crate::services::experiment::run_auto_experiment(app_handle, payload)?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn stop_auto_experiment() -> Result<bool, String> {
+    crate::services::experiment::stop_auto_experiment();
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn pause_auto_experiment() -> Result<bool, String> {
+    crate::services::experiment::pause_auto_experiment();
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn resume_auto_experiment() -> Result<bool, String> {
+    crate::services::experiment::resume_auto_experiment();
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn is_experiment_running(state: State<'_, AppState>) -> bool {
+    let root_path = state.project_config.read().unwrap().root_path.clone();
+    crate::services::experiment::is_experiment_running_for(&root_path)
 }
 
 #[tauri::command]

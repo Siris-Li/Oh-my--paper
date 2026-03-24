@@ -31,6 +31,7 @@ interface ResearchCanvasProps {
   onAddTask: (draft: ResearchTaskDraft) => Promise<void> | void;
   onOpenLiteratureForTask: (taskId: string) => void;
   onOpenWriting: () => void;
+  autoExperiment: ReturnType<typeof import("../hooks/useAutoExperiment").useAutoExperiment>;
 }
 
 /* ─── Helpers ─── */
@@ -511,6 +512,95 @@ function TaskComposerDialog({
   );
 }
 
+/* ─── AutoExperimentCard (NEW) ─── */
+
+function AutoExperimentCard({ 
+  locale, 
+  config, 
+  autoExperiment 
+}: { 
+  locale: AppLocale; 
+  config: import("../types").ExperimentLoopConfig;
+  autoExperiment: ReturnType<typeof import("../hooks/useAutoExperiment").useAutoExperiment>;
+}) {
+  const isZh = locale === "zh-CN";
+  const { runState, startExperiment, pauseExperiment, resumeExperiment, stopExperiment } = autoExperiment;
+
+  const isRunning = runState?.status === "running";
+  const isPaused = runState?.status === "paused";
+
+  return (
+    <div className="research-inspector__section" style={{ marginTop: 24, padding: 16, border: "1px solid var(--border-color)", borderRadius: 8, background: "var(--bg-secondary)" }}>
+      <div className="research-inspector__eyebrow" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>{isZh ? "自动实验编排器" : "Auto Experiment Orchestrator"}</span>
+        {runState?.status && (
+           <span className={`task-tree__dot ${isRunning ? "is-active is-current" : isPaused ? "is-pending" : "is-done"}`} style={{ display: "inline-block" }} />
+        )}
+      </div>
+      <h3 style={{ marginTop: 8 }}>{isZh ? "远程实验循环" : "Remote Experiment Loop"}</h3>
+      
+      <div className="research-inspector__meta" style={{ flexWrap: "wrap", gap: "8px 16px", marginBottom: 16 }}>
+        <span>{isZh ? "目标指标" : "Metric"}: {config.successMetric} ({config.successDirection === "max" ? ">" : "<"} {config.successThreshold})</span>
+        <span>{isZh ? "预算限制" : "Budget"}: {config.maxIterations} {isZh ? "轮" : "Rounds"} / {config.maxDurationMinutes} {isZh ? "分钟" : "Mins"}</span>
+        <span>{isZh ? "活动节点" : "Node"}: {config.remoteNode}</span>
+      </div>
+
+      <div style={{ padding: "12px", background: "var(--bg-primary)", borderRadius: 6, fontSize: 13, color: "var(--text-secondary)", marginBottom: 16, border: "1px solid var(--border-color)" }}>
+        <div style={{ marginBottom: 4 }}><strong>{isZh ? "评估命令" : "Eval Command"}:</strong> <code>{config.evalCommand}</code></div>
+        {runState ? (
+          <div style={{ marginTop: 12, borderTop: "1px solid var(--border-color)", paddingTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span><strong>{isZh ? "当前轮次" : "Current Iteration"}:</strong> {runState.iterations} / {config.maxIterations}</span>
+              <span><strong>{isZh ? "状态" : "Status"}:</strong> {runState.status}</span>
+            </div>
+            {runState.bestMetricValue !== undefined && runState.bestMetricValue !== null && (
+               <div style={{ marginBottom: 4 }}><strong>{isZh ? "当前最佳结果" : "Best Result"}:</strong> {runState.bestMetricValue}</div>
+            )}
+            {runState.currentFailures > 0 && (
+               <div style={{ color: "var(--color-orange)" }}><strong>{isZh ? "累计失败" : "Failures"}:</strong> {runState.currentFailures}</div>
+            )}
+            {runState.status === "failed" && (
+               <div style={{ color: "var(--color-red)" }}><strong>{isZh ? "停止原因" : "Stop Reason"}:</strong> Reached max failures</div>
+            )}
+          </div>
+        ) : (
+          <div style={{ marginTop: 12, borderTop: "1px solid var(--border-color)", paddingTop: 8, fontStyle: "italic" }}>
+            {isZh ? "尚未开始实验循环" : "Experiment loop hasn't started yet"}
+          </div>
+        )}
+      </div>
+
+      <div className="research-inspector__actions" style={{ marginTop: 0 }}>
+        {!runState || ["completed", "failed", "stopped", "interrupted"].includes(runState.status) ? (
+          <button type="button" className="research-primary-btn" onClick={() => void startExperiment(config)}>
+            {runState?.status === "interrupted"
+              ? (isZh ? "重新启动实验" : "Restart Experiment")
+              : (isZh ? "开始自动实验" : "Start Auto Experiment")}
+          </button>
+        ) : isRunning ? (
+          <>
+            <button type="button" className="research-secondary-btn" onClick={() => void pauseExperiment()} title={isZh ? "当前轮次结束后暂停" : "Pause after current round"}>
+              {isZh ? "本轮后暂停" : "Pause After Round"}
+            </button>
+            <button type="button" className="research-secondary-btn" onClick={() => void stopExperiment()} style={{ color: "var(--color-red)", borderColor: "var(--color-red)" }}>
+              {isZh ? "停止" : "Stop"}
+            </button>
+          </>
+        ) : isPaused ? (
+          <>
+            <button type="button" className="research-primary-btn" onClick={() => void resumeExperiment()}>
+              {isZh ? "恢复运行" : "Resume"}
+            </button>
+            <button type="button" className="research-secondary-btn" onClick={() => void stopExperiment()} style={{ color: "var(--color-red)", borderColor: "var(--color-red)" }}>
+              {isZh ? "停止" : "Stop"}
+            </button>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Git Task Tree View (NEW) ─── */
 
 function TaskTreeNodeDot({ status, isActive }: { status: string; isActive: boolean }) {
@@ -543,6 +633,7 @@ export function ResearchCanvas({
   onUseTaskInChat,
   onAddTask,
   onOpenWriting,
+  autoExperiment,
 }: ResearchCanvasProps) {
   const isZh = locale === "zh-CN";
   const localizedResearch = useMemo(
@@ -780,20 +871,25 @@ export function ResearchCanvas({
             onOpenWriting={onOpenWriting}
           />
         ) : resolved.stage ? (
-          <StageInspector
-            locale={locale}
-            stage={resolved.stage}
-            onAddTask={(stage) => {
-              const dependencyDefaults = localizedResearch.tasks
-                .filter((task) => task.stage === stage && taskExecutionState.executableTaskIds.has(task.id))
-                .map((task) => task.id);
-              const stageSummary = localizedResearch.stageSummaries.find((item) => item.stage === stage);
-              setTaskComposer(createTaskComposerState(stage, dependencyDefaults, stageSummary?.suggestedSkills ?? []));
-            }}
-            onInitializeStage={onInitializeStage}
-            onOpenArtifact={onOpenArtifact}
-            onOpenWriting={onOpenWriting}
-          />
+          <>
+            <StageInspector
+              locale={locale}
+              stage={resolved.stage}
+              onAddTask={(stage) => {
+                const dependencyDefaults = localizedResearch.tasks
+                  .filter((task) => task.stage === stage && taskExecutionState.executableTaskIds.has(task.id))
+                  .map((task) => task.id);
+                const stageSummary = localizedResearch.stageSummaries.find((item) => item.stage === stage);
+                setTaskComposer(createTaskComposerState(stage, dependencyDefaults, stageSummary?.suggestedSkills ?? []));
+              }}
+              onInitializeStage={onInitializeStage}
+              onOpenArtifact={onOpenArtifact}
+              onOpenWriting={onOpenWriting}
+            />
+            {resolved.stage.stage === "experiment" && localizedResearch.experimentLoop?.enabled ? (
+              <AutoExperimentCard locale={locale} config={localizedResearch.experimentLoop} autoExperiment={autoExperiment} />
+            ) : null}
+          </>
         ) : (
           <div className="research-inspector__empty">
             {isZh ? "选择一个阶段或任务节点查看详情。" : "Select a stage or task node to see details."}

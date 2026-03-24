@@ -617,6 +617,7 @@ pub struct ResearchCanvasSnapshot {
     pub system_prompt: String,
     #[serde(default)]
     pub working_memory: String,
+    pub experiment_loop: Option<serde_json::Value>,
     #[serde(default)]
     pub pipeline_artifacts: Vec<PipelineArtifact>,
 }

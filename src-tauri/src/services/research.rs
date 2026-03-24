@@ -1444,7 +1444,7 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
 
     Ok(ResearchCanvasSnapshot {
         bootstrap,
-        brief: brief_value,
+        brief: brief_value.clone(),
         tasks,
         current_stage: current_stage.clone(),
         initialized_stages,
@@ -1465,6 +1465,7 @@ pub fn load_research_snapshot(root: &Path) -> Result<ResearchCanvasSnapshot> {
         brief_goal,
         system_prompt,
         working_memory,
+        experiment_loop: brief_value.as_ref().and_then(|value| value.get("experimentLoop").cloned()),
         pipeline_artifacts: collect_pipeline_artifacts(root),
     })
 }

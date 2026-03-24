@@ -4397,6 +4397,7 @@ version = "0.2.1"
 dependencies = [
  "anyhow",
  "dirs",
+ "libc",
  "muda",
  "objc2",
  "objc2-app-kit",

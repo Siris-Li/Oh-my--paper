@@ -1257,6 +1257,15 @@ function App() {
     resetForSnapshot: resetAgentChatForSnapshot,
   } = agentChat;
 
+  const autoExperiment = useAutoExperiment({
+    projectRoot: snapshot?.projectConfig.rootPath,
+    activeTaskContext: activeAgentTaskContext,
+    snapshot,
+    profileId: currentProfileId,
+    sessionId: activeSessionId || "",
+    filePath: activeFile?.path || "",
+  });
+
   const activeCollaborativeDoc = useCollaborativeDoc({
     docPath: activeFile?.path ?? "",
     projectId: snapshot?.collab?.cloudProjectId ?? null,
@@ -4295,6 +4304,7 @@ function App() {
                   onAddTask={handleAddResearchTask}
                   onOpenLiteratureForTask={handleOpenLiteratureForTask}
                   onOpenWriting={() => setWorkspaceSurface("writing")}
+                  autoExperiment={autoExperiment}
                 />
               </div>
             ) : showLiteratureSurface ? (

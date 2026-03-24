@@ -508,6 +508,34 @@ export interface ResearchCanvasSnapshot {
   systemPrompt?: string;
   workingMemory?: string;
   pipelineArtifacts?: { label: string; path: string; fileType: string }[];
+  experimentLoop?: ExperimentLoopConfig;
+}
+
+export interface ExperimentLoopConfig {
+  enabled: boolean;
+  remoteNode: "active" | string;
+  evalCommand: string;
+  successMetric: string;
+  successDirection: "max" | "min";
+  successThreshold: number;
+  maxIterations: number;
+  maxFailures: number;
+  maxDurationMinutes: number;
+  resultPaths: string[];
+}
+
+export type ExperimentRunStateStatus = "running" | "paused" | "stopped" | "failed" | "completed" | "interrupted";
+
+export interface ExperimentRunState {
+  status: ExperimentRunStateStatus;
+  iterations: number;
+  bestMetricValue?: number | null;
+  runHistory: any[];
+  maxFailures: number;
+  currentFailures: number;
+  sessionId?: string;
+  startTimeMs?: number;
+  reason?: string;
 }
 
 export interface ResearchTaskUpdateChanges {
