@@ -72,6 +72,16 @@ async function buildSdkOptions(request) {
   const sshDir = join(homedir(), ".ssh");
   options.additionalDirectories = [sshDir];
 
+  // Whitelist SSH/rsync commands so the sandbox allows them.
+  // These are auto-approved by the SDK; canUseTool callback is
+  // still invoked for other Bash commands.
+  options.allowedTools = [
+    "Bash(ssh:*)",
+    "Bash(rsync:*)",
+    "Bash(sshpass:*)",
+    "Bash(node:*)",
+  ];
+
   // Model — skip when "cli-default" so the CLI uses its own configured model
   const modelValue = request.provider?.model;
   if (modelValue && modelValue !== "cli-default") {
