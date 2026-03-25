@@ -350,6 +350,9 @@ export const desktop = {
       Promise.resolve(true),
     );
   },
+  setAutoApprove(value: boolean) {
+    return runOrMock("set_auto_approve", { value }, () => Promise.resolve(true));
+  },
   getAgentMessages(sessionId?: string) {
     return runOrMock<AgentMessage[]>("get_agent_messages", { sessionId }, () => mockRuntime.getAgentMessages(sessionId));
   },

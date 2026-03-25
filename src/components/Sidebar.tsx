@@ -92,6 +92,8 @@ interface SidebarProps {
   onRespondInteractiveQuestion?: (answers: Record<string, string[]>) => void;
   pendingPermissionRequest?: PendingPermissionRequest | null;
   onRespondPermission?: (requestId: string, behavior: "allow" | "deny", message?: string) => void;
+  autoApproveSession?: boolean;
+  onSetAutoApprove?: (value: boolean) => void;
   // Collab props
   collabAuthSession: CollabAuthSession | null;
   collabConfig: CollabConfig | null;
@@ -230,6 +232,8 @@ export function Sidebar({
   onRespondInteractiveQuestion,
   pendingPermissionRequest,
   onRespondPermission,
+  autoApproveSession,
+  onSetAutoApprove,
   collabAuthSession,
   collabConfig: collabConfigProp,
   cloudCollab,
@@ -478,6 +482,8 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
             onRespondInteractiveQuestion={onRespondInteractiveQuestion}
             pendingPermissionRequest={pendingPermissionRequest}
             onRespondPermission={onRespondPermission}
+            autoApproveSession={autoApproveSession}
+            onSetAutoApprove={onSetAutoApprove}
           />
         </div>
       )}

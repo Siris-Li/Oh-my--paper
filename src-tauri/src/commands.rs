@@ -905,6 +905,40 @@ pub fn respond_permission_request(
 }
 
 #[tauri::command]
+pub fn set_auto_approve(
+    state: State<'_, AppState>,
+    value: bool,
+) -> Result<bool, String> {
+    use std::io::Write;
+
+    let mut stdin_slot = state
+        .active_sidecar_stdin
+        .lock()
+        .map_err(|err| err.to_string())?;
+
+    let stdin = stdin_slot
+        .as_mut()
+        .ok_or_else(|| "no active sidecar stdin".to_string())?;
+
+    let msg = serde_json::json!({
+        "type": "set_auto_approve",
+        "value": value,
+    });
+
+    let mut line = serde_json::to_string(&msg).map_err(|err| err.to_string())?;
+    line.push('\n');
+
+    stdin
+        .write_all(line.as_bytes())
+        .map_err(|err| format!("failed to write auto_approve: {err}"))?;
+    stdin
+        .flush()
+        .map_err(|err| format!("failed to flush auto_approve: {err}"))?;
+
+    Ok(true)
+}
+
+#[tauri::command]
 pub async fn import_skill_from_git(
     app_handle: AppHandle,
     url: String,

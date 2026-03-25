@@ -1247,6 +1247,7 @@ function App() {
     pendingPatch,
     pendingInteractiveQuestion,
     pendingPermissionRequest,
+    autoApproveSession,
     handleRunAgent: runAgentBase,
     handleSendMessage: sendMessageBase,
     handleNewSession: newSessionBase,
@@ -1257,6 +1258,7 @@ function App() {
     handleRespondElicitation,
     handleRespondInteractiveQuestion,
     handleRespondPermission,
+    handleSetAutoApprove,
     resetForSnapshot: resetAgentChatForSnapshot,
   } = agentChat;
 
@@ -4249,6 +4251,8 @@ function App() {
                       onRespondInteractiveQuestion={handleRespondInteractiveQuestion}
                       pendingPermissionRequest={pendingPermissionRequest}
                       onRespondPermission={handleRespondPermission}
+                      autoApproveSession={autoApproveSession}
+                      onSetAutoApprove={handleSetAutoApprove}
                       collabAuthSession={collabAuthSession}
                       collabConfig={collabConfigState}
                       cloudCollab={snapshot.collab ?? null}

@@ -1786,6 +1786,8 @@ export interface ChatPanelProps {
   onRespondInteractiveQuestion?: (answers: Record<string, string[]>) => void;
   pendingPermissionRequest?: PendingPermissionRequest | null;
   onRespondPermission?: (requestId: string, behavior: "allow" | "deny", message?: string) => void;
+  autoApproveSession?: boolean;
+  onSetAutoApprove?: (value: boolean) => void;
 }
 
 export function ChatPanel({
@@ -1811,6 +1813,8 @@ export function ChatPanel({
   onRespondInteractiveQuestion,
   pendingPermissionRequest,
   onRespondPermission,
+  autoApproveSession,
+  onSetAutoApprove,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
@@ -2374,6 +2378,15 @@ export function ChatPanel({
                 onClick={() => onRespondPermission?.(pendingPermissionRequest.requestId, "allow")}
               >
                 ✓ 允许
+              </button>
+              <button
+                className="ag-permission-btn ag-permission-btn--allow-all"
+                onClick={() => {
+                  onRespondPermission?.(pendingPermissionRequest.requestId, "allow");
+                  onSetAutoApprove?.(true);
+                }}
+              >
+                ✓ 本次对话全部允许
               </button>
               <button
                 className="ag-permission-btn ag-permission-btn--deny"

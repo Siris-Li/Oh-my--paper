@@ -4808,6 +4808,15 @@ button {
   opacity: 0.92;
   box-shadow: 0 6px 16px rgba(5, 150, 105, 0.28);
 }
+.ag-permission-btn--allow-all {
+  background: linear-gradient(135deg, #d97706, #b45309);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.2);
+}
+.ag-permission-btn--allow-all:hover {
+  opacity: 0.92;
+  box-shadow: 0 6px 16px rgba(217, 119, 6, 0.28);
+}
 .ag-permission-btn--deny {
   background: transparent;
   border: 1px solid rgba(203, 213, 225, 0.7);

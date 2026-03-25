@@ -126,6 +126,7 @@ export interface AgentChatState {
   pendingPatch: { filePath: string; content: string; summary: string; diff?: DiffLine[] } | null;
   pendingInteractiveQuestion: PendingInteractiveQuestion | null;
   pendingPermissionRequest: PendingPermissionRequest | null;
+  autoApproveSession: boolean;
   setActiveProfileId: (profileId: AgentProfileId) => void;
   handleRunAgent: () => Promise<void>;
   handleSendMessage: (
@@ -140,6 +141,7 @@ export interface AgentChatState {
   handleRespondElicitation: (requestId: string, action: "accept" | "decline") => Promise<void>;
   handleRespondInteractiveQuestion: (answers: Record<string, string[]>) => void;
   handleRespondPermission: (requestId: string, behavior: "allow" | "deny", message?: string) => Promise<void>;
+  handleSetAutoApprove: (value: boolean) => Promise<void>;
   resetForSnapshot: () => void;
 }
 
@@ -173,6 +175,7 @@ export function useAgentChat({
   );
   const [pendingInteractiveQuestion, setPendingInteractiveQuestion] = useState<PendingInteractiveQuestion | null>(null);
   const [pendingPermissionRequest, setPendingPermissionRequest] = useState<PendingPermissionRequest | null>(null);
+  const [autoApproveSession, setAutoApproveSession] = useState(false);
 
   const streamBufferRef = useRef("");
   const streamFlushTimerRef = useRef<number | null>(null);
@@ -871,6 +874,15 @@ export function useAgentChat({
     }
   });
 
+  const handleSetAutoApprove = useEffectEvent(async (value: boolean) => {
+    setAutoApproveSession(value);
+    try {
+      await desktop.setAutoApprove(value);
+    } catch (error) {
+      console.error("Failed to set auto approve:", error);
+    }
+  });
+
   return {
     messages,
     agentSessions,
@@ -892,6 +904,7 @@ export function useAgentChat({
     pendingPatch,
     pendingInteractiveQuestion,
     pendingPermissionRequest,
+    autoApproveSession,
     setActiveProfileId,
     handleRunAgent,
     handleSendMessage,
@@ -903,6 +916,7 @@ export function useAgentChat({
     handleRespondElicitation,
     handleRespondInteractiveQuestion,
     handleRespondPermission,
+    handleSetAutoApprove,
     resetForSnapshot,
   };
 }

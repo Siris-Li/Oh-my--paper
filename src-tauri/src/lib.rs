@@ -134,6 +134,7 @@ pub fn run() {
             commands::prepare_worker_deploy_dir,
             commands::cancel_agent,
             commands::respond_permission_request,
+            commands::set_auto_approve,
             commands::import_skill_from_git,
             commands::remove_skill,
             commands::detect_cli_agents,

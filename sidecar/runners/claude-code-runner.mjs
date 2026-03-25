@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { emit } from "../utils/ndjson.mjs";
 import { buildEffectiveMcpServers } from "../utils/mcp-config.mjs";
@@ -14,7 +16,13 @@ import { stdinLineEmitter } from "../index.mjs";
  */
 const pendingPermissions = new Map();
 
-// Listen for permission responses from Rust backend via stdin IPC
+/**
+ * Session-level auto-approve flag. When true, canUseTool returns
+ * { behavior: "allow" } immediately without asking the frontend.
+ */
+let autoApprove = false;
+
+// Listen for permission responses AND auto-approve toggle from Rust backend
 stdinLineEmitter.on("line", (rawLine) => {
   try {
     const msg = JSON.parse(rawLine);
@@ -24,6 +32,8 @@ stdinLineEmitter.on("line", (rawLine) => {
         pendingPermissions.delete(msg.requestId);
         resolver(msg);
       }
+    } else if (msg.type === "set_auto_approve") {
+      autoApprove = !!msg.value;
     }
   } catch {
     // Ignore non-JSON lines
@@ -57,6 +67,10 @@ async function buildSdkOptions(request) {
   if (request.context?.projectRoot) {
     options.cwd = request.context.projectRoot;
   }
+
+  // Allow SSH key access for remote experiment execution
+  const sshDir = join(homedir(), ".ssh");
+  options.additionalDirectories = [sshDir];
 
   // Model — skip when "cli-default" so the CLI uses its own configured model
   const modelValue = request.provider?.model;
@@ -102,6 +116,11 @@ async function buildSdkOptions(request) {
   // permission_request event via stdout and wait for the Rust
   // backend to respond via stdin.
   options.canUseTool = async (toolName, input, callbackOptions) => {
+    // Auto-approve if session flag is set
+    if (autoApprove) {
+      return { behavior: "allow" };
+    }
+
     const requestId = callbackOptions.toolUseID || `perm-${Date.now()}`;
 
     // Emit permission request to Rust backend via stdout
