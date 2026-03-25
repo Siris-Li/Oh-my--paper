@@ -2981,7 +2981,7 @@ button {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  background: #0f1117;
+  background: #ffffff;
 }
 
 .sidebar-terminal-bar {
@@ -2990,8 +2990,8 @@ button {
   gap: 8px;
   padding: 4px 8px;
   min-height: 30px;
-  background: #161923;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-light);
   flex: 0 0 auto;
 }
 
@@ -2999,7 +2999,7 @@ button {
   flex: 1;
   min-width: 0;
   font-size: 11px;
-  color: rgba(212, 212, 216, 0.55);
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3018,16 +3018,16 @@ button {
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
-  color: rgba(212, 212, 216, 0.6);
+  color: var(--text-secondary);
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-light);
   transition: all var(--transition-fast);
 }
 
 .sidebar-terminal-btn:hover:not(:disabled) {
-  color: #d4d4d8;
-  border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  border-color: rgba(100, 116, 139, 0.48);
+  background: var(--bg-surface-active);
 }
 
 .sidebar-terminal-btn:disabled {
@@ -3039,7 +3039,7 @@ button {
   flex: 1;
   min-height: 0;
   position: relative;
-  background: #0f1117;
+  background: #ffffff;
 }
 
 .sidebar-terminal-canvas {
@@ -3050,12 +3050,12 @@ button {
 .sidebar-terminal-canvas .xterm {
   height: 100%;
   padding: 6px 8px 8px;
-  background: #0f1117;
+  background: #ffffff;
 }
 
 .sidebar-terminal-canvas .xterm-viewport {
   overflow-y: auto !important;
-  background: #0f1117 !important;
+  background: #ffffff !important;
 }
 
 .sidebar-terminal-empty {
@@ -3063,7 +3063,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(212, 212, 216, 0.45);
+  color: var(--text-tertiary);
   font-size: 13px;
 }
 
@@ -3075,15 +3075,15 @@ button {
   justify-content: center;
   padding: 18px;
   pointer-events: none;
-  background: rgba(15, 17, 23, 0.85);
+  background: rgba(255, 255, 255, 0.85);
 }
 
 .sidebar-terminal-overlay-label {
   padding: 8px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-light);
   border-radius: 999px;
-  background: rgba(22, 25, 35, 0.9);
-  color: rgba(212, 212, 216, 0.7);
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--text-secondary);
   font-size: 12px;
   font-family: var(--mono);
   text-align: center;

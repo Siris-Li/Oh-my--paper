@@ -73,7 +73,7 @@ pub fn run() {
                 sidecar_cancelled: std::sync::atomic::AtomicBool::new(false),
                 active_sidecar_stdin: Mutex::new(None),
             });
-            app.manage(services::wechat_bridge::WeChatBridgeState::default());
+            app.manage(services::cc_connect::CcConnectState::default());
 
             Ok(())
         })
@@ -167,15 +167,14 @@ pub fn run() {
             commands::delete_compute_node,
             commands::set_active_compute_node,
             commands::test_compute_node,
-            // WeChat remote bridge
-            commands::load_wechat_config,
-            commands::save_wechat_config_cmd,
-            commands::get_wechat_status,
-            commands::start_wechat_binding,
-            commands::poll_wechat_binding_status,
-            commands::start_wechat_listener,
-            commands::stop_wechat_listener,
-            commands::send_wechat_reply,
+            // CC-Connect (WeChat / messaging bridge)
+            commands::detect_cc_connect,
+            commands::install_cc_connect,
+            commands::setup_cc_connect_config,
+            commands::start_cc_connect_weixin_setup,
+            commands::start_cc_connect,
+            commands::stop_cc_connect,
+            commands::get_cc_connect_status,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start ViewerLeaf");

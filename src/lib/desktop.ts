@@ -567,61 +567,59 @@ export const desktop = {
     );
   },
 
-  // ─── WeChat Remote Bridge ───
-  loadWeChatConfig() {
+  // ─── CC-Connect (WeChat / Messaging Bridge) ───
+  detectCcConnect() {
     return runOrMock<{
-      token: string;
-      apiUrl: string;
-      allowFrom: string;
-      autoStart: boolean;
-      pollTimeoutMs: number;
-    }>("load_wechat_config", {}, () =>
+      installed: boolean;
+      version?: string;
+      state: string;
+      message: string;
+    }>("detect_cc_connect", {}, () =>
       Promise.resolve({
-        token: "",
-        apiUrl: "https://ilinkai.weixin.qq.com",
-        allowFrom: "",
-        autoStart: false,
-        pollTimeoutMs: 35000,
+        installed: false,
+        version: undefined,
+        state: "idle",
+        message: "cc-connect not found",
       }),
     );
   },
-  saveWeChatConfig(config: {
-    token: string;
-    apiUrl: string;
-    allowFrom: string;
-    autoStart: boolean;
-    pollTimeoutMs: number;
-  }) {
-    return runOrMock("save_wechat_config_cmd", { config }, () => Promise.resolve());
-  },
-  getWeChatStatus() {
-    return runOrMock<{ state: string; message: string; boundUser?: string }>(
-      "get_wechat_status", {}, () =>
-        Promise.resolve({ state: "disconnected", message: "Not connected" }),
+  installCcConnect() {
+    return runOrMock<string>("install_cc_connect", {}, () =>
+      Promise.reject(new Error("Install only available in desktop")),
     );
   },
-  startWeChatBinding(apiUrl?: string) {
-    return runOrMock<{ qrUrl: string; scanTicket: string }>(
-      "start_wechat_binding", { apiUrl }, () =>
-        Promise.reject(new Error("WeChat binding only available in desktop")),
+  setupCcConnectConfig(agentType?: string) {
+    return runOrMock("setup_cc_connect_config", { agentType }, () =>
+      Promise.resolve(),
     );
   },
-  pollWeChatBindingStatus(scanTicket: string, apiUrl?: string) {
-    return runOrMock<string | null>(
-      "poll_wechat_binding_status", { scanTicket, apiUrl }, () =>
-        Promise.resolve(null),
+  startCcConnectWeixinSetup() {
+    return runOrMock<string>("start_cc_connect_weixin_setup", {}, () =>
+      Promise.reject(new Error("Weixin setup only available in desktop")),
     );
   },
-  startWeChatListener() {
-    return runOrMock("start_wechat_listener", {}, () =>
-      Promise.reject(new Error("WeChat listener only available in desktop")),
+  startCcConnect() {
+    return runOrMock("start_cc_connect", {}, () =>
+      Promise.reject(new Error("cc-connect only available in desktop")),
     );
   },
-  stopWeChatListener() {
-    return runOrMock("stop_wechat_listener", {}, () => Promise.resolve());
+  stopCcConnect() {
+    return runOrMock("stop_cc_connect", {}, () => Promise.resolve());
   },
-  sendWeChatReply(text: string) {
-    return runOrMock("send_wechat_reply", { text }, () => Promise.resolve());
+  getCcConnectStatus() {
+    return runOrMock<{
+      installed: boolean;
+      version?: string;
+      state: string;
+      message: string;
+    }>("get_cc_connect_status", {}, () =>
+      Promise.resolve({
+        installed: false,
+        version: undefined,
+        state: "idle",
+        message: "Not available",
+      }),
+    );
   },
 };
 
