@@ -11,10 +11,39 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+// ── File-based debug logging (works in release builds) ──────
+
+/// Log to both stderr and `~/.viewerleaf/wechat-debug.log`.
+pub fn wechat_log(msg: &str) {
+    eprintln!("{}", msg);
+    let log_path = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".viewerleaf")
+        .join("wechat-debug.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let _ = writeln!(f, "[{}] {}", ts, msg);
+    }
+}
+
+macro_rules! wlog {
+    ($($arg:tt)*) => {
+        crate::services::wechat_bridge::wechat_log(&format!($($arg)*))
+    };
+}
 
 // ── Data Types ──────────────────────────────────────────────
 
@@ -222,7 +251,7 @@ pub fn request_qr_code(api_url: &str) -> Result<QrCodeInfo, String> {
         .into_json()
         .map_err(|e| format!("Failed to parse QR response: {e}"))?;
 
-    eprintln!(
+    wlog!(
         "[WeChat iLink] get_bot_qrcode raw response: {}",
         serde_json::to_string_pretty(&response_body).unwrap_or_default()
     );
@@ -291,7 +320,7 @@ pub fn poll_scan_status(api_url: &str, ticket: &str) -> Result<Option<String>, S
         .into_json()
         .map_err(|e| format!("Failed to parse scan status: {e}"))?;
 
-    eprintln!(
+    wlog!(
         "[WeChat iLink] get_qrcode_status raw response: {}",
         serde_json::to_string_pretty(&response_body).unwrap_or_default()
     );
@@ -315,21 +344,21 @@ pub fn poll_scan_status(api_url: &str, ticket: &str) -> Result<Option<String>, S
                 (None, "none")
             };
 
-            eprintln!("[WeChat iLink] ✅ Confirmed! Token source field: '{}'", source);
+            wlog!("[WeChat iLink] ✅ Confirmed! Token source field: '{}'", source);
             if let Some(ref t) = token {
                 let preview = if t.len() > 40 { format!("{}…", &t[..40]) } else { t.clone() };
-                eprintln!("[WeChat iLink]   token value: {}", preview);
+                wlog!("[WeChat iLink]   token value: {}", preview);
             }
 
             // Log additional useful info
             if let Some(bot_id) = response_body.get("ilink_bot_id").and_then(|v| v.as_str()) {
-                eprintln!("[WeChat iLink]   ilink_bot_id: {}", bot_id);
+                wlog!("[WeChat iLink]   ilink_bot_id: {}", bot_id);
             }
             if let Some(base) = response_body.get("baseurl").and_then(|v| v.as_str()) {
-                eprintln!("[WeChat iLink]   baseurl: {}", base);
+                wlog!("[WeChat iLink]   baseurl: {}", base);
             }
             if let Some(uid) = response_body.get("ilink_user_id").and_then(|v| v.as_str()) {
-                eprintln!("[WeChat iLink]   ilink_user_id: {}", uid);
+                wlog!("[WeChat iLink]   ilink_user_id: {}", uid);
             }
 
             Ok(token)
@@ -380,7 +409,7 @@ pub fn get_updates(
     // Log full response for first few calls and whenever messages arrive
     let msg_count = response_body.get("msgs").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
     if msg_count > 0 || cursor.is_empty() {
-        eprintln!(
+        wlog!(
             "[WeChat iLink] getUpdates response (msgs={}):\n{}",
             msg_count,
             serde_json::to_string_pretty(&response_body).unwrap_or_default()
@@ -408,7 +437,7 @@ pub fn get_updates(
             .and_then(|v: &serde_json::Value| v.as_str())
             .unwrap_or("unknown error");
         // Log but don't fail for non-zero ret (it may be transient)
-        eprintln!(
+        wlog!(
             "[WeChat iLink] getUpdates ret={}, errcode={}, errmsg={}",
             ret, errcode, errmsg
         );

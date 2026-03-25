@@ -1430,9 +1430,9 @@ pub fn start_wechat_listener(
         } else {
             config.token.clone()
         };
-        eprintln!("[WeChat Listener] Starting with token: {}", token_preview);
-        eprintln!("[WeChat Listener] API URL: {}", config.api_url);
-        eprintln!("[WeChat Listener] Allow from: '{}'", config.allow_from);
+        wechat_bridge::wechat_log(&format!("[WeChat Listener] Starting with token: {}", token_preview));
+        wechat_bridge::wechat_log(&format!("[WeChat Listener] API URL: {}", config.api_url));
+        wechat_bridge::wechat_log(&format!("[WeChat Listener] Allow from: '{}'", config.allow_from));
 
         while running.load(Ordering::SeqCst) {
             let cursor = {
@@ -1440,7 +1440,7 @@ pub fn start_wechat_listener(
                 guard.clone()
             };
 
-            eprintln!("[WeChat Listener] Polling getUpdates (cursor len={})...", cursor.len());
+            wechat_bridge::wechat_log(&format!("[WeChat Listener] Polling getUpdates (cursor len={})...", cursor.len()));
 
             match wechat_bridge::get_updates(
                 &config.api_url,
@@ -1449,7 +1449,7 @@ pub fn start_wechat_listener(
                 config.poll_timeout_ms,
             ) {
                 Ok((messages, new_cursor)) => {
-                    eprintln!("[WeChat Listener] Got {} messages, cursor changed={}", messages.len(), new_cursor != cursor);
+                    wechat_bridge::wechat_log(&format!("[WeChat Listener] Got {} messages, cursor changed={}", messages.len(), new_cursor != cursor));
                     {
                         let mut guard = cursor_ref.lock().unwrap_or_else(|e| e.into_inner());
                         *guard = new_cursor;
@@ -1503,7 +1503,7 @@ pub fn start_wechat_listener(
                         };
 
                         if project_root.trim().is_empty() {
-                            eprintln!("[WeChat] No active project, cannot run agent");
+                            wechat_bridge::wechat_log(&format!("[WeChat] No active project, cannot run agent"));
                             // Send a hint back to the user
                             let ctx = {
                                 let guard = ctx_token_ref.lock().unwrap_or_else(|e| e.into_inner());
@@ -1555,7 +1555,7 @@ pub fn start_wechat_listener(
                                         &chunk_text,
                                         ctx.as_deref(),
                                     ) {
-                                        eprintln!("[WeChat] Failed to send reply: {}", err);
+                                        wechat_bridge::wechat_log(&format!("[WeChat] Failed to send reply: {}", err));
                                     }
                                 }
 
@@ -1565,7 +1565,7 @@ pub fn start_wechat_listener(
                                 );
                             }
                             Err(err) => {
-                                eprintln!("[WeChat] Agent error: {:#}", err);
+                                wechat_bridge::wechat_log(&format!("[WeChat] Agent error: {:#}", err));
                                 let ctx = {
                                     let guard = ctx_token_ref.lock().unwrap_or_else(|e| e.into_inner());
                                     guard.clone()
