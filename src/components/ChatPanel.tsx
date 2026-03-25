@@ -655,7 +655,7 @@ function summarizeToolCall(call: ToolCallBlock) {
     return candidates[0] ?? "";
   })();
 
-  const target = firstStringArg.length > 36 ? `${firstStringArg.slice(0, 36)}…` : firstStringArg;
+  const target = firstStringArg.length > 60 ? `${firstStringArg.slice(0, 60)}…` : firstStringArg;
   const prefix = call.status === "running" ? "正在" : call.status === "error" ? "失败" : "已完成";
   const requestedPrefix = call.status === "requested" ? "请求" : prefix;
 
@@ -691,6 +691,61 @@ function summarizeToolCall(call: ToolCallBlock) {
       return `${requestedPrefix}应用文件变更`;
     default:
       return `${requestedPrefix}调用 ${call.toolId}${target ? ` · ${target}` : ""}`;
+  }
+}
+
+/** Extract a concise detail snippet describing what a tool call actually did. */
+function getToolDetailSnippet(call: ToolCallBlock): string {
+  if (!call.args) return "";
+  const MAX = 80;
+  const trunc = (s: string) => (s.length > MAX ? `${s.slice(0, MAX)}…` : s);
+
+  const strArg = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = call.args?.[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+    return "";
+  };
+
+  const basename = (p: string) => {
+    const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : p;
+  };
+
+  switch (call.toolId) {
+    case "bash":
+      return trunc(strArg("command"));
+    case "read":
+    case "read_section":
+      return basename(strArg("filePath", "file_path", "path", "uri"));
+    case "list":
+    case "list_files":
+      return strArg("path", "filePath", "file_path") ? basename(strArg("path", "filePath", "file_path")) + "/" : "";
+    case "list_sections":
+      return basename(strArg("filePath", "file_path", "path"));
+    case "edit":
+    case "write":
+    case "apply_patch":
+    case "apply_text_patch":
+    case "insert_at_line":
+      return basename(strArg("filePath", "file_path", "path"));
+    case "grep":
+    case "search_project":
+      return trunc(strArg("query", "pattern"));
+    case "glob":
+      return trunc(strArg("pattern", "query"));
+    case "web_search":
+      return trunc(strArg("query"));
+    case "file_change":
+      return trunc(strArg("changes"));
+    default: {
+      // For MCP or unknown tools, return the first short string arg
+      const entries = Object.values(call.args).filter(
+        (v) => typeof v === "string" && v.trim().length > 0 && v.trim().length < 200,
+      ) as string[];
+      return entries.length > 0 ? trunc(entries[0].trim()) : "";
+    }
   }
 }
 
@@ -784,6 +839,7 @@ function ToolCallCard({ call }: { call: ToolCallBlock }) {
   const isError = call.status === "error";
   const isRequested = call.status === "requested";
   const summary = summarizeToolCall(call);
+  const detail = getToolDetailSnippet(call);
   const argRows = buildToolArgRows(call);
   const outputPreview = buildToolOutputPreview(call.output);
 
@@ -808,6 +864,7 @@ function ToolCallCard({ call }: { call: ToolCallBlock }) {
           )}
         </span>
         <span className="ag-tool-name">{summary}</span>
+        {detail && <span className="ag-tool-detail">{detail}</span>}
         <span className={`ag-tool-pill ag-tool-pill--${call.status}`}>{call.toolId}</span>
       </div>
       {(argRows.length > 0 || outputPreview) && (

@@ -4474,7 +4474,17 @@ button {
 .ag-tool-header--static { cursor: default; }
 .ag-tool-header--static:hover { background: transparent; }
 .ag-tool-icon { color: var(--accent-primary); flex-shrink: 0; }
-.ag-tool-name { flex: 1; font-weight: 700; color: var(--text-primary); }
+.ag-tool-name { flex-shrink: 0; font-weight: 700; color: var(--text-primary); }
+.ag-tool-detail {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ag-tool-preview {
   color: var(--text-tertiary);
   font-size: 11px;
