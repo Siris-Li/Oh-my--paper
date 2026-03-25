@@ -362,11 +362,40 @@ pub fn run_agent(
 }
 
 #[tauri::command]
-pub fn run_auto_experiment(
+pub fn start_experiment_loop(
     app_handle: AppHandle,
-    payload: crate::services::experiment::AutomatePayload,
-) -> Result<bool, String> {
-    crate::services::experiment::run_auto_experiment(app_handle, payload)?;
+    payload: crate::services::experiment::StartExperimentPayload,
+) -> Result<crate::services::experiment::StartExperimentResult, String> {
+    crate::services::experiment::start_experiment_loop(&app_handle, payload)
+}
+
+#[tauri::command]
+pub async fn experiment_pre_iteration(
+    app_handle: AppHandle,
+    loop_config: crate::services::experiment::ExperimentLoopConfig,
+) -> Result<crate::services::experiment::PreIterationResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::experiment::experiment_pre_iteration(&app_handle, &loop_config)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn experiment_post_iteration(
+    app_handle: AppHandle,
+    payload: crate::services::experiment::PostIterationPayload,
+) -> Result<crate::services::experiment::PostIterationResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::services::experiment::experiment_post_iteration(&app_handle, payload)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub fn finish_experiment_loop() -> Result<bool, String> {
+    crate::services::experiment::finish_experiment_loop();
     Ok(true)
 }
 
