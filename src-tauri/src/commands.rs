@@ -1512,6 +1512,7 @@ pub fn start_wechat_listener(
                             let _ = wechat_bridge::send_message(
                                 &config.api_url,
                                 &config.token,
+                                &msg.from_user,
                                 "⚠️ 当前没有打开的项目，请先在 ViewerLeaf 中打开一个项目。",
                                 ctx.as_deref(),
                             );
@@ -1552,6 +1553,7 @@ pub fn start_wechat_listener(
                                     if let Err(err) = wechat_bridge::send_message(
                                         &config.api_url,
                                         &config.token,
+                                        &msg.from_user,
                                         &chunk_text,
                                         ctx.as_deref(),
                                     ) {
@@ -1573,6 +1575,7 @@ pub fn start_wechat_listener(
                                 let _ = wechat_bridge::send_message(
                                     &config.api_url,
                                     &config.token,
+                                    &msg.from_user,
                                     &format!("❌ Agent error: {}", err),
                                     ctx.as_deref(),
                                 );
@@ -1630,7 +1633,7 @@ pub async fn send_wechat_reply(
     let api_url = config.api_url.clone();
     let token = config.token.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        wechat_bridge::send_message(&api_url, &token, &text, ctx_token.as_deref())
+        wechat_bridge::send_message(&api_url, &token, "", &text, ctx_token.as_deref())
     })
     .await
     .map_err(|e| e.to_string())?

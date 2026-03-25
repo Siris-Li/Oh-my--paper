@@ -570,6 +570,7 @@ pub fn get_updates(
 pub fn send_message(
     api_url: &str,
     token: &str,
+    to_user_id: &str,
     text: &str,
     context_token: Option<&str>,
 ) -> Result<(), String> {
@@ -583,10 +584,12 @@ pub fn send_message(
         return Err("Cannot send message: no context_token available. User must message the bot first.".into());
     }
 
+    wlog!("[WeChat iLink] sendMessage to={}, text_len={}, ctx_len={}", to_user_id, text.len(), ctx.len());
+
     let body = serde_json::json!({
         "msg": {
             "from_user_id": "",
-            "to_user_id": "",
+            "to_user_id": to_user_id,
             "client_id": client_id,
             "message_type": 2,       // 2 = bot message
             "message_state": 2,      // 2 = finished
@@ -625,6 +628,9 @@ pub fn send_message(
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
 
+    wlog!("[WeChat iLink] sendMessage response: http={}, ret={}, body={}", status, ret,
+        serde_json::to_string(&response_body).unwrap_or_default());
+
     if status != 200 || ret != 0 {
         let errmsg = response_body
             .get("errmsg")
@@ -636,6 +642,7 @@ pub fn send_message(
         ));
     }
 
+    wlog!("[WeChat iLink] ✅ sendMessage success");
     Ok(())
 }
 
