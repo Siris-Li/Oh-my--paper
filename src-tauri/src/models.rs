@@ -281,44 +281,7 @@ pub struct TestResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentRequest {
-    pub session_id: String,
-    pub remote_session_id: Option<String>,
-    pub profile_id: String,
-    pub provider: AgentProvider,
-    #[serde(default)]
-    pub system_prompt: String,
-    pub user_message: String,
-    pub context: AgentContext,
-}
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentProvider {
-    pub vendor: String,
-    #[serde(default)]
-    pub model: String,
-    #[serde(default)]
-    pub permission_mode: String,
-    #[serde(default)]
-    pub reasoning_effort: String,
-    #[serde(default)]
-    pub mcp_servers: HashMap<String, AgentMcpServerConfig>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentMcpServerConfig {
-    #[serde(default)]
-    pub r#type: String,
-    pub command: String,
-    #[serde(default)]
-    pub args: Vec<String>,
-    #[serde(default)]
-    pub env: HashMap<String, String>,
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

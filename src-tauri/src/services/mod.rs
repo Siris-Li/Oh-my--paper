@@ -27,7 +27,40 @@ pub(crate) fn enriched_path() -> String {
 
     #[cfg(target_os = "macos")]
     {
-        for dir in ["/Library/TeX/texbin", "/usr/local/bin"] {
+        // Common CLI tool locations (Claude Code installs to ~/.local/bin)
+        if let Some(home) = dirs::home_dir() {
+            for sub in [
+                ".local/bin",        // Claude Code CLI
+                ".npm/bin",          // npm global binaries
+                ".volta/bin",        // Volta-managed Node
+                ".cargo/bin",        // Cargo binaries
+            ] {
+                let dir = home.join(sub);
+                let s = dir.to_string_lossy().to_string();
+                if dir.is_dir() && !current.contains(&s) {
+                    extra.push(s);
+                }
+            }
+
+            // nvm default node
+            let nvm_default = home.join(".nvm/versions/node");
+            if nvm_default.is_dir() {
+                if let Ok(entries) = std::fs::read_dir(&nvm_default) {
+                    // Pick the last (newest) version
+                    let mut versions: Vec<_> = entries.flatten().collect();
+                    versions.sort_by_key(|e| e.file_name());
+                    if let Some(latest) = versions.last() {
+                        let bin = latest.path().join("bin");
+                        let s = bin.to_string_lossy().to_string();
+                        if bin.is_dir() && !current.contains(&s) {
+                            extra.push(s);
+                        }
+                    }
+                }
+            }
+        }
+
+        for dir in ["/opt/homebrew/bin", "/Library/TeX/texbin", "/usr/local/bin"] {
             if Path::new(dir).is_dir() && !current.contains(dir) {
                 extra.push(dir.to_string());
             }

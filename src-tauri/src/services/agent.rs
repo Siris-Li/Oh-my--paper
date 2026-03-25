@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+
 use std::io::BufRead;
 use std::path::Path;
 
@@ -8,90 +8,13 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::models::{
-    AgentContext, AgentMcpServerConfig, AgentMessage, AgentProvider, AgentRequest, AgentRunResult,
+    AgentMessage, AgentRunResult,
     AgentSessionSummary, AgentTaskContext, StreamChunk, UsageInfo,
 };
 use crate::services::{compute_node, profile, provider, skill};
 use crate::state::AppState;
 
 use std::sync::atomic::Ordering;
-
-fn read_provider_reasoning_effort(meta_json: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(meta_json)
-        .ok()
-        .and_then(|meta| meta.get("runtime").cloned())
-        .and_then(|runtime| runtime.get("effort").cloned())
-        .and_then(|effort| effort.as_str().map(str::to_owned))
-        .unwrap_or_default()
-}
-
-fn read_provider_mcp_servers(meta_json: &str) -> HashMap<String, AgentMcpServerConfig> {
-    let mut servers = HashMap::new();
-    let Ok(meta) = serde_json::from_str::<serde_json::Value>(meta_json) else {
-        return servers;
-    };
-
-    let Some(raw_servers) = meta.get("mcpServers").and_then(|value| value.as_object()) else {
-        return servers;
-    };
-
-    for (name, raw_config) in raw_servers {
-        let Some(config) = raw_config.as_object() else {
-            continue;
-        };
-
-        let transport = config
-            .get("type")
-            .and_then(|value| value.as_str())
-            .unwrap_or("stdio");
-        if transport != "stdio" {
-            continue;
-        }
-
-        let command = config
-            .get("command")
-            .and_then(|value| value.as_str())
-            .map(str::trim)
-            .unwrap_or_default();
-        if command.is_empty() {
-            continue;
-        }
-
-        let args = config
-            .get("args")
-            .and_then(|value| value.as_array())
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| item.as_str().map(str::to_owned))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let env = config
-            .get("env")
-            .and_then(|value| value.as_object())
-            .map(|vars| {
-                vars.iter()
-                    .filter_map(|(key, value)| {
-                        value.as_str().map(|item| (key.clone(), item.to_owned()))
-                    })
-                    .collect::<HashMap<_, _>>()
-            })
-            .unwrap_or_default();
-
-        servers.insert(
-            name.clone(),
-            AgentMcpServerConfig {
-                r#type: "stdio".into(),
-                command: command.to_owned(),
-                args,
-                env,
-            },
-        );
-    }
-
-    servers
-}
 
 fn serialize_tool_args(args: &serde_json::Value) -> String {
     match args {
@@ -320,32 +243,7 @@ pub fn run_agent(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    let request = AgentRequest {
-        session_id: session_id.clone(),
-        remote_session_id: remote_session_id.clone(),
-        profile_id: profile_id.to_string(),
-        provider: AgentProvider {
-            vendor: prov.vendor.clone(),
-            model: if prov.default_model.trim().is_empty() {
-                profile.model.clone()
-            } else {
-                prov.default_model.clone()
-            },
-            permission_mode: String::from("default"),
-            reasoning_effort: read_provider_reasoning_effort(&prov.meta_json),
-            mcp_servers: read_provider_mcp_servers(&prov.meta_json),
-        },
-        system_prompt: system_prompt.clone(),
-        user_message: user_message.clone(),
-        context: AgentContext {
-            project_root: project_root.clone(),
-            active_file_path: file_path.to_string(),
-            selected_text: selected_text.to_string(),
-            task_mode,
-            task_context: task_context.cloned(),
-        },
-    };
-    let _payload = serde_json::to_string(&request)?;
+
 
     // ── Direct CLI path (claude-code / codex) ──
     // Session and user message are already inserted by prepare_user_message().
