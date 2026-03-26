@@ -598,6 +598,16 @@ export const desktop = {
       Promise.reject(new Error("Weixin setup only available in desktop")),
     );
   },
+  waitCcConnectWeixinSetup() {
+    return runOrMock<boolean>("wait_cc_connect_weixin_setup", {}, () =>
+      Promise.resolve(true),
+    );
+  },
+  cancelCcConnectWeixinSetup() {
+    return runOrMock("cancel_cc_connect_weixin_setup", {}, () =>
+      Promise.resolve(),
+    );
+  },
   startCcConnect() {
     return runOrMock("start_cc_connect", {}, () =>
       Promise.reject(new Error("cc-connect only available in desktop")),

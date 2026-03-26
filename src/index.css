@@ -1214,7 +1214,7 @@ button {
   position: relative;
   display: flex;
   width: min(720px, 92vw);
-  max-height: min(560px, 82vh);
+  height: min(560px, 82vh);
   min-height: 380px;
   border-radius: 16px;
   background: #fff;

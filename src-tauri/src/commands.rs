@@ -1499,28 +1499,38 @@ pub async fn setup_cc_connect_config(
 }
 
 #[tauri::command]
-pub async fn start_cc_connect_weixin_setup(
+pub fn start_cc_connect_weixin_setup(
     app_handle: AppHandle,
+    cc_state: State<'_, cc_connect::CcConnectState>,
 ) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    let project_root = {
         let state = app_handle.state::<AppState>();
-        let project_root = state
-            .project_config
-            .read()
-            .map_err(|e| e.to_string())?
-            .root_path
-            .clone();
+        let config = state.project_config.read().map_err(|e| e.to_string())?;
+        config.root_path.clone()
+    };
 
-        let project_name = std::path::Path::new(&project_root)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("viwerleaf-project")
-            .to_string();
+    let project_name = std::path::Path::new(&project_root)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("viwerleaf-project")
+        .to_string();
 
-        cc_connect::run_weixin_setup(&project_name)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    cc_connect::run_weixin_setup(&project_name, &cc_state)
+}
+
+#[tauri::command]
+pub fn wait_cc_connect_weixin_setup(
+    state: State<'_, cc_connect::CcConnectState>,
+) -> Result<bool, String> {
+    cc_connect::wait_weixin_setup(&state)
+}
+
+#[tauri::command]
+pub fn cancel_cc_connect_weixin_setup(
+    state: State<'_, cc_connect::CcConnectState>,
+) -> Result<(), String> {
+    cc_connect::cancel_weixin_setup(&state);
+    Ok(())
 }
 
 #[tauri::command]

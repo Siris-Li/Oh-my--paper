@@ -44,6 +44,8 @@ pub struct CcConnectState {
     pub running: Arc<AtomicBool>,
     /// Current status info.
     pub status: Arc<Mutex<CcConnectStatus>>,
+    /// The `weixin setup` child process (kept alive until scan completes).
+    pub setup_child: Mutex<Option<Child>>,
 }
 
 impl Default for CcConnectState {
@@ -57,6 +59,7 @@ impl Default for CcConnectState {
                 state: "idle".into(),
                 message: "Not started".into(),
             })),
+            setup_child: Mutex::new(None),
         }
     }
 }
@@ -224,11 +227,16 @@ level = "info"
 // ── Weixin Setup (QR code scan) ─────────────────────────────
 
 /// Run `cc-connect weixin setup --project <name>` and capture the QR URL
-/// from its output. The command prints a URL that must be opened or scanned
-/// via WeChat to complete the authentication.
+/// from its output. The child process is stored in `state.setup_child` so it
+/// stays alive while the user scans the QR code. Call `wait_weixin_setup()`
+/// after the user confirms they have scanned, or `cancel_weixin_setup()` to
+/// abort.
 ///
 /// Returns the QR URL string on success.
-pub fn run_weixin_setup(project_name: &str) -> Result<String, String> {
+pub fn run_weixin_setup(project_name: &str, state: &CcConnectState) -> Result<String, String> {
+    // Kill any previous setup child that might still be running
+    cancel_weixin_setup(state);
+
     let bin = cc_connect_bin();
     let path = enriched_env_path();
 
@@ -261,16 +269,64 @@ pub fn run_weixin_setup(project_name: &str) -> Result<String, String> {
         }
     }
 
-    // Wait for the process to finish (with a timeout via kill)
-    // The setup process waits for scan confirmation, so we don't wait indefinitely
-    // after finding the URL. The frontend will handle the scan flow.
-    let _ = child.kill();
-    let _ = child.wait();
+    // Store the child process so it stays alive while user scans
+    if qr_url.is_some() {
+        if let Ok(mut guard) = state.setup_child.lock() {
+            *guard = Some(child);
+        }
+    } else {
+        // No URL found — kill and clean up
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 
     qr_url.ok_or_else(|| {
         "No QR URL found in cc-connect weixin setup output. Ensure cc-connect@beta is installed."
             .into()
     })
+}
+
+/// Wait for the `weixin setup` process to complete (user scanned QR).
+/// Returns Ok(true) if the process exited successfully, Ok(false) if still
+/// running, or Err on failure.
+pub fn wait_weixin_setup(state: &CcConnectState) -> Result<bool, String> {
+    let mut guard = state.setup_child.lock().map_err(|e| e.to_string())?;
+    if let Some(ref mut child) = *guard {
+        match child.try_wait() {
+            Ok(Some(exit_status)) => {
+                // Process exited — setup complete
+                let success = exit_status.success();
+                *guard = None;
+                if success {
+                    Ok(true)
+                } else {
+                    Err(format!("weixin setup exited with status: {exit_status}"))
+                }
+            }
+            Ok(None) => {
+                // Still running — user hasn't scanned yet
+                Ok(false)
+            }
+            Err(e) => {
+                *guard = None;
+                Err(format!("Failed to check setup process: {e}"))
+            }
+        }
+    } else {
+        // No setup process — might have already completed or was never started
+        Ok(true)
+    }
+}
+
+/// Cancel / kill a running `weixin setup` process.
+pub fn cancel_weixin_setup(state: &CcConnectState) {
+    if let Ok(mut guard) = state.setup_child.lock() {
+        if let Some(ref mut child) = *guard {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        *guard = None;
+    }
 }
 
 /// Extract a URL from a line of cc-connect output.

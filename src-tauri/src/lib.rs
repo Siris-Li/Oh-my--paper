@@ -172,6 +172,8 @@ pub fn run() {
             commands::install_cc_connect,
             commands::setup_cc_connect_config,
             commands::start_cc_connect_weixin_setup,
+            commands::wait_cc_connect_weixin_setup,
+            commands::cancel_cc_connect_weixin_setup,
             commands::start_cc_connect,
             commands::stop_cc_connect,
             commands::get_cc_connect_status,

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import QRCode from "qrcode";
 import type { AppLocale } from "../types";
 import { desktop } from "../lib/desktop";
@@ -76,6 +76,15 @@ export function WeChatRemotePanel({ locale }: WeChatRemotePanelProps) {
   }
 
   // ── Setup WeChat connection ──
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
   async function handleSetupWeixin() {
     setLoading(true);
     setError("");
@@ -87,7 +96,7 @@ export function WeChatRemotePanel({ locale }: WeChatRemotePanelProps) {
       await desktop.setupCcConnectConfig();
       setSetupPhase("scanning");
 
-      // Step 2: Run weixin setup to get QR URL
+      // Step 2: Run weixin setup to get QR URL (keeps setup process alive)
       const qrUrl = await desktop.startCcConnectWeixinSetup();
 
       // Step 3: Generate QR code image from the URL
@@ -101,6 +110,26 @@ export function WeChatRemotePanel({ locale }: WeChatRemotePanelProps) {
         });
         setQrDataUri(dataUri);
       }
+
+      // Step 4: Poll for setup completion (user scanning QR)
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(async () => {
+        try {
+          const done = await desktop.waitCcConnectWeixinSetup();
+          if (done) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            // Setup completed! Auto-start cc-connect
+            handleSetupDone();
+          }
+        } catch {
+          // setup process errored, stop polling
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setError(isZh ? "绑定失败，请重试" : "Setup failed, please retry");
+          setSetupPhase("idle");
+        }
+      }, 2000);
     } catch (err) {
       setError(String(err));
       setSetupPhase("idle");
@@ -137,13 +166,28 @@ export function WeChatRemotePanel({ locale }: WeChatRemotePanelProps) {
   }
 
   const handleCancelSetup = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    void desktop.cancelCcConnectWeixinSetup();
     setSetupPhase("idle");
     setQrDataUri(null);
   }, []);
 
-  const handleSetupDone = useCallback(() => {
+  const handleSetupDone = useCallback(async () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
     setSetupPhase("done");
     setQrDataUri(null);
+    // Auto-start cc-connect after successful setup
+    try {
+      await desktop.startCcConnect();
+    } catch {
+      // ignore start error, user can manually start
+    }
     void refreshStatus();
   }, []);
 
