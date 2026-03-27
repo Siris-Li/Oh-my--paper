@@ -121,23 +121,52 @@ fn infer_main_tex(root: &Path) -> String {
         return "main.tex".into();
     }
 
-    let Ok(entries) = fs::read_dir(root) else {
-        return "main.tex".into();
-    };
+    // First try any .tex file in the root directory.
+    if let Ok(entries) = fs::read_dir(root) {
+        if let Some(name) = entries
+            .flatten()
+            .filter_map(|entry| {
+                let path = entry.path();
+                if path.is_file()
+                    && path.extension().and_then(|ext| ext.to_str()) == Some("tex")
+                {
+                    path.file_name()
+                        .map(|name| name.to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            })
+            .next()
+        {
+            return name;
+        }
+    }
 
-    entries
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("tex") {
-                path.file_name()
-                    .map(|name| name.to_string_lossy().to_string())
-            } else {
-                None
+    // Recurse into subdirectories (max depth 3) looking for main.tex, then any .tex.
+    use walkdir::WalkDir;
+    let mut first_tex: Option<String> = None;
+    for entry in WalkDir::new(root)
+        .max_depth(3)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("tex") {
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if path.file_name().map(|n| n == "main.tex").unwrap_or(false) {
+                return rel;
             }
-        })
-        .next()
-        .unwrap_or_else(|| "main.tex".into())
+            if first_tex.is_none() {
+                first_tex = Some(rel);
+            }
+        }
+    }
+
+    first_tex.unwrap_or_else(|| "main.tex".into())
 }
 
 pub fn initialize_project(root: &Path, project_name: &str) -> std::io::Result<()> {

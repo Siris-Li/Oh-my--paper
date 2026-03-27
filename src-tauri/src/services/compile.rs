@@ -93,16 +93,31 @@ pub fn compile_project(state: &AppState, file_path: &str) -> Result<CompileResul
         _ => "-xelatex",
     };
 
+    // When main_tex is a subdirectory path (e.g. "paper/main.tex"), run latexmk
+    // inside that subdirectory so it can find the file and its \input references.
+    let tex_path = Path::new(&main_tex);
+    let (work_dir, tex_filename) = match tex_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => (
+            root.join(parent),
+            tex_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
+        ),
+        _ => (root.to_path_buf(), main_tex.clone()),
+    };
+
     let output = match Command::new("latexmk")
         .args([
             engine_flag,
             "-synctex=1",
             "-interaction=nonstopmode",
             "-file-line-error",
-            &main_tex,
+            &tex_filename,
         ])
         .env("PATH", enriched_path())
-        .current_dir(root)
+        .current_dir(&work_dir)
         .output()
     {
         Ok(output) => output,
@@ -128,8 +143,8 @@ pub fn compile_project(state: &AppState, file_path: &str) -> Result<CompileResul
     let stderr = String::from_utf8_lossy(&output.stderr);
     let log_output = format!("{stdout}\n{stderr}");
     let diagnostics = parse_diagnostics(&log_output);
-    let pdf_path = root.join(main_tex.replace(".tex", ".pdf"));
-    let synctex_path = root.join(main_tex.replace(".tex", ".synctex.gz"));
+    let pdf_path = work_dir.join(tex_filename.replace(".tex", ".pdf"));
+    let synctex_path = work_dir.join(tex_filename.replace(".tex", ".synctex.gz"));
     let log_path = root.join(".viewerleaf/logs/latest.log");
 
     if let Some(parent) = log_path.parent() {
