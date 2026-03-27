@@ -225,24 +225,20 @@ fn normalize_stage_list(values: Option<&[String]>) -> Vec<String> {
     stages
 }
 
-fn research_root(root: &Path) -> PathBuf {
-    root.join(".viewerleaf").join("research")
-}
-
 fn survey_root(root: &Path) -> PathBuf {
-    research_root(root).join("Survey")
+    root.join("survey")
 }
 
 fn ideation_root(root: &Path) -> PathBuf {
-    research_root(root).join("Ideation")
+    root.join("ideation")
 }
 
 fn experiment_root(root: &Path) -> PathBuf {
-    research_root(root).join("Experiment")
+    root.join("experiment")
 }
 
 fn promotion_root(root: &Path) -> PathBuf {
-    research_root(root).join("Promotion")
+    root.join("promotion")
 }
 
 fn pipeline_root(root: &Path) -> PathBuf {
@@ -940,7 +936,6 @@ fn default_pipeline_config(start_stage: &str) -> Value {
 }
 
 fn default_instance(root: &Path) -> Value {
-    let root_string = root.to_string_lossy().to_string();
     json!({
         "instanceId": format!("viewerleaf-{}", root.file_name().and_then(|value| value.to_str()).unwrap_or("project")),
         "Survey": {
@@ -958,7 +953,7 @@ fn default_instance(root: &Path) -> Value {
             "analysis": experiment_root(root).join("analysis").to_string_lossy().to_string()
         },
         "Publication": {
-            "paper": root_string
+            "paper": root.join("paper").to_string_lossy().to_string()
         },
         "Promotion": {
             "homepage": promotion_root(root).join("homepage").to_string_lossy().to_string(),
@@ -1789,7 +1784,7 @@ mod tests {
         assert_eq!(main_tex, "% existing main tex");
         assert!(root.join("AGENTS.md").exists());
         assert!(root.join("CLAUDE.md").exists());
-        assert!(root.join(".viewerleaf/research/Survey/references").exists());
+        assert!(root.join("survey/references").exists());
         assert!(root.join(".pipeline/docs/research_brief.json").exists());
         assert!(root.join(".pipeline/tasks/tasks.json").exists());
         assert!(root.join("instance.json").exists());
@@ -1808,7 +1803,7 @@ mod tests {
             .and_then(|value| value.as_str())
             .expect("publication paper path");
 
-        assert_eq!(publication, root.to_string_lossy());
+        assert_eq!(publication, root.join("paper").to_string_lossy());
     }
 
     #[test]

@@ -780,7 +780,7 @@ fn build_project_stage_context(
     // ── Inject live auto-experiment run state (always, regardless of stage) ──
     {
         let run_state_path = project_root
-            .join(".viewerleaf/research/Experiment/automation/run-state.json");
+            .join("experiment/automation/run-state.json");
         if let Ok(raw) = fs::read_to_string(&run_state_path) {
             if let Ok(rs) = serde_json::from_str::<JsonValue>(&raw) {
                 let status = rs

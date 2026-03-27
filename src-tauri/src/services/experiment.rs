@@ -110,7 +110,7 @@ pub fn start_experiment_loop(
     }
 
     let run_state_path =
-        Path::new(&root_path).join(".viewerleaf/research/Experiment/automation/run-state.json");
+        Path::new(&root_path).join("experiment/automation/run-state.json");
     if let Some(parent) = run_state_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -488,7 +488,7 @@ pub fn finish_experiment_loop() {
 // ─── Internal helpers ──────────────────────────────────────────
 
 fn run_state_path(root_path: &str) -> std::path::PathBuf {
-    Path::new(root_path).join(".viewerleaf/research/Experiment/automation/run-state.json")
+    Path::new(root_path).join("experiment/automation/run-state.json")
 }
 
 fn load_run_state(root_path: &str) -> ExperimentRunState {

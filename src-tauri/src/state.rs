@@ -117,6 +117,11 @@ pub fn load_project_config(root: &Path) -> ProjectConfig {
 }
 
 fn infer_main_tex(root: &Path) -> String {
+    // Prefer paper/main.tex for new-style project layout.
+    if root.join("paper/main.tex").exists() {
+        return "paper/main.tex".into();
+    }
+
     if root.join("main.tex").exists() {
         return "main.tex".into();
     }
@@ -166,12 +171,13 @@ fn infer_main_tex(root: &Path) -> String {
         }
     }
 
-    first_tex.unwrap_or_else(|| "main.tex".into())
+    first_tex.unwrap_or_else(|| "paper/main.tex".into())
 }
 
 pub fn initialize_project(root: &Path, project_name: &str) -> std::io::Result<()> {
-    fs::create_dir_all(root.join("sections"))?;
-    fs::create_dir_all(root.join("refs"))?;
+    fs::create_dir_all(root.join("paper/sections"))?;
+    fs::create_dir_all(root.join("paper/refs"))?;
+    fs::create_dir_all(root.join("experiment"))?;
     fs::create_dir_all(root.join(".viewerleaf"))?;
 
     let title = if project_name.trim().is_empty() {
@@ -183,24 +189,24 @@ pub fn initialize_project(root: &Path, project_name: &str) -> std::io::Result<()
     };
 
     write_if_missing(
-        &root.join("main.tex"),
+        &root.join("paper/main.tex"),
         &format!(
             "\\documentclass[11pt]{{article}}\n\\usepackage{{graphicx}}\n\\usepackage{{booktabs}}\n\\usepackage{{hyperref}}\n\\usepackage{{biblatex}}\n\\addbibresource{{refs/references.bib}}\n\\title{{{title}}}\n\\author{{}}\n\\begin{{document}}\n\\maketitle\n\\input{{sections/abstract}}\n\\input{{sections/introduction}}\n\\printbibliography\n\\end{{document}}\n"
         ),
     )?;
 
     write_if_missing(
-        &root.join("sections/abstract.tex"),
+        &root.join("paper/sections/abstract.tex"),
         "\\begin{abstract}\nWrite your abstract here.\n\\end{abstract}\n",
     )?;
 
     write_if_missing(
-        &root.join("sections/introduction.tex"),
+        &root.join("paper/sections/introduction.tex"),
         "\\section{Introduction}\nStart drafting here.\n",
     )?;
 
     write_if_missing(
-        &root.join("refs/references.bib"),
+        &root.join("paper/refs/references.bib"),
         "@article{example2026,\n  title={Example Reference},\n  author={Author, Example},\n  year={2026}\n}\n",
     )?;
 
@@ -208,7 +214,7 @@ pub fn initialize_project(root: &Path, project_name: &str) -> std::io::Result<()
         root,
         &ProjectConfig {
             root_path: root.to_string_lossy().to_string(),
-            main_tex: "main.tex".into(),
+            main_tex: "paper/main.tex".into(),
             engine: "xelatex".into(),
             bib_tool: "biber".into(),
             auto_compile: false,

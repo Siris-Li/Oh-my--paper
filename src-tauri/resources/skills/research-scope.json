@@ -5,6 +5,8 @@
     "academic-researcher",
     "biorxiv-database",
     "bioinformatics-init-analysis",
+    "claude-code-dispatch",
+    "codex-dispatch",
     "dataset-discovery",
     "gemini-deep-research",
     "inno-code-survey",
@@ -27,7 +29,12 @@
     "paper-finder",
     "paper-image-extractor",
     "remote-experiment",
+    "research-experiment-driver",
+    "research-idea-convergence",
+    "research-literature-trace",
     "research-news",
+    "research-paper-handoff",
+    "research-pipeline-planner",
     "scientific-writing"
   ]
 }
