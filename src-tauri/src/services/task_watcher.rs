@@ -22,6 +22,10 @@ const EMIT_COOLDOWN: Duration = Duration::from_millis(500);
 const WATCHED_RELATIVE_PATHS: &[&str] = &[
     ".pipeline/tasks/tasks.json",
     ".pipeline/docs/research_brief.json",
+    ".pipeline/memory/project_truth.md",
+    ".pipeline/memory/orchestrator_state.md",
+    ".pipeline/memory/execution_context.md",
+    ".pipeline/memory/review_log.md",
 ];
 
 static RUNNING: AtomicBool = AtomicBool::new(false);

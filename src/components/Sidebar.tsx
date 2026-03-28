@@ -1,18 +1,12 @@
 import clsx from "clsx";
 import { useEffect, useState } from "react";
-import type { PendingInteractiveQuestion, PendingPermissionRequest } from "../hooks/useAgentChat";
 
-import { ChatPanel } from "./ChatPanel";
 import { CommentPanel } from "./CommentPanel";
 import { SidebarTerminal } from "./SidebarTerminal";
 import type { CollabAuthSession } from "../lib/collaboration/auth";
 import type { CollabConfig } from "../lib/collaboration/collab-config";
 import type {
   AppLocale,
-  AgentTaskContext,
-  AgentMessage,
-  AgentProfile,
-  AgentSessionSummary,
   CollabStatus,
   CompileEnvironmentStatus,
   DrawerTab,
@@ -20,28 +14,15 @@ import type {
   GeneratedAsset,
   LatexEngine,
   ProjectConfig,
-  ProviderConfig,
   ReviewComment,
-  SkillManifest,
-  TaskUpdateSuggestion,
   UsageRecord,
   WorkspaceCollabMetadata,
 } from "../types";
-
-type AiPanelMode = "chat" | "terminal";
 
 interface SidebarProps {
   locale: AppLocale;
   workspaceRoot: string;
   tab: DrawerTab;
-  messages: AgentMessage[];
-  sessions: AgentSessionSummary[];
-  activeSessionId: string;
-  onSelectSession: (sessionId: string) => void;
-  onNewSession: () => void;
-  onRunAgent: () => void;
-  pendingPatchSummary?: string;
-  onApplyPatch: () => void;
   compileStatus: string;
   compileLog: string;
   projectConfig: ProjectConfig;
@@ -61,43 +42,7 @@ interface SidebarProps {
   onInsertFigure: () => void;
   onSelectBrief: (briefId: string) => void;
   onSelectAsset: (assetId: string) => void;
-  providers: ProviderConfig[];
-  activeProviderId?: string;
-  activeChatProfile: AgentProfile | null;
-  skills: SkillManifest[];
   usageRecords: UsageRecord[];
-  onSelectChatVendor: (vendor: "claude-code" | "codex") => Promise<void>;
-  onSelectChatModel: (model: string) => Promise<void>;
-  onToggleSkill: (skill: SkillManifest) => Promise<void>;
-  streamThinkingText?: string;
-  streamThinkingHistoryText?: string;
-  streamThinkingDurationMs?: number;
-  streamContent?: string;
-  streamError?: string;
-  streamSubagentLabel?: string;
-  streamStatusMessage?: string;
-  promptSuggestions?: string[];
-  activeModelInfo?: { model: string; fastModeState: string } | null;
-  pendingElicitation?: { requestId: string; serverName: string; message: string; mode?: string } | null;
-  isStreaming?: boolean;
-  onSendMessage: (text: string) => void;
-  onDismissPatch: () => void;
-  onCancelAgent?: () => void;
-  pendingPatchDiff?: import("../types").DiffLine[];
-  projectTree?: import("../types").ProjectNode[];
-  activeResearchTask?: AgentTaskContext | null;
-  composerPreset?: { id: number; text: string } | null;
-  onExitResearchTaskMode?: () => void;
-  onOpenResearchCanvas?: () => void;
-  onApplyTaskUpdateSuggestion?: (suggestion: TaskUpdateSuggestion) => Promise<void> | void;
-  onRespondElicitation?: (requestId: string, action: "accept" | "decline") => void;
-  onSelectSuggestion?: (suggestion: string) => void;
-  pendingInteractiveQuestion?: PendingInteractiveQuestion | null;
-  onRespondInteractiveQuestion?: (answers: Record<string, string[]>) => void;
-  pendingPermissionRequest?: PendingPermissionRequest | null;
-  onRespondPermission?: (requestId: string, behavior: "allow" | "deny", message?: string) => void;
-  autoApproveSession?: boolean;
-  onSetAutoApprove?: (value: boolean) => void;
   // Collab props
   collabAuthSession: CollabAuthSession | null;
   collabConfig: CollabConfig | null;
@@ -175,14 +120,6 @@ export function Sidebar({
   locale,
   workspaceRoot,
   tab,
-  messages,
-  sessions,
-  activeSessionId,
-  onSelectSession,
-  onNewSession,
-  onRunAgent,
-  pendingPatchSummary,
-  onApplyPatch,
   compileStatus,
   compileLog,
   projectConfig,
@@ -202,43 +139,7 @@ export function Sidebar({
   onInsertFigure,
   onSelectBrief,
   onSelectAsset,
-  providers,
-  activeProviderId,
-  activeChatProfile,
-  skills,
   usageRecords,
-  onSelectChatVendor,
-  onSelectChatModel,
-  onToggleSkill,
-  streamThinkingText,
-  streamThinkingHistoryText,
-  streamThinkingDurationMs,
-  streamContent,
-  streamError,
-  streamSubagentLabel,
-  streamStatusMessage,
-  promptSuggestions,
-  activeModelInfo,
-  pendingElicitation,
-  isStreaming,
-  onSendMessage,
-  onDismissPatch,
-  onCancelAgent,
-  pendingPatchDiff,
-  projectTree,
-  activeResearchTask,
-  composerPreset,
-  onExitResearchTaskMode,
-  onOpenResearchCanvas,
-  onApplyTaskUpdateSuggestion,
-  onRespondElicitation,
-  onSelectSuggestion,
-  pendingInteractiveQuestion,
-  onRespondInteractiveQuestion,
-  pendingPermissionRequest,
-  onRespondPermission,
-  autoApproveSession,
-  onSetAutoApprove,
   collabAuthSession,
   collabConfig: collabConfigProp,
   cloudCollab,
@@ -263,7 +164,6 @@ export function Sidebar({
   onJumpToCommentLine,
 }: SidebarProps) {
   const isZh = locale === "zh-CN";
-  const [aiPanelMode, setAiPanelMode] = useState<AiPanelMode>("chat");
   const [collabConfigForm, setCollabConfigForm] = useState({
     httpBaseUrl: collabConfigProp?.httpBaseUrl ?? "",
     wsBaseUrl: collabConfigProp?.wsBaseUrl ?? "",
@@ -272,12 +172,6 @@ export function Sidebar({
   const availableEngineSet = new Set<LatexEngine>(compileEnvironment?.availableEngines ?? []);
   const selectedEngineAvailable = availableEngineSet.has(projectConfig.engine as LatexEngine);
   const isWindows = typeof window !== "undefined" && /win/i.test(window.navigator.userAgent) && !/mac/i.test(window.navigator.userAgent);
-  const providerLabelById = new Map(
-    providers.map((provider) => [provider.id, provider.name?.trim() || provider.vendor || provider.id]),
-  );
-
-  const totalInputTokens = usageRecords.reduce((sum, item) => sum + item.inputTokens, 0);
-  const totalOutputTokens = usageRecords.reduce((sum, item) => sum + item.outputTokens, 0);
 
   useEffect(() => {
     setCollabConfigForm({
@@ -444,74 +338,7 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
 
       {tab === "ai" && (
         <div className="sidebar-content sidebar-content--chat">
-          <div className="sidebar-ai-mode-switcher">
-            <button
-              type="button"
-              className={`sidebar-ai-mode-btn ${aiPanelMode === "chat" ? "is-active" : ""}`}
-              onClick={() => setAiPanelMode("chat")}
-            >
-              {isZh ? "对话" : "Chat"}
-            </button>
-            <button
-              type="button"
-              className={`sidebar-ai-mode-btn ${aiPanelMode === "terminal" ? "is-active" : ""}`}
-              onClick={() => setAiPanelMode("terminal")}
-            >
-              {isZh ? "终端" : "Terminal"}
-            </button>
-          </div>
-
-          {aiPanelMode === "chat" ? (
-            <ChatPanel
-              messages={messages}
-              sessions={sessions}
-              activeSessionId={activeSessionId}
-              onSelectSession={onSelectSession}
-              onNewSession={onNewSession}
-              onRunAgent={onRunAgent}
-              onSendMessage={onSendMessage}
-              onCancelAgent={onCancelAgent}
-              pendingPatchSummary={pendingPatchSummary}
-              pendingPatchDiff={pendingPatchDiff}
-              onApplyPatch={onApplyPatch}
-              onDismissPatch={onDismissPatch}
-              streamThinkingText={streamThinkingText}
-              streamThinkingHistoryText={streamThinkingHistoryText}
-              streamThinkingDurationMs={streamThinkingDurationMs}
-              streamContent={streamContent}
-              streamError={streamError}
-              streamSubagentLabel={streamSubagentLabel}
-              streamStatusMessage={streamStatusMessage}
-              promptSuggestions={promptSuggestions}
-              activeModelInfo={activeModelInfo}
-              pendingElicitation={pendingElicitation}
-              isStreaming={isStreaming}
-              providers={providers}
-              activeProfile={activeChatProfile}
-              activeProviderId={activeProviderId}
-              onSelectProviderVendor={onSelectChatVendor}
-              onSelectModel={onSelectChatModel}
-              skills={skills}
-              onToggleSkill={onToggleSkill}
-              usageRecords={usageRecords}
-              projectTree={projectTree}
-              activeResearchTask={activeResearchTask}
-              composerPreset={composerPreset}
-              onExitResearchTaskMode={onExitResearchTaskMode}
-              onOpenResearchCanvas={onOpenResearchCanvas}
-              onApplyTaskUpdateSuggestion={onApplyTaskUpdateSuggestion}
-              onRespondElicitation={onRespondElicitation}
-              onSelectSuggestion={onSelectSuggestion}
-              pendingInteractiveQuestion={pendingInteractiveQuestion}
-              onRespondInteractiveQuestion={onRespondInteractiveQuestion}
-              pendingPermissionRequest={pendingPermissionRequest}
-              onRespondPermission={onRespondPermission}
-              autoApproveSession={autoApproveSession}
-              onSetAutoApprove={onSetAutoApprove}
-            />
-          ) : (
-            <SidebarTerminal workspaceRoot={workspaceRoot} />
-          )}
+          <SidebarTerminal workspaceRoot={workspaceRoot} />
         </div>
       )}
 
@@ -588,11 +415,11 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
               </div>
               <div className="card sidebar-metric-card usage-summary-card">
                 <div className="text-subtle text-xs">输入 Tokens</div>
-                <div className="sidebar-metric-value">{totalInputTokens}</div>
+                <div className="sidebar-metric-value">{usageRecords.reduce((s, r) => s + r.inputTokens, 0)}</div>
               </div>
               <div className="card sidebar-metric-card usage-summary-card">
                 <div className="text-subtle text-xs">输出 Tokens</div>
-                <div className="sidebar-metric-value">{totalOutputTokens}</div>
+                <div className="sidebar-metric-value">{usageRecords.reduce((s, r) => s + r.outputTokens, 0)}</div>
               </div>
             </div>
 
@@ -604,9 +431,6 @@ curl -sL "https://yihui.org/tinytex/install-bin-unix.sh" | sh`}</pre>
                     <div className="usage-record-time">{formatUsageTimestamp(record.createdAt)}</div>
                   </div>
                   <div className="usage-record-bottom">
-                    <div className="usage-record-provider" title={providerLabelById.get(record.providerId) ?? record.providerId}>
-                      {providerLabelById.get(record.providerId) ?? record.providerId}
-                    </div>
                     <div className="usage-record-tokens">
                       <span className="usage-record-token">In {record.inputTokens}</span>
                       <span className="usage-record-token">Out {record.outputTokens}</span>

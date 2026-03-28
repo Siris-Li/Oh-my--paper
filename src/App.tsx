@@ -342,9 +342,6 @@ function collectTextPathsFromTree(nodes: WorkspaceSnapshot["tree"]) {
   return result;
 }
 
-function isResearchTaskClosed(task: ResearchTask) {
-  return task.status === "done" || task.status === "cancelled" || task.status === "deferred";
-}
 
 function formatDebugTimestamp(date: Date) {
   const pad = (value: number, length = 2) => String(value).padStart(length, "0");
@@ -3831,24 +3828,8 @@ function App() {
   );
   const currentResearchStageSummary =
     researchSnapshot?.stageSummaries.find((stage) => stage.stage === researchSnapshot.currentStage) ?? null;
-  const publicationTask =
-    researchSnapshot
-      ? (
-        researchSnapshot.nextTask?.stage === "publication"
-          ? researchSnapshot.nextTask
-          : researchSnapshot.tasks.find(
-            (task) => task.stage === "publication" && !isResearchTaskClosed(task),
-          ) ?? null
-      )
-      : null;
   const showResearchSurface = hasProject && workspaceSurface === "research";
   const showLiteratureSurface = hasProject && workspaceSurface === "literature";
-  const showWritingSurface = hasProject && !showResearchSurface && !showLiteratureSurface;
-  const showResearchHandoffBanner = Boolean(
-    showWritingSurface &&
-    researchSnapshot &&
-    (researchSnapshot.currentStage === "publication" || researchSnapshot.handoffToWriting),
-  );
 
   useEffect(() => {
     if (activeResearchTaskId && !researchSnapshot?.tasks.some((task) => task.id === activeResearchTaskId)) {
@@ -4214,14 +4195,6 @@ function App() {
                       locale={locale}
                       workspaceRoot={snapshot.projectConfig.rootPath}
                       tab={drawerTab}
-                      messages={messages}
-                      sessions={agentSessions}
-                      activeSessionId={activeSessionId}
-                      onSelectSession={(sessionId) => void handleSelectSession(sessionId)}
-                      onNewSession={() => void handleNewSession()}
-                      onRunAgent={handleRunAgent}
-                      pendingPatchSummary={pendingPatch?.summary}
-                      onApplyPatch={handleApplyPatch}
                       compileLog={mergedCompileLog}
                       compileStatus={snapshot.compileResult.status}
                       projectConfig={snapshot.projectConfig}
@@ -4241,41 +4214,7 @@ function App() {
                       onInsertFigure={handleInsertFigure}
                       onSelectBrief={(briefId: string) => setSelectedBrief(snapshot.figureBriefs.find((brief) => brief.id === briefId) ?? null)}
                       onSelectAsset={(assetId: string) => setSelectedAsset(snapshot.assets.find((asset) => asset.id === assetId) ?? null)}
-                      providers={snapshot.providers}
-                      activeProviderId={activeProfile?.providerId || snapshot.providers.find((p) => p.isEnabled)?.id}
-                      activeChatProfile={activeProfile}
-                      skills={snapshot.skills}
                       usageRecords={usageRecords}
-                      onSelectChatVendor={handleSelectChatVendor}
-                      onSelectChatModel={handleSelectChatModel}
-                      onToggleSkill={handleToggleSkill}
-                      streamThinkingText={streamThinkingText}
-                      streamThinkingHistoryText={streamThinkingHistoryText}
-                      streamThinkingDurationMs={streamThinkingDurationMs}
-                      streamContent={streamContent}
-                      streamError={streamError}
-                      streamSubagentLabel={streamSubagentLabel}
-                      streamStatusMessage={streamStatusMessage}
-                      promptSuggestions={promptSuggestions}
-                      activeModelInfo={activeModelInfo}
-                      pendingElicitation={pendingElicitation}
-                      isStreaming={isStreaming}
-                      onSendMessage={handleSendMessage}
-                      onDismissPatch={handleDismissPatch}
-                      onCancelAgent={handleCancelAgent}
-                      activeResearchTask={activeLocalizedTaskContext}
-                      composerPreset={taskComposerPreset}
-                      onExitResearchTaskMode={handleExitResearchTaskMode}
-                      onOpenResearchCanvas={() => setWorkspaceSurface("research")}
-                      onApplyTaskUpdateSuggestion={handleApplyResearchTaskSuggestion}
-                      onRespondElicitation={handleRespondElicitation}
-                      onSelectSuggestion={(s) => handleSendMessage(s)}
-                      pendingInteractiveQuestion={pendingInteractiveQuestion}
-                      onRespondInteractiveQuestion={handleRespondInteractiveQuestion}
-                      pendingPermissionRequest={pendingPermissionRequest}
-                      onRespondPermission={handleRespondPermission}
-                      autoApproveSession={autoApproveSession}
-                      onSetAutoApprove={handleSetAutoApprove}
                       collabAuthSession={collabAuthSession}
                       collabConfig={collabConfigState}
                       cloudCollab={snapshot.collab ?? null}
@@ -4302,6 +4241,7 @@ function App() {
                       onDeleteComment={handleDeleteComment}
                       onJumpToCommentLine={handleJumpToCommentLine}
                     />
+
                   )}
                 </PaneErrorBoundary>
               </div>
@@ -4350,40 +4290,7 @@ function App() {
             ) : (
               <>
                 <div className="workspace-main">
-                  {showResearchHandoffBanner && (
-                    <div className="research-handoff-banner">
-                      <div className="research-handoff-banner__meta">
-                        <div className="research-inspector__eyebrow">{isZh ? "写作接力" : "Publication Handoff"}</div>
-                        <strong>{publicationTask?.title ?? (isZh ? "进入论文写作阶段" : "Move into paper writing")}</strong>
-                        <span>{publicationTask?.description ?? (isZh ? "当前研究流程已经进入论文撰写与整理阶段。" : "The workflow has moved into manuscript drafting and cleanup.")}</span>
-                        {publicationTask?.suggestedSkills.length ? (
-                          <div className="research-node-chips">
-                            {publicationTask.suggestedSkills.map((skillId) => (
-                              <span key={skillId} className="research-node-chip">{skillId}</span>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                      <div className="research-handoff-banner__actions">
-                        <button
-                          type="button"
-                          className="research-secondary-btn"
-                          onClick={() => setWorkspaceSurface("research")}
-                        >
-                          {isZh ? "返回研究画布" : "Back to Research Canvas"}
-                        </button>
-                        {publicationTask ? (
-                          <button
-                            type="button"
-                            className="research-primary-btn"
-                            onClick={() => void handleUseResearchTaskInChat(publicationTask)}
-                          >
-                            {isZh ? "发送到聊天" : "Use in Chat"}
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  )}
+
                   <div className="workspace-main-content" ref={editorPreviewSplitRef}>
                     <div className="editor-area">
                       <div className="editor-tabs" onWheel={handleEditorTabsWheel}>

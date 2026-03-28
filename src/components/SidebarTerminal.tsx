@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 
@@ -19,7 +19,40 @@ function safelyDisposeListener(listener?: (() => void | Promise<void>) | null) {
   } catch {}
 }
 
-export function SidebarTerminal({ workspaceRoot }: SidebarTerminalProps) {
+const XTERM_THEME = {
+  background: "#ffffff",
+  foreground: "#334155",
+  cursor: "#94a3b8",
+  cursorAccent: "#ffffff",
+  selectionBackground: "rgba(59, 130, 246, 0.22)",
+  black: "#0f172a",
+  red: "#ef4444",
+  green: "#22c55e",
+  yellow: "#f59e0b",
+  blue: "#3b82f6",
+  magenta: "#ec4899",
+  cyan: "#06b6d4",
+  white: "#f8fafc",
+  brightBlack: "#475569",
+  brightRed: "#f87171",
+  brightGreen: "#4ade80",
+  brightYellow: "#fbbf24",
+  brightBlue: "#60a5fa",
+  brightMagenta: "#f472b6",
+  brightCyan: "#22d3ee",
+  brightWhite: "#ffffff",
+};
+
+/* ─── Single Terminal Pane ────────────────────────────── */
+
+interface TerminalPaneProps {
+  paneId: string;
+  workspaceRoot: string;
+  onClose?: () => void;
+  showClose: boolean;
+}
+
+function TerminalPane({ paneId, workspaceRoot, onClose, showClose }: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -61,7 +94,7 @@ export function SidebarTerminal({ workspaceRoot }: SidebarTerminalProps) {
     } catch {}
   };
 
-  const handleTerminalEvent = (event: TerminalEvent) => {
+  const handleTerminalEvent = useCallback((event: TerminalEvent) => {
     if (!sessionIdRef.current) {
       const buffered = pendingEventsRef.current.get(event.sessionId) ?? [];
       pendingEventsRef.current.set(event.sessionId, [...buffered, event].slice(-24));
@@ -99,7 +132,7 @@ export function SidebarTerminal({ workspaceRoot }: SidebarTerminalProps) {
     isSessionStartingRef.current = false;
     setStatusText(event.message);
     terminal.writeln(`\r\n[终端错误] ${event.message}`);
-  };
+  }, []);
 
   const startSession = async () => {
     if (
@@ -161,29 +194,7 @@ export function SidebarTerminal({ workspaceRoot }: SidebarTerminalProps) {
       fontSize: 12,
       lineHeight: 1.3,
       scrollback: 4000,
-      theme: {
-        background: "#ffffff",
-        foreground: "#334155",
-        cursor: "#94a3b8",
-        cursorAccent: "#ffffff",
-        selectionBackground: "rgba(59, 130, 246, 0.22)",
-        black: "#0f172a",
-        red: "#ef4444",
-        green: "#22c55e",
-        yellow: "#f59e0b",
-        blue: "#3b82f6",
-        magenta: "#ec4899",
-        cyan: "#06b6d4",
-        white: "#f8fafc",
-        brightBlack: "#475569",
-        brightRed: "#f87171",
-        brightGreen: "#4ade80",
-        brightYellow: "#fbbf24",
-        brightBlue: "#60a5fa",
-        brightMagenta: "#f472b6",
-        brightCyan: "#22d3ee",
-        brightWhite: "#ffffff",
-      },
+      theme: XTERM_THEME,
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -245,7 +256,7 @@ export function SidebarTerminal({ workspaceRoot }: SidebarTerminalProps) {
       setIsListenerReady(false);
       safelyDisposeListener(unlisten);
     };
-  }, []);
+  }, [handleTerminalEvent]);
 
   // Auto-start session when listener is ready
   useEffect(() => {
@@ -296,7 +307,7 @@ export function SidebarTerminal({ workspaceRoot }: SidebarTerminalProps) {
     : statusText || sessionInfo?.cwd || workspaceRoot || "正在启动终端…";
 
   return (
-    <div className="sidebar-terminal-shell">
+    <div className="sidebar-terminal-pane" data-pane-id={paneId}>
       <div className="sidebar-terminal-bar">
         <span className="sidebar-terminal-status">
           {isDesktop
@@ -322,6 +333,16 @@ export function SidebarTerminal({ workspaceRoot }: SidebarTerminalProps) {
           >
             重开
           </button>
+          {showClose && (
+            <button
+              className="sidebar-terminal-btn sidebar-terminal-btn--close"
+              type="button"
+              onClick={onClose}
+              title="关闭窗格"
+            >
+              ✕
+            </button>
+          )}
         </div>
       </div>
 
@@ -338,6 +359,61 @@ export function SidebarTerminal({ workspaceRoot }: SidebarTerminalProps) {
         ) : (
           <div className="sidebar-terminal-empty">内置终端仅支持桌面版应用。</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Multi-Pane Container ────────────────────────────── */
+
+let _paneIdCounter = 0;
+function nextPaneId() {
+  return `pane-${++_paneIdCounter}`;
+}
+
+export function SidebarTerminal({ workspaceRoot }: SidebarTerminalProps) {
+  const [paneIds, setPaneIds] = useState<string[]>(() => [nextPaneId()]);
+
+  const addPane = () => {
+    if (paneIds.length >= 3) return;
+    setPaneIds((current) => [...current, nextPaneId()]);
+  };
+
+  const removePane = (id: string) => {
+    setPaneIds((current) => {
+      if (current.length <= 1) return current;
+      return current.filter((paneId) => paneId !== id);
+    });
+  };
+
+  return (
+    <div className="sidebar-terminal-shell">
+      <div className="sidebar-terminal-topbar">
+        <span className="sidebar-terminal-topbar-label">
+          终端 ({paneIds.length})
+        </span>
+        <button
+          className="sidebar-terminal-add-btn"
+          type="button"
+          onClick={addPane}
+          disabled={paneIds.length >= 3}
+          title="新增终端窗格"
+        >
+          +
+        </button>
+      </div>
+      <div className="sidebar-terminal-pane-container">
+        {paneIds.map((id, index) => (
+          <div key={id} className="sidebar-terminal-pane-slot">
+            {index > 0 && <div className="sidebar-terminal-pane-divider" />}
+            <TerminalPane
+              paneId={id}
+              workspaceRoot={workspaceRoot}
+              showClose={paneIds.length > 1}
+              onClose={() => removePane(id)}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );

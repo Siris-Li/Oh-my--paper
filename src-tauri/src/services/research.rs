@@ -27,6 +27,14 @@ const RESEARCH_SCOPE_FIXTURE: &str = include_str!("../../../skills/research-scop
 const RESEARCH_STAGE_MAP_FIXTURE: &str = include_str!("../../../skills/research-stage-map.json");
 const DEFAULT_PIPELINE_TEMPLATE: &str =
     include_str!("../../../templates/research/default-pipeline.json");
+const MEMORY_PROJECT_TRUTH: &str =
+    include_str!("../../../templates/research/memory/project_truth.md");
+const MEMORY_ORCHESTRATOR_STATE: &str =
+    include_str!("../../../templates/research/memory/orchestrator_state.md");
+const MEMORY_EXECUTION_CONTEXT: &str =
+    include_str!("../../../templates/research/memory/execution_context.md");
+const MEMORY_REVIEW_LOG: &str =
+    include_str!("../../../templates/research/memory/review_log.md");
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1011,6 +1019,22 @@ fn write_templates(root: &Path) -> Result<()> {
     Ok(())
 }
 
+fn write_memory_files(root: &Path) -> Result<()> {
+    let memory_dir = pipeline_root(root).join("memory");
+    fs::create_dir_all(&memory_dir)?;
+    write_if_missing(&memory_dir.join("project_truth.md"), MEMORY_PROJECT_TRUTH)?;
+    write_if_missing(
+        &memory_dir.join("orchestrator_state.md"),
+        MEMORY_ORCHESTRATOR_STATE,
+    )?;
+    write_if_missing(
+        &memory_dir.join("execution_context.md"),
+        MEMORY_EXECUTION_CONTEXT,
+    )?;
+    write_if_missing(&memory_dir.join("review_log.md"), MEMORY_REVIEW_LOG)?;
+    Ok(())
+}
+
 fn write_default_research_docs(root: &Path) -> Result<()> {
     write_if_missing(
         &pipeline_root(root).join("docs").join("domain_map.md"),
@@ -1082,6 +1106,7 @@ pub fn ensure_research_scaffold(
     fs::create_dir_all(pipeline_root(root).join("tasks"))?;
 
     write_templates(root)?;
+    write_memory_files(root)?;
     copy_bundled_skill_set(skills_dir, &root.join("skills"))?;
     write_skill_views(skills_dir, root)?;
 
