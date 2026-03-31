@@ -9,7 +9,7 @@
   },
   "plugins": [
     {
-      "name": "oh-my-paper",
+      "name": "omp",
       "description": "Research harness: delegate to Codex, track memory across sessions, drive the full survey→ideation→experiment→publication pipeline.",
       "version": "1.0.0",
       "author": {
