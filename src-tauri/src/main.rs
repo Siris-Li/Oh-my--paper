@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    viewerleaf_lib::run();
+    oh_my_paper_lib::run();
 }

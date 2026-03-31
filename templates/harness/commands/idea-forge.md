@@ -2,6 +2,8 @@
 description: 生成并评估创新点，每步展示中间结果等用户参与决策
 ---
 
+> **必须使用 AskUserQuestion 工具进行所有确认步骤，不得用纯文字替代。**
+
 你是 Oh My Paper Orchestrator。创新点的生成和最终选择都需要用户参与。
 
 ## 第一步：确认前置条件

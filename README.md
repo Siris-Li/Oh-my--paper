@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="./icons/icon.png" alt="ViewerLeaf" width="140" height="140" />
+  <img src="./icons/icon.png" alt="Oh My Paper" width="140" height="140" />
 </p>
 
-<h1 align="center">ViewerLeaf</h1>
+<h1 align="center">Oh My Paper</h1>
 
 <p align="center">
   <strong>The Visual Research Workbench — From Literature to Publication, All in One Place</strong>
@@ -14,6 +14,7 @@
 
 <p align="center">
   <a href="#features"><strong>Features</strong></a> ·
+  <a href="#claude-code-plugin"><strong>Claude Code Plugin</strong></a> ·
   <a href="#architecture"><strong>Architecture</strong></a> ·
   <a href="#getting-started"><strong>Getting Started</strong></a> ·
   <a href="#中文说明"><strong>中文说明</strong></a> ·
@@ -30,11 +31,11 @@
 
 ---
 
-## Why ViewerLeaf?
+## Why Oh My Paper?
 
 Research is messy. You jump between paper PDFs, code editors, remote servers, LaTeX compilers, reference managers, and AI assistants — each in a different window, each losing context.
 
-**ViewerLeaf is the unified entry point for autonomous research.** It wraps the entire research lifecycle — literature survey, idea generation, experiment execution, paper writing, and academic promotion — into a single desktop workbench, orchestrated by AI agents that understand your project state.
+**Oh My Paper is the unified entry point for autonomous research.** It wraps the entire research lifecycle — literature survey, idea generation, experiment execution, paper writing, and academic promotion — into a single desktop workbench, orchestrated by AI agents that understand your project state.
 
 > 🔬 Think of it as an **IDE for research**, not just for code.
 
@@ -100,11 +101,56 @@ Modify code → Sync to server → Execute → Parse metrics → Repeat until go
 
 ---
 
+## Claude Code Plugin
+
+Oh My Paper ships a **Claude Code plugin** (`omp`) that brings the full research pipeline into your Claude Code sessions — so you can run AI-assisted research commands directly from the terminal or Claude Code IDE extensions.
+
+### Installation
+
+**Step 1 — Add the plugin from the marketplace:**
+
+```bash
+/plugin marketplace add LigphiDonk/Oh-my--paper
+```
+
+**Step 2 — Install the plugin into your session:**
+
+```bash
+/plugin install omp@oh-my-paper
+```
+
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `/omp:setup` | Initialize a new research project (scaffold directories, CLAUDE.md, pipeline config) |
+| `/omp:survey` | Run an AI-assisted literature survey for your research topic |
+| `/omp:ideate` | Generate and evaluate research ideas based on survey findings |
+| `/omp:experiment` | Design and execute experiments with remote compute support |
+| `/omp:write` | Draft paper sections, figures, and captions with AI assistance |
+| `/omp:review` | Gate-check your paper or experiment results before submission |
+| `/omp:delegate` | Hand off a task to a specialized agent (Codex rescue, deep analysis, etc.) |
+| `/omp:plan` | Build or update the research plan interactively |
+
+### Quick Start with Plugin
+
+```bash
+# Inside your research project directory:
+/omp:setup        # scaffold the project
+/omp:survey       # start the literature survey
+/omp:ideate       # generate ideas from the survey
+/omp:experiment   # run experiments
+/omp:write        # draft the paper
+/omp:review       # final quality gate
+```
+
+---
+
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                  ViewerLeaf App                     │
+│                 Oh My Paper App                     │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │
 │  │  Editor   │  │   PDF    │  │  Research Canvas │  │
 │  │(CodeMirror│  │ (pdf.js) │  │  (Task Tree +    │  │
@@ -134,11 +180,12 @@ Modify code → Sync to server → Execute → Parse metrics → Repeat until go
 | `sidecar/` | Node sidecar — runs Claude Code / Codex CLIs, compute-helper for remote experiments |
 | `skills/` | 34 built-in research skills with YAML frontmatter and markdown instructions |
 | `templates/` | Project templates — `CLAUDE.md`, `AGENTS.md`, default pipeline config |
+| `plugins/oh-my-paper/` | Claude Code plugin — `/omp:*` commands for terminal-based research workflow |
 | `workers/` | Optional Cloudflare Worker collaboration backend |
 
 ### New Project Structure
 
-When you create a project, ViewerLeaf scaffolds:
+When you create a project, Oh My Paper scaffolds:
 
 ```
 my-research/
@@ -176,8 +223,8 @@ my-research/
 
 ```bash
 # Clone and install
-git clone https://github.com/LigphiDonk/viwerleaf.git
-cd viwerleaf
+git clone https://github.com/LigphiDonk/Oh-my--paper.git
+cd Oh-my--paper
 npm install
 
 # Run the desktop app (includes sidecar build)
@@ -206,20 +253,49 @@ cd src-tauri && cargo test --lib   # Rust unit tests
 GitHub Actions builds are unsigned. Remove quarantine after download:
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/ViewerLeaf.app
+xattr -dr com.apple.quarantine /Applications/Oh\ My\ Paper.app
 ```
 
 ---
 
 ## 中文说明
 
-### 什么是 ViewerLeaf？
+### 什么是 Oh My Paper？
 
-ViewerLeaf 是一个面向科研人员的**可视化自主科研工作台**。它不是又一个 LaTeX 编辑器，而是把从文献调研到最终发表的**整个科研流程**整合进一个桌面应用，并用 AI Agent 驱动自动化。
+Oh My Paper 是一个面向科研人员的**可视化自主科研工作台**。它不是又一个 LaTeX 编辑器，而是把从文献调研到最终发表的**整个科研流程**整合进一个桌面应用，并用 AI Agent 驱动自动化。
 
 ### 核心理念
 
 > 🎯 **Auto Research 的入口** — 让 AI 帮你跑实验、写论文、管任务，你只需要做最重要的科研决策。
+
+### Claude Code 插件安装
+
+Oh My Paper 附带一个 Claude Code 插件，让你可以在终端或 IDE 里直接运行科研工作流命令。
+
+**第一步 — 添加插件源：**
+
+```bash
+/plugin marketplace add LigphiDonk/Oh-my--paper
+```
+
+**第二步 — 安装插件：**
+
+```bash
+/plugin install omp@oh-my-paper
+```
+
+**可用命令：**
+
+| 命令 | 说明 |
+|------|------|
+| `/omp:setup` | 初始化科研项目（创建目录结构、CLAUDE.md、流水线配置） |
+| `/omp:survey` | AI 辅助文献调研 |
+| `/omp:ideate` | 基于调研生成并评估科研创意 |
+| `/omp:experiment` | 设计并执行实验（支持远端计算节点） |
+| `/omp:write` | AI 辅助撰写论文章节、图表和说明 |
+| `/omp:review` | 提交前质量门控检查 |
+| `/omp:delegate` | 将任务委托给专业 Agent（Codex、深度分析等） |
+| `/omp:plan` | 交互式构建或更新科研计划 |
 
 ### 五阶段科研流水线
 
@@ -263,8 +339,8 @@ my-research/
 ### 本地开发
 
 ```bash
-git clone https://github.com/LigphiDonk/viwerleaf.git
-cd viwerleaf && npm install
+git clone https://github.com/LigphiDonk/Oh-my--paper.git
+cd Oh-my--paper && npm install
 npm run tauri dev       # 启动桌面应用
 ```
 
@@ -273,7 +349,7 @@ npm run tauri dev       # 启动桌面应用
 GitHub Actions 构建产物未签名，下载后需移除 quarantine：
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/ViewerLeaf.app
+xattr -dr com.apple.quarantine /Applications/Oh\ My\ Paper.app
 ```
 
 ---
@@ -295,5 +371,5 @@ MIT License. See [LICENSE](./LICENSE).
 ---
 
 <p align="center">
-  <strong>ViewerLeaf</strong> — Where Research Meets Automation 🍃
+  <strong>Oh My Paper</strong> — Where Research Meets Automation
 </p>

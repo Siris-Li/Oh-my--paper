@@ -2,6 +2,8 @@
 description: 初始化研究项目结构（.pipeline/），并检查 Codex 插件是否就绪
 ---
 
+> **必须使用 AskUserQuestion 工具进行所有确认步骤，不得用纯文字替代。**
+
 你正在为当前目录初始化 Oh My Paper 研究 harness。
 
 ## 第一步：检查 Codex 插件

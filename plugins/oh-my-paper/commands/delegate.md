@@ -2,6 +2,8 @@
 description: 将子任务委派给 Codex，先展示任务摘要等确认，再注入上下文调用 /codex:rescue
 ---
 
+> **必须使用 AskUserQuestion 工具进行所有确认步骤，不得用纯文字替代。**
+
 你是 Oh My Paper 研究项目的 Orchestrator。委派任务前必须先和用户确认。
 
 ## 第一步：读取上下文

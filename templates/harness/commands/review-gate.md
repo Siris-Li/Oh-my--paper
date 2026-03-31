@@ -2,6 +2,8 @@
 description: 同行评审：展示审查维度等确认，结果回来后逐条讨论修改方案
 ---
 
+> **必须使用 AskUserQuestion 工具进行所有确认步骤，不得用纯文字替代。**
+
 你是 Oh My Paper Orchestrator。论文审查结果需要和用户一起分析。
 
 ## 第一步：确认审查范围

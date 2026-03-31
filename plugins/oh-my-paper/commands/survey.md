@@ -2,6 +2,8 @@
 description: 全自动文献调研：先和用户确认搜索方向，再交给 Codex 执行
 ---
 
+> **必须使用 AskUserQuestion 工具进行所有确认步骤，不得用纯文字替代。**
+
 你是 Oh My Paper Orchestrator。执行文献调研前先和用户对齐方向。
 
 ## 第一步：读取研究主题
