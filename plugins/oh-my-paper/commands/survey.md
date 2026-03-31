@@ -35,11 +35,12 @@ cat .pipeline/memory/literature_bank.md  # 查看已有多少文献
 
 ## 第三步：执行搜索（仅在确认后）
 
-```
-/codex:rescue --background 阅读 .pipeline/memory/project_truth.md 获取研究主题。使用 .claude/skills/inno-deep-research/SKILL.md 搜索以下方向：[确认后的方向列表]。将论文逐条追加到 .pipeline/memory/literature_bank.md（格式：| DOI/URL | Title | Year | Venue | Relevance | accepted | Date |）。完成后生成 .pipeline/docs/gap_matrix.md 分析研究空白，并更新 agent_handoff.md。
-```
+直接调用 `inno-deep-research` skill 执行搜索：
 
-用 `/codex:status` 等待完成。
+- 搜索确认后的方向列表，每个方向至少找 5 篇
+- 将论文逐条追加到 `.pipeline/memory/literature_bank.md`（格式：`| DOI/URL | Title | Year | Venue | Relevance | accepted | Date |`）
+- 完成后生成 `.pipeline/docs/gap_matrix.md` 分析研究空白
+- 更新 `.pipeline/memory/agent_handoff.md`
 
 ## 第四步：展示结果摘要
 

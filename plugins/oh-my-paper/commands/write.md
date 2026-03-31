@@ -39,24 +39,20 @@ ls sections/
 然后调用 Codex：
 
 **摘要 + 引言：**
-```
-/codex:rescue 使用 .claude/skills/inno-paper-writing/SKILL.md，根据 .pipeline/memory/project_truth.md 和 .pipeline/docs/result_summary.md，写 sections/abstract.tex 和 sections/introduction.tex，不捏造数据
-```
+
+调用 `inno-paper-writing` skill，根据 `.pipeline/memory/project_truth.md` 和 `.pipeline/docs/result_summary.md`，写 `sections/abstract.tex` 和 `sections/introduction.tex`，不捏造数据。
 
 **相关工作：**
-```
-/codex:rescue --resume 基于 .pipeline/memory/literature_bank.md（Status=accepted），写 sections/related_work.tex，\cite{key} 引用必须存在于 references.bib
-```
+
+调用 `inno-paper-writing` skill，基于 `.pipeline/memory/literature_bank.md`（Status=accepted），写 `sections/related_work.tex`，`\cite{key}` 引用必须存在于 `references.bib`。
 
 **方法论：**
-```
-/codex:rescue --resume 基于 project_truth.md 中的方法描述，写 sections/methodology.tex，包含必要数学公式
-```
+
+调用 `inno-paper-writing` skill，基于 `project_truth.md` 中的方法描述，写 `sections/methodology.tex`，包含必要数学公式。
 
 **实验与结果：**
-```
-/codex:rescue --resume 基于 .pipeline/memory/experiment_ledger.md 和 result_summary.md，写 sections/experiments.tex，使用真实数据
-```
+
+调用 `inno-paper-writing` skill，基于 `.pipeline/memory/experiment_ledger.md` 和 `result_summary.md`，写 `sections/experiments.tex`，使用真实数据。
 
 每节完成后，用 `AskUserQuestion` 询问：
 
@@ -80,14 +76,12 @@ ls sections/
 - `两个都做`
 
 **图表：**
-```
-/codex:rescue 使用 .claude/skills/inno-figure-gen/SKILL.md 生成 2-3 个关键图表到 assets/figures/
-```
+
+调用 `inno-figure-gen` skill，生成 2-3 个关键图表到 `assets/figures/`。
 
 **引用审查：**
-```
-/codex:rescue 使用 .claude/skills/inno-reference-audit/SKILL.md 检查所有 \cite{} 引用，修复缺失条目
-```
+
+调用 `inno-reference-audit` skill，检查所有 `\cite{}` 引用，修复缺失条目。
 
 ## 完成后
 

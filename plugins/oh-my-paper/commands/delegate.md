@@ -1,10 +1,10 @@
 ---
-description: 将子任务委派给 Codex，先展示任务摘要等确认，再注入上下文调用 /codex:rescue
+description: 为代码/实验任务生成 Codex prompt，用户复制到新终端执行，结果自动落到共享文件
 ---
 
 > **必须使用 AskUserQuestion 工具进行所有确认步骤，不得用纯文字替代。**
 
-你是 Oh My Paper 研究项目的 Orchestrator。委派任务前必须先和用户确认。
+你是 Oh My Paper 研究项目的 Orchestrator。此命令专用于需要 Codex 执行的**代码和实验任务**。
 
 ## 第一步：读取上下文
 
@@ -20,19 +20,17 @@ cat .pipeline/docs/research_brief.json
 用 `AskUserQuestion` 向用户展示将要委派的任务摘要：
 
 - **任务内容**：用 1-2 句话描述将交给 Codex 做什么
-- **注入的上下文**：列出将附带哪些背景信息（项目主题、哪些方向被否决等）
-- **预计**：后台还是前台，大概需要多久
+- **注入的上下文**：列出将附带哪些背景信息
+- **输出文件**：Codex 完成后会写入哪个文件
 
 选项：
-- `确认，开始执行`
+- `确认，生成 prompt`
 - `我来调整任务描述`
 - `取消`
 
-如果用户选择调整，用 `AskUserQuestion` 询问具体修改意见，更新任务描述后再次展示确认。
+## 第三步：生成 Codex prompt（仅在确认后）
 
-## 第三步：构建带上下文的 prompt（仅在确认后）
-
-将以下内容拼入任务 prompt：
+构建完整 prompt，格式如下：
 
 ```
 [项目背景]
@@ -49,21 +47,43 @@ cat .pipeline/docs/research_brief.json
 （确认后的任务描述）
 
 [输出要求]
-完成后将结果摘要写入 .pipeline/memory/agent_handoff.md
+完成后将结果摘要写入 .pipeline/memory/agent_handoff.md，
+在文件末尾追加一行 <!-- CODEX_DONE -->
 ```
 
-## 第四步：调用 /codex:rescue
+## 第四步：展示给用户复制执行
+
+用代码块展示完整命令，告知用户在**新终端**里执行：
 
 ```
-/codex:rescue [完整 prompt]
+在新终端里运行：
+codex "[完整 prompt]"
+
+或后台运行：
+codex --background "[完整 prompt]"
 ```
 
-耗时任务加 `--background`，用 `/codex:status` 查进度。
+用 `AskUserQuestion` 询问：
+- `我已经在新终端里跑起来了`
+- `取消`
 
-## 第五步：收到结果后汇报
+## 第五步：等待完成，读取结果
 
-Codex 返回结果后，向用户简要说明：做了什么、产出了哪些文件、有没有问题。
-再用 `AskUserQuestion` 询问：
+用户确认跑起来后，轮询等待完成信号：
+
+```bash
+# 每 10 秒检查一次，最多等 10 分钟
+for i in $(seq 1 60); do
+  grep -q "CODEX_DONE" .pipeline/memory/agent_handoff.md 2>/dev/null && break
+  sleep 10
+done
+cat .pipeline/memory/agent_handoff.md | tail -30
+```
+
+读取结果后向用户简要说明：做了什么、产出了哪些文件、有没有问题。
+
+用 `AskUserQuestion` 询问：
 - `接受结果，继续下一步`
 - `需要 Codex 修改某处`
 - `这个结果有问题，放弃`
+

@@ -29,9 +29,7 @@ cat .pipeline/memory/literature_bank.md | head -30
 
 ## 第二步：生成创新点
 
-```
-/codex:rescue 阅读 .pipeline/docs/gap_matrix.md 和 .pipeline/memory/literature_bank.md，使用 .claude/skills/inno-idea-generation/SKILL.md 生成 5 个候选创新方向，写入 .pipeline/docs/idea_board.json
-```
+调用 `inno-idea-generation` skill，阅读 `.pipeline/docs/gap_matrix.md` 和 `.pipeline/memory/literature_bank.md`，生成 5 个候选创新方向，写入 `.pipeline/docs/idea_board.json`。
 
 ## 第三步：展示 5 个 idea，等用户筛选
 
@@ -51,9 +49,7 @@ cat .pipeline/memory/literature_bank.md | head -30
 
 ## 第四步：评估打分
 
-```
-/codex:rescue --resume 对 idea_board.json 中的 [选定的] idea 用 .claude/skills/inno-idea-eval/SKILL.md 打分（novelty/feasibility/impact 各 1-5 分），更新 scores 字段
-```
+调用 `inno-idea-eval` skill，对选定的 idea 打分（novelty / feasibility / impact 各 1-5 分），更新 `idea_board.json` 的 scores 字段。
 
 ## 第五步：你（Orchestrator）主导最终决策
 
