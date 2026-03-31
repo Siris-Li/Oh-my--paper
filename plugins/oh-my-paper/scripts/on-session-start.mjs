@@ -55,6 +55,19 @@ async function main() {
   }
 
   lines.push(`_生成时间: ${new Date().toISOString()}_`);
+  lines.push("");
+  lines.push("## 启动指令");
+  lines.push("");
+  lines.push("检测到 Oh My Paper 研究项目。请立即用 `AskUserQuestion` 询问用户今天的工作模式，选项如下：");
+  lines.push("");
+  lines.push("- `统筹规划` — 以 Conductor 身份：查看全局进展，决定下一步，评审产出");
+  lines.push("- `文献调研` — 以 Literature Scout 身份：搜索论文，整理 literature_bank");
+  lines.push("- `实验执行` — 以 Experiment Driver 身份：设计/实现/运行实验，追踪结果");
+  lines.push("- `论文写作` — 以 Paper Writer 身份：撰写章节，生成图表，审查引用");
+  lines.push("- `论文评审` — 以 Reviewer 身份：同行评审，输出 review_log");
+  lines.push("- `直接告诉我要做什么` — 跳过角色选择");
+  lines.push("");
+  lines.push("用户选择后，读取对应角色的记忆文件，以该角色身份开始工作。");
 
   await fs.mkdir(path.dirname(SESSION_CONTEXT), { recursive: true });
   await fs.writeFile(SESSION_CONTEXT, lines.join("\n"), "utf8");
