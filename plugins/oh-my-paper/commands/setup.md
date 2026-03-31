@@ -52,6 +52,26 @@ mkdir -p .pipeline/memory .pipeline/tasks .pipeline/docs .pipeline/.hook-events 
 cp -rn "${CLAUDE_PLUGIN_ROOT}/skills/." .claude/skills/
 ```
 
+注册 SessionStart hook（让每次开启 Claude Code 时自动弹出角色选择）：
+
+```bash
+node -e "
+const fs = require('fs');
+const path = require('path');
+const f = path.join('.claude', 'settings.json');
+const s = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f,'utf8')) : {};
+if (!s.hooks) s.hooks = {};
+if (!s.hooks.SessionStart) s.hooks.SessionStart = [];
+const cmd = 'node \"\${CLAUDE_PLUGIN_ROOT}/scripts/on-session-start.mjs\"';
+if (!s.hooks.SessionStart.some(h => (h.command||'').includes('on-session-start'))) {
+  s.hooks.SessionStart.push({ command: cmd });
+  fs.mkdirSync('.claude', { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(s, null, 2));
+  console.log('hook registered');
+} else { console.log('hook already registered'); }
+"
+```
+
 ## 第四步：写入初始文件
 
 创建以下文件（已存在则跳过）：
