@@ -36,6 +36,46 @@
 - 维护项目记忆（project_truth, orchestrator_state, agent_handoff）
 - 识别风险，拆解卡住的任务
 
+## 子任务完成后强制更新（关键）
+
+**每当任何子任务完成（delegate/experiment/survey/write/review 任一环节收尾），立即执行以下更新，无需用户提示：**
+
+### 1. 更新 tasks.json 任务状态
+
+将刚完成的任务从 `in-progress` → `done`（或 `review`），更新 `updatedAt`：
+
+```bash
+# 读取当前 tasks.json，定位对应 task id，更新 status 和 updatedAt，写回
+cat .pipeline/tasks/tasks.json
+```
+
+然后直接写回更新后的内容到 `.pipeline/tasks/tasks.json`。
+
+### 2. 更新 project_truth.md
+
+在 `project_truth.md` 末尾追加本次完成的进展记录：
+
+```markdown
+## 进展更新 [ISO 日期]
+
+- **完成任务**：[task title]
+- **阶段**：[stage]
+- **产出**：[关键产出文件或结论，1-2句]
+- **下一步**：[最自然的后续动作]
+```
+
+**触发时机：**
+
+| 子命令 | 触发更新的时机 |
+|--------|-------------|
+| `/omp:delegate` | Codex 返回结果、用户选"接受结果"后 |
+| `/omp:experiment` | 用户确认实验结果（达标或不达标都更新）|
+| `/omp:survey` | 文献整理完成，literature_bank 已写入 |
+| `/omp:write` | 某章节写完，用户确认内容后 |
+| `/omp:review` | review_log 产出后 |
+
+**不要等用户说"帮我更新进度"——每个子任务结束时主动做。**
+
 ## 任务管理（关键）
 
 **全局任务列表：** 写入 `.pipeline/tasks/tasks.json`
