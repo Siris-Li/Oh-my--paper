@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <em>学术科研 harness — 装进 Claude Code，让 AI 帮你跑完从调研到发表的全流程。</em>
+  <a href="./README.zh.md">中文文档</a>
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@
 
 ---
 
-## TL;DR — 直接装
+## TL;DR
 
 ```bash
 # In Claude Code:
@@ -30,7 +30,7 @@
 /plugin install omp@oh-my-paper
 ```
 
-装完重启 Claude Code。在你的科研项目里输入 `/omp:setup`，然后用 `/omp:survey`、`/omp:experiment`、`/omp:write` 驱动整个科研流程。不需要 GUI，不需要切窗口，所有事情都在终端里完成。
+Restart Claude Code. Run `/omp:setup` inside your research project, then drive the full pipeline with `/omp:survey`, `/omp:experiment`, and `/omp:write`. No GUI, no window-switching — everything in the terminal.
 
 ---
 
@@ -41,7 +41,7 @@
 - [Slash Commands](#slash-commands)
 - [The Agent Team](#the-agent-team)
 - [34 Research Skills](#34-research-skills)
-- [Hooks — 后台自动运行](#hooks--后台自动运行)
+- [Hooks](#hooks)
 - [Research Pipeline](#research-pipeline)
 - [Project Scaffold](#project-scaffold)
 - [How Memory Works](#how-memory-works)
@@ -60,11 +60,11 @@ Claude Code is already a great coding agent. But **research isn't just coding** 
 
 Oh My Paper makes Claude Code **research-aware** by adding:
 
-- 🎯 **A structured 5-stage pipeline** — Survey → Ideation → Experiment → Publication → Promotion
-- 🤖 **5 specialized agent roles** — each with isolated memory and clear responsibilities
-- 📚 **34 built-in research skills** — from paper search to figure generation
-- 🪝 **Background hooks** — auto-inject project context at session start, track task completion, detect stage transitions
-- 🔀 **Codex delegation** — hand off parallel tasks to Codex in a separate terminal
+- **A structured 5-stage pipeline** — Survey → Ideation → Experiment → Publication → Promotion
+- **5 specialized agent roles** — each with isolated memory and clear responsibilities
+- **34 built-in research skills** — from paper search to figure generation
+- **Background hooks** — auto-inject project context at session start, prompt role selection, track task completion
+- **Codex delegation** — hand off parallel tasks to Codex in a separate terminal
 
 Install it and forget about it. Your sessions get smarter. Your research gets organized.
 
@@ -88,14 +88,34 @@ Install it and forget about it. Your sessions get smarter. Your research gets or
 
 Required for hooks to activate.
 
-### Update
+### Step 4: Initialize your project
 
 ```bash
-/plugin marketplace update Oh-my--paper
-/plugin update omp@oh-my-paper
+/omp:setup
 ```
 
-### Alternative: From Local Directory
+This scaffolds the `.pipeline/` directory and registers the `SessionStart` hook for your project.
+
+### Update
+
+The most reliable way to get the latest version:
+
+```bash
+/plugin uninstall omp
+/plugin install omp@oh-my-paper
+/reload-plugins
+```
+
+Or overwrite the plugin cache directly (faster, no restart needed):
+
+```bash
+cp -r /path/to/oh-my-paper/plugins/oh-my-paper/. \
+  ~/.claude/plugins/cache/oh-my-paper/omp/1.0.0/
+# Then in Claude Code:
+/reload-plugins
+```
+
+### Install from Local Directory
 
 ```bash
 git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
@@ -108,18 +128,18 @@ git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
 
 ## Slash Commands
 
-All commands are prefixed with `/omp:`. Use them anywhere inside Claude Code.
+All commands are prefixed with `/omp:`.
 
 | Command | What It Does |
 |---------|-------------|
-| `/omp:setup` | Scaffold a new research project — creates directories, `CLAUDE.md`, `AGENTS.md`, pipeline config, and instance identity |
-| `/omp:survey` | AI-assisted literature survey — search papers, build a structured literature bank (`paper_bank.json`) |
-| `/omp:ideate` | Generate and evaluate research ideas based on your survey findings |
+| `/omp:setup` | Scaffold a new research project — creates `.pipeline/`, memory files, and registers the SessionStart hook |
+| `/omp:survey` | AI-assisted literature survey — search papers, build `literature_bank.md` |
+| `/omp:ideate` | Generate and evaluate research ideas based on survey findings |
 | `/omp:experiment` | Design experiments, write evaluation code, run on remote compute nodes |
 | `/omp:write` | Draft paper sections, generate figures and captions, manage LaTeX files |
-| `/omp:review` | Quality gate — peer-review your paper or experiment results before submission |
-| `/omp:delegate` | Hand off a task to a specialized agent (Codex rescue, deep analysis, etc.) |
-| `/omp:plan` | Build or update your research plan interactively |
+| `/omp:review` | Peer-review your paper or experiment results before submission |
+| `/omp:delegate` | Generate a Codex prompt for a coding/experiment task; wait for result and update project state |
+| `/omp:plan` | Review global progress, confirm next steps, update research plan |
 
 ### Quick Start
 
@@ -136,37 +156,39 @@ All commands are prefixed with `/omp:`. Use them anywhere inside Claude Code.
 
 ## The Agent Team
 
-When you open Claude Code in an Oh My Paper project, the system auto-detects project state and prompts you to choose a role. Each role has **isolated memory** — it only reads and writes the files it needs.
+When you open Claude Code in an Oh My Paper project, the `SessionStart` hook fires and Claude immediately asks which role you want to take on. Each role has **isolated memory** — it only reads and writes the files it needs.
 
 | Role | Responsibility | Memory Scope |
 |------|---------------|-------------|
-| **🎭 Conductor** | Global planning, review outputs, dispatch tasks | `project_truth` · `orchestrator_state` · `tasks.json` · `review_log` |
-| **📖 Literature Scout** | Search papers, organize literature bank | `project_truth` · `execution_context` · `paper_bank.json` |
-| **🧪 Experiment Driver** | Design experiments, write code, run evaluations | `execution_context` · `experiment_ledger` · `research_brief.json` |
-| **✍️ Paper Writer** | Draft sections, generate figures, audit references | `execution_context` · `result_summary` · `paper_bank.json` |
-| **🔍 Reviewer** | Peer review, quality gate, consistency check | `execution_context` · `project_truth` · `result_summary` |
+| **Conductor** | Global planning, review outputs, dispatch tasks, auto-update `project_truth` after each subtask | `project_truth` · `orchestrator_state` · `tasks.json` · `review_log` · `agent_handoff` · `decision_log` |
+| **Literature Scout** | Search papers, organize literature bank | `project_truth` · `execution_context` · `literature_bank` · `decision_log` |
+| **Experiment Driver** | Design experiments, write code, run evaluations | `execution_context` · `experiment_ledger` · `research_brief.json` · `project_truth` |
+| **Paper Writer** | Draft sections, generate figures, audit references | `execution_context` · `result_summary` · `literature_bank` · `agent_handoff` |
+| **Reviewer** | Peer review, quality gate, consistency check | `execution_context` · `project_truth` · `result_summary` |
 
 ### How It Works
 
 ```
-You select a role
-    → Agent loads role-specific memory files
-        → Works as that persona (knows its boundaries)
-            → Updates shared state (tasks.json, paper_bank.json, ...)
-                → Next agent picks up where you left off
+Session opens
+    → SessionStart hook fires
+        → Claude asks: which role today?
+            → Agent loads role-specific memory files
+                → Works as that persona
+                    → On subtask complete: auto-updates tasks.json + project_truth
+                        → Next session picks up right where you left off
 ```
 
 **Key design decisions:**
 
-- **Memory isolation** — the Paper Writer can't see the Conductor's orchestrator state; the Literature Scout can't see experiment results. This prevents context pollution and keeps each agent sharp.
-- **Shared state sync** — `tasks.json` and `paper_bank.json` are the common ground, updated by all roles.
-- **Session continuity** — agents remember project context across Claude Code sessions via the memory system.
+- **Memory isolation** — the Paper Writer can't see the Conductor's orchestrator state; the Literature Scout can't see experiment results. This prevents context pollution.
+- **Shared state** — `tasks.json` and `project_truth.md` are the common ground, updated by all roles after each subtask.
+- **No manual sync** — the Conductor auto-updates `tasks.json` (marks tasks `done`) and appends a progress entry to `project_truth.md` whenever a subtask completes, without waiting for you to ask.
 
 ---
 
 ## 34 Research Skills
 
-Skills are structured instruction sets that Claude Code loads on demand. Each skill is a markdown file with YAML frontmatter, covering a specific research task.
+Skills are structured instruction sets that Claude loads on demand. Each skill is a markdown file covering a specific research task.
 
 <details>
 <summary><strong>Click to expand the full skill list</strong></summary>
@@ -184,39 +206,38 @@ Skills are structured instruction sets that Claude Code loads on demand. Each sk
 
 </details>
 
-Skills are auto-recommended based on your current pipeline stage. You can also add project-local skills in the `skills/` directory.
+Skills are auto-recommended based on your current pipeline stage. Add project-local skills in the `skills/` directory.
 
 ---
 
-## Hooks — 后台自动运行
+## Hooks
 
-Oh My Paper registers three hooks that run invisibly in the background:
+Oh My Paper registers three hooks that run in the background:
 
 | Hook | Trigger | What It Does |
 |------|---------|-------------|
-| **SessionStart** | Every time you open Claude Code | Injects project context — detects pipeline stage, loads memory files, primes the agent with your project state |
-| **Stop** | When a task completes | Tracks task completion, updates `tasks.json`, logs progress |
-| **PostToolUse (Write)** | After any file write | Detects pipeline stage transitions — if you just created `experiment/` files, it knows you've moved to the Experiment stage |
+| **SessionStart** | Every time you open Claude Code in this project | Outputs project context to Claude — current stage, active task, last handoff — then prompts you to pick a role via `AskUserQuestion` |
+| **Stop** | When a task completes | Tracks task completion, updates `tasks.json` |
+| **PostToolUse (Write)** | After any file write | Detects pipeline stage transitions |
 
-You don't need to configure anything. Install the plugin and the hooks just work.
+**Important:** Hooks only activate after running `/omp:setup` in your project. Setup registers the `SessionStart` hook in `.claude/settings.json` and creates the `.pipeline/` directory that the hook checks.
 
 ---
 
 ## Research Pipeline
 
-A structured 5-stage workflow that drives your project from idea to publication:
+A structured 5-stage workflow from idea to publication:
 
 ```
 ┌──────────┐    ┌──────────┐    ┌────────────┐    ┌─────────────┐    ┌───────────┐
 │  Survey  │ →  │ Ideation │ →  │ Experiment │ →  │ Publication │ →  │ Promotion │
 └──────────┘    └──────────┘    └────────────┘    └─────────────┘    └───────────┘
-  文献调研         创意生成         实验执行           论文撰写           推广传播
 ```
 
 Each stage comes with:
-- **Auto-generated task trees** — what you need to do next
-- **Recommended skills** — which skills to load for this stage
-- **Context-aware prompts** — the agent reads `tasks.json` and `research_brief.json` and knows exactly what to do
+- **Auto-generated task trees** — what to do next
+- **Recommended skills** — which skills to load
+- **Context-aware prompts** — agents read `tasks.json` and `research_brief.json` and know what to do
 
 ---
 
@@ -234,52 +255,63 @@ my-research/
 ├── survey/                 # Literature survey artifacts
 ├── ideation/               # Ideas, evaluations, plans
 ├── promotion/              # Slides, demos, outreach
-├── skills/                 # Project-local skills (extend the 34 built-in)
-├── .pipeline/              # Pipeline state
-│   ├── tasks.json          # Task tree across all stages
-│   └── research_brief.json # Project identity & goals
-├── CLAUDE.md               # Agent protocol for Claude Code
-├── AGENTS.md               # Agent protocol for Codex
-└── instance.json           # Project identity
+├── skills/                 # Project-local skills
+├── .pipeline/
+│   ├── tasks/
+│   │   └── tasks.json      # Task tree across all stages
+│   ├── docs/
+│   │   └── research_brief.json
+│   └── memory/             # Agent memory files
+├── .claude/
+│   └── settings.json       # SessionStart hook registration
+├── CLAUDE.md
+└── AGENTS.md
 ```
 
 ---
 
 ## How Memory Works
 
-The memory system is what makes Oh My Paper more than a bag of slash commands. Each agent role has access to specific memory files:
+Each agent role reads and writes specific memory files. The Conductor is responsible for keeping shared state in sync.
 
 ```
-.pipeline/
-├── project_truth           # Ground truth: what this project is about
-├── orchestrator_state      # Conductor's planning state
-├── execution_context       # Current execution context (shared)
-├── experiment_ledger       # Experiment history & results
-├── result_summary          # Latest results for writing & review
-├── review_log              # Review feedback history
-├── tasks.json              # Task tree (shared across all roles)
-├── paper_bank.json         # Literature bank (shared)
-└── research_brief.json     # Project brief & scope
+.pipeline/memory/
+├── project_truth.md        # Ground truth + progress log (appended after each subtask)
+├── orchestrator_state.md   # Conductor's planning state
+├── execution_context.md    # Current task context for executors
+├── experiment_ledger.md    # Experiment history & results
+├── result_summary.md       # Latest results for writing & review
+├── review_log.md           # Review feedback history
+├── literature_bank.md      # Organized paper notes
+├── agent_handoff.md        # Cross-agent handoff messages
+└── decision_log.md         # Rejected directions & reasoning
+
+.pipeline/tasks/
+└── tasks.json              # Shared task tree (all roles read/write this)
 ```
 
-Memory files survive across sessions. When you start a new Claude Code session, the `SessionStart` hook detects your project's memory state and injects the relevant context — so you pick up right where you left off.
+Memory survives across sessions. The `SessionStart` hook reads these files and injects the relevant context — you pick up right where you left off.
+
+**Auto-sync rule:** The Conductor updates `tasks.json` and `project_truth.md` automatically after every subtask completes (delegate / experiment / survey / write / review). You never need to ask it to sync.
 
 ---
 
 ## Codex Delegation
 
-The **Conductor** agent can hand off parallelizable tasks to Codex:
+The Conductor can hand off coding and experiment tasks to Codex:
 
+```bash
+/omp:delegate
 ```
-/omp:delegate    # Opens a Codex session with the right context
-```
 
-Use this for:
-- Running long experiment loops while you keep working
-- Code refactoring tasks that don't need Claude's reasoning
-- Parallel sub-tasks during a large research sprint
-
-The delegation preserves shared state — Codex writes to the same `tasks.json` and `experiment_ledger`.
+The flow:
+1. Conductor reads project context and the current task
+2. Presents task summary — you confirm
+3. Generates a complete Codex prompt with context pre-injected
+4. You copy it to a new terminal: `codex "..."`
+5. Conductor polls for completion (`CODEX_DONE` signal in `agent_handoff.md`)
+6. Reads result, asks you to accept/revise/reject
+7. On accept: updates `tasks.json` and `project_truth.md` automatically
 
 ---
 
@@ -288,18 +320,18 @@ The delegation preserves shared state — Codex writes to the same `tasks.json` 
 The `remote-experiment` skill + `/omp:experiment` support a full auto-experiment loop:
 
 ```
-Modify code → rsync to server → Execute on GPU node → Parse metrics → Repeat until goal met
+Design plan → Implement code → rsync to server → Run on GPU → Parse metrics → Repeat
 ```
 
 - SSH/rsync-based remote compute via `compute-helper` CLI
 - Configurable success thresholds, max iterations, and failure limits
-- Experiment results flow back into the memory system for the Paper Writer
+- Results flow back into `experiment_ledger.md` for the Paper Writer
 
 ---
 
 ## For LLM Agents
 
-If you're an AI agent installing this plugin, here are the exact steps:
+If you're an AI agent installing this plugin:
 
 ```bash
 # Step 1: Add marketplace
@@ -313,13 +345,11 @@ If you're an AI agent installing this plugin, here are the exact steps:
 # Should show: omp @ oh-my-paper, Status: Enabled
 
 # Step 4: User must restart Claude Code (you cannot do this)
-# Inform user: "Please restart Claude Code to activate hooks."
+# Tell user: "Please restart Claude Code to activate hooks."
 
 # Step 5: Initialize project
 /omp:setup
 ```
-
-After restart, use `/omp:*` commands to drive the research pipeline.
 
 ---
 
@@ -327,11 +357,11 @@ After restart, use `/omp:*` commands to drive the research pipeline.
 
 > **Enhance, don't replace.** Claude Code is already smart — we add research structure, not overrides.
 
-- 🧠 **Your context is for reasoning** — hooks inject only what's needed; memory files keep the rest on disk
-- 🎯 **Domain-specific, not generic** — every skill, agent, and command is designed for academic research
-- 🔇 **Invisible when not needed** — hooks run in the background; no noise if you're just coding
-- 🔀 **Composable** — use one command, use all of them, or just let the hooks do their thing
-- 📖 **Memory over repetition** — agents remember project context so you don't re-explain every session
+- **Your context is for reasoning** — hooks inject only what's needed; memory files keep the rest on disk
+- **Domain-specific, not generic** — every skill, agent, and command is designed for academic research
+- **Invisible when not needed** — hooks run in the background; no noise if you're just coding
+- **Composable** — use one command, use all of them, or just let the hooks do their thing
+- **Memory over repetition** — agents remember project context so you don't re-explain every session
 
 ---
 
@@ -355,13 +385,11 @@ Any change to cached content requires version bumps in **both**:
 
 ## License
 
-MIT License. See [LICENSE](./LICENSE).
+MIT. See [LICENSE](./LICENSE).
 
 ---
 
 ## Acknowledgments
-
-特别感谢 **[Linux.do](https://linux.do)** 社区的支持与反馈。
 
 Special thanks to the **[Linux.do](https://linux.do)** community for your support and feedback.
 
