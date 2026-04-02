@@ -63,8 +63,11 @@ const s = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f,'utf8')) : {};
 if (!s.hooks) s.hooks = {};
 if (!s.hooks.SessionStart) s.hooks.SessionStart = [];
 const cmd = 'node \"\${CLAUDE_PLUGIN_ROOT}/scripts/on-session-start.mjs\"';
-if (!s.hooks.SessionStart.some(h => (h.command||'').includes('on-session-start'))) {
-  s.hooks.SessionStart.push({ command: cmd });
+const already = s.hooks.SessionStart.some(h =>
+  Array.isArray(h.hooks) && h.hooks.some(hh => (hh.command||'').includes('on-session-start'))
+);
+if (!already) {
+  s.hooks.SessionStart.push({ matcher: '', hooks: [{ type: 'command', command: cmd }] });
   fs.mkdirSync('.claude', { recursive: true });
   fs.writeFileSync(f, JSON.stringify(s, null, 2));
   console.log('hook registered');
