@@ -382,53 +382,42 @@ Conductor 可以把代码和实验任务交给 Codex 执行：
 
 ---
 
-## Codex CLI 支持
+## Codex 支持
 
 Oh My Paper 同时提供 **Codex 插件**（`oh-my-paper-codex`），功能与 Claude Code 插件完全对等。
 
 ### 在 Codex 上安装
 
+**macOS / Linux**
+
 ```bash
-# 1. 克隆仓库（如果尚未克隆）
+# 1. 克隆仓库
 git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
+cd /tmp/oh-my-paper
 
-# 2. 按 Codex 本地 marketplace 规范安装
-mkdir -p ~/.agents/plugins ~/plugins/oh-my-paper-codex
-rsync -aL /tmp/oh-my-paper/plugins/oh-my-paper-codex/ ~/plugins/oh-my-paper-codex/
-
-cat > ~/.agents/plugins/marketplace.json <<'EOF'
-{
-  "name": "oh-my-paper-local",
-  "interface": {
-    "displayName": "Local Codex Plugins"
-  },
-  "plugins": [
-    {
-      "name": "oh-my-paper-codex",
-      "source": {
-        "source": "local",
-        "path": "./plugins/oh-my-paper-codex"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Productivity"
-    }
-  ]
-}
-EOF
+# 2. 一键安装
+./scripts/install-codex-plugin.sh
 ```
 
-然后还需要：
+**Windows（PowerShell）**
 
-```bash
-# 3. 重启 Codex，让它重新加载本地 marketplace
-# 4. 打开 Codex 的 Plugins 页面，安装 "Oh My Paper"
-#    仅注册 marketplace 只会让插件“可发现”，不会自动变成已安装状态。
+```powershell
+# 1. 克隆仓库
+git clone https://github.com/LigphiDonk/Oh-my--paper.git $env:TEMP\oh-my-paper
+Set-Location $env:TEMP\oh-my-paper
+
+# 2. 一键安装
+powershell -ExecutionPolicy Bypass -File .\scripts\install-codex-plugin.ps1
 ```
 
-如果你在插件页里搜索，优先搜 `Oh My Paper` 或 `oh-my-paper-codex`，不要只搜 `omp`。
+安装脚本会自动完成：
+
+- 复制插件到 `~/plugins/oh-my-paper-codex`
+- 创建或更新 `~/.agents/plugins/marketplace.json`
+- 尝试直接调用 Codex，把插件安装并启用
+- 底层使用 `node` 执行，所以请先确保 `node` 在你的 `PATH` 上
+
+如果你的环境里 `codex` 不在 `PATH` 上，脚本仍会先把插件注册进去，然后提示你去 Codex 的 Plugins 页面完成最后一步。若需要搜索，优先搜 `Oh My Paper` 或 `oh-my-paper-codex`，不要只搜 `omp`。
 
 ### 包含内容
 
@@ -446,6 +435,7 @@ EOF
 - **Hooks**：Codex 没有原生 hook 系统。SessionStart 等价功能通过 `AGENTS.md` 实现（Codex 启动时自动读取）。阶段转换检测嵌入在 agent 指令中。
 - **命令命名**：Codex 用 `/omp-setup`（横杠），Claude Code 用 `/omp:setup`（冒号）。
 - **可以共存**：Codex 插件（`plugins/oh-my-paper-codex/`）与 Claude Code 插件（`plugins/oh-my-paper/`）完全独立，互不影响。
+- **安装脚本**：macOS/Linux 用 `scripts/install-codex-plugin.sh`，Windows 用 `scripts/install-codex-plugin.ps1`。脚本会合并 marketplace 条目，不会直接覆盖你已有的本地插件列表。
 - **Codex 的发现机制**：Codex 需要 `~/.agents/plugins/marketplace.json` 里有合法条目，同时插件目录位于 `~/plugins/<plugin-name>/`。只把文件复制到 `~/.codex/plugins/`，UI 不会收录。
 - **Codex 的安装状态**：marketplace 里有条目，只代表插件会出现在 Plugins 页面；你仍然需要在页面里点一次 Install，它才会变成已安装、已启用。
 
@@ -458,8 +448,15 @@ EOF
 /plugin uninstall omp@oh-my-paper
 ```
 
-**Codex CLI：**
-删除 `~/plugins/oh-my-paper-codex/`，并从 `~/.agents/plugins/marketplace.json` 里删掉对应条目。
+**Codex（macOS / Linux）：**
+```bash
+./scripts/uninstall-codex-plugin.sh
+```
+
+**Codex（Windows / PowerShell）：**
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex-plugin.ps1
+```
 
 ---
 

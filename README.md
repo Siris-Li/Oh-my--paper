@@ -381,54 +381,42 @@ Any change to cached content requires version bumps in **both**:
 
 ---
 
-## Codex CLI Support
+## Codex Support
 
 Oh My Paper also ships a **Codex plugin** (`oh-my-paper-codex`) that mirrors the Claude Code plugin's capabilities.
 
 ### Install on Codex
 
+**macOS / Linux**
+
 ```bash
-# 1. Clone the repo (if not already)
+# 1. Clone the repo
 git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
+cd /tmp/oh-my-paper
 
-# 2. Install the plugin into Codex's home-local marketplace layout
-mkdir -p ~/.agents/plugins ~/plugins/oh-my-paper-codex
-rsync -aL /tmp/oh-my-paper/plugins/oh-my-paper-codex/ ~/plugins/oh-my-paper-codex/
-
-cat > ~/.agents/plugins/marketplace.json <<'EOF'
-{
-  "name": "oh-my-paper-local",
-  "interface": {
-    "displayName": "Local Codex Plugins"
-  },
-  "plugins": [
-    {
-      "name": "oh-my-paper-codex",
-      "source": {
-        "source": "local",
-        "path": "./plugins/oh-my-paper-codex"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Productivity"
-    }
-  ]
-}
-EOF
+# 2. One-command install
+./scripts/install-codex-plugin.sh
 ```
 
-After that:
+**Windows (PowerShell)**
 
-```bash
-# 3. Restart Codex so it reloads the local marketplace
-# 4. Open the Plugins page in Codex and install "Oh My Paper"
-#    Registering the marketplace only makes the plugin discoverable.
-#    It is still not installed until you click Install.
+```powershell
+# 1. Clone the repo
+git clone https://github.com/LigphiDonk/Oh-my--paper.git $env:TEMP\oh-my-paper
+Set-Location $env:TEMP\oh-my-paper
+
+# 2. One-command install
+powershell -ExecutionPolicy Bypass -File .\scripts\install-codex-plugin.ps1
 ```
 
-If you search in the plugin UI, search for `Oh My Paper` or `oh-my-paper-codex`, not `omp`.
+What the installer does:
+
+- Copies the plugin to `~/plugins/oh-my-paper-codex`
+- Creates or updates `~/.agents/plugins/marketplace.json`
+- Tries to call Codex directly so the plugin becomes installed and enabled immediately
+- Uses `node` under the hood, so make sure `node` is available on your `PATH`
+
+If `codex` is not available on your `PATH`, the script still registers the plugin and then tells you to finish the last step in Codex's Plugins page. If you search there, search for `Oh My Paper` or `oh-my-paper-codex`, not `omp`.
 
 ### What's Included
 
@@ -446,6 +434,7 @@ If you search in the plugin UI, search for `Oh My Paper` or `oh-my-paper-codex`,
 - **Hooks**: Codex doesn't have native hooks. The `SessionStart` equivalent is handled by `AGENTS.md` which Codex reads automatically. Stage transition detection is embedded in the agent instructions.
 - **Command naming**: Codex uses `/omp-setup` (hyphen) vs Claude Code's `/omp:setup` (colon).
 - **Both can coexist**: The Codex plugin (`plugins/oh-my-paper-codex/`) is completely separate from the Claude Code plugin (`plugins/oh-my-paper/`). Installing one does not affect the other.
+- **Installer scripts**: Use `scripts/install-codex-plugin.sh` on macOS/Linux or `scripts/install-codex-plugin.ps1` on Windows. They merge the marketplace entry instead of overwriting your existing local plugins.
 - **Codex discovery**: Codex expects a valid `~/.agents/plugins/marketplace.json` entry plus a plugin directory under `~/plugins/<plugin-name>/`. Copying files only into `~/.codex/plugins/` is not enough for the plugin UI to discover it.
 - **Codex install state**: A marketplace entry only makes the plugin appear in the Plugins page. You must still install it there before it becomes enabled and usable.
 
@@ -458,8 +447,15 @@ If you search in the plugin UI, search for `Oh My Paper` or `oh-my-paper-codex`,
 /plugin uninstall omp@oh-my-paper
 ```
 
-**Codex CLI:**
-Remove `~/plugins/oh-my-paper-codex/` and delete the matching entry from `~/.agents/plugins/marketplace.json`.
+**Codex on macOS / Linux:**
+```bash
+./scripts/uninstall-codex-plugin.sh
+```
+
+**Codex on Windows (PowerShell):**
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-codex-plugin.ps1
+```
 
 ---
 
