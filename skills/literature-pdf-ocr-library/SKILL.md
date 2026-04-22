@@ -82,6 +82,9 @@ python .claude/skills/literature-pdf-ocr-library/scripts/search_and_download_pap
 # keyword workflow driven by /omp:survey.
 # Emits acm_download_queue.json + ieee_manifest.md for the non-arxiv buckets.
 # Use --no-download for a dry-run (queues only, no PDFs fetched).
+# After all three buckets are downloaded, run generate_review_template.py on
+# the corpus to emit review.md (relevance tiers across all buckets — drives
+# literature_bank.md's Relevance column).
 
 # OCR: PaddleOCR API (best quality)
 export PADDLEOCR_TOKEN="<token>"  # ask user, never hardcode
@@ -108,6 +111,7 @@ python .claude/skills/literature-pdf-ocr-library/scripts/build_library_index.py 
 - Use `scripts/search_and_download_papers.py` for traceable search and PDF download (supports `--query`, `--arxiv-ids`, `--venues`).
 - Use `scripts/pdf_recv.py` + `scripts/download_acm_batch.py` for the ACM bucket (paired with the `web-access` skill's Chrome CDP proxy).
 - Use `scripts/download_ieee_batch.py` for the IEEE bucket once the user has logged into their institutional Xplore access in Chrome.
+- Use `scripts/generate_review_template.py` to produce a per-corpus `review.md` skeleton Claude fills with tier judgments (HIGH / MED-H / MED / LOW) — the primary input for `literature_bank.md`'s Relevance column. Runs across all three buckets (arxiv / acm / ieee), not just IEEE.
 - Use `scripts/paddleocr_layout_to_markdown.py` for single-file or batch OCR conversion (supports `--fallback-pdfminer`).
 - Use `scripts/build_library_index.py` to generate `library_index.json` and `library_index.jsonl`.
 - Use `scripts/ingest_literature_library.py` when the user wants the full ingestion workflow in one go.

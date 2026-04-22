@@ -67,31 +67,56 @@ this skill:
 The target paths in `acm_download_queue.json` are absolute; the receiver writes each
 PDF to the slug it registered at startup, so re-running after partial success is safe.
 
+## Relevance review (all buckets)
+
+Venue mode's topic filter is a coarse substring recall pass — any paper whose
+title or abstract contains one of the keywords survives. After all downloads
+finish (arxiv / acm / ieee), Claude must do a precision pass that rates every
+kept paper at one of four tiers:
+
+- **HIGH** — directly on the research direction, must read in depth
+- **MED-H** — strongly related (same problem domain or same method), should read
+- **MED** — related (same setting different question, or useful counter-example)
+- **LOW** — weakly related or a keyword false positive; keep in `literature_bank`
+  for traceability but do not read in depth
+
+Workflow per corpus:
+
+```bash
+# 1. Emit the skeleton — lists every paper across all buckets, stable ordering.
+python .claude/skills/literature-pdf-ocr-library/scripts/generate_review_template.py \
+  <corpus>
+# -> <corpus>/review.md (fails if already exists; use --force to overwrite)
+```
+
+Each paper block contains: title, bucket, DOI / arxiv id, matched topic
+keyword, and the first 400 chars of the abstract. Claude then fills in three
+placeholders per paper: **Summary** (one-line what-it-does), **Tier**
+(HIGH / MED-H / MED / LOW), and **Why**. Claude also updates the Tier Summary
+table at the top. This is done from OpenAlex abstracts without per-paper user
+approval.
+
+`literature_bank.md`'s `Relevance` column is populated from `review.md` tiers —
+this is why arxiv/ACM/IEEE all need to go through the same pass instead of only
+IEEE.
+
+The IEEE download queue is derived from `review.md` rows whose bucket is `ieee`
+and whose tier is HIGH / MED-H / MED (drop LOW). See IEEE section below.
+
 ## IEEE bucket (institutional login required)
 
 IEEE Xplore is not open access. The flow relies on the user's institutional
-subscription + their logged-in Chrome. Claude does the relevance triage and the
-PDF fetch; the human only logs in.
+subscription + their logged-in Chrome. Claude does the relevance triage via the
+unified `review.md` step above; the human only logs in.
 
-### Step 1 — Claude writes `ieee_review.md` (relevance triage)
+### Step 1 — derive `ieee_download_queue.json` from `review.md`
 
-Before downloading, annotate every IEEE entry with a one-line summary and a tier
-(`HIGH` / `MED-H` / `MED` / `LOW`) so the download scope matches the research
-direction. Example structure per paper:
-
-```markdown
-### N. Paper Title
-DOI: 10.1109/ISCA59077.2024.00088 | kw: {matched topic keywords}
-> One-line what-it-does summary.
-
-**{HIGH|MED-H|MED|LOW}** — {why relevant / why not}. → {DOWNLOAD | SKIP}
-```
-
-A summary block at the end lists the DOWNLOAD set grouped by tier. Claude writes
-this autonomously from OpenAlex abstracts — it does not need user approval per paper.
-
-From the DOWNLOAD set, emit `ieee_download_queue.json` with the same schema as
-`acm_download_queue.json` (`paper_slug / doi / target_path`).
+The relevance tiering happens in the cross-bucket `review.md` step (see
+*Relevance review* above). For the IEEE batch downloader, filter that review
+down to rows with `Bucket: ieee` and `Tier ∈ {HIGH, MED-H, MED}`, then emit
+`ieee_download_queue.json` with the same schema as `acm_download_queue.json`:
+`paper_slug / doi / target_path`. LOW-tier IEEE entries are skipped (kept as
+metadata-only in the corpus).
 
 ### Step 2 — user logs in to Xplore
 
@@ -159,10 +184,11 @@ mode without either option exits with a non-zero status.
 ## Relevance filter semantics
 
 The keyword list is intentionally coarse — it is a first-pass recall filter, not
-a precision filter. The downstream `ieee_review.md` / manual skim pass does the
-fine-grained call. Each kept record carries its `topic_keyword` field showing
-which keyword hit, which helps debug false positives. To adjust keywords for a
-new research direction, edit the project's `topic_keywords.json` and re-run.
+a precision filter. The downstream `review.md` pass (see *Relevance review* above)
+does the fine-grained call across all three buckets. Each kept record carries
+its `topic_match_kw` field showing which keyword hit, which helps debug false
+positives. To adjust keywords for a new research direction, edit the project's
+`topic_keywords.json` and re-run.
 
 ## Known failure modes and the fixes in place
 
@@ -183,8 +209,13 @@ Per corpus under `--out-dir`:
 - `search_results.json` — full run log including `mode=venues`, `bucket_counts`,
   the resolved `topic_keywords_file` path, the actual `topic_keywords` list, and errors.
 - `acm_download_queue.json` — queue for the ACM batch downloader.
-- `ieee_manifest.md` — human-readable IEEE list; Claude expands this into
-  `ieee_review.md` + `ieee_download_queue.json` before downloading.
+- `ieee_manifest.md` — human-readable IEEE list; after relevance review (below),
+  Claude derives `ieee_download_queue.json` from `review.md` IEEE rows whose
+  tier is HIGH / MED-H / MED.
+- `review.md` — cross-bucket relevance review filled by Claude (one Tier per
+  paper: HIGH / MED-H / MED / LOW). Produced from
+  `scripts/generate_review_template.py`. Drives the Relevance column of
+  `literature_bank.md` and the IEEE download subset.
 - `papers/<slug>/metadata.json` — per-paper record with `bucket`, `pdf_status`,
   `topic_match_kw`, DBLP + OpenAlex fields.
 - `papers/<slug>/paper.pdf` — only present once that bucket's downloader has run.

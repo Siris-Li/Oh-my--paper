@@ -54,7 +54,8 @@ cat .pipeline/memory/literature_bank.md  # 查看已有多少文献
 Venue 模式流水线：**DBLP 精确枚举 → OpenAlex 摘要回填 → topic 关键词预过滤 → 三桶分发（arxiv / acm / ieee）**。
 - arxiv 桶：脚本自动下载
 - ACM 桶：ACM DL 被 Cloudflare 拦住 curl，需要用 web-access skill 驱动真 Chrome 过 CDP + 本地 HTTP PUT 接收器（见第四步 4a-acm）
-- IEEE 桶：Xplore 非 OA，需要用户登录学校 IEEE 账号，由 Claude 先写 `ieee_review.md` 做相关度判断，再批量下载（见第四步 4a-ieee）
+- IEEE 桶：Xplore 非 OA，需要用户登录学校 IEEE 账号；IEEE 的相关度判断和其它两桶一起在第四步 4b 统一 review（`review.md`），再由 review 结果生成 `ieee_download_queue.json` 供 4a-ieee 批下载
+- 相关度分档：三桶下载完成后由 Claude 对每篇论文统一打 HIGH / MED-H / MED / LOW 四档，填入 `review.md`（见第四步 4b）。这份 tier 是 `literature_bank.md` 的 Relevance 列的唯一来源
 
 参考：skill 内 `references/venue-mode.md` 有完整细节，遇到异常时先读那份。
 
@@ -166,13 +167,7 @@ python .claude/skills/literature-pdf-ocr-library/scripts/download_acm_batch.py \
 
 前置：用户在日常 Chrome 里登录学校 IEEE Xplore（OpenAthens / IP / VPN 任一种都行），一次手点任意一篇 PDF 验证登录生效。
 
-**先让 Claude 自己做相关度判断**，不要让用户逐条确认：
-1. 读 `ieee_manifest.md` 的每个 title + 对应 `papers/<slug>/metadata.json` 里 OpenAlex 回填的 abstract。
-2. 按 HIGH / MED-H / MED / LOW 四档打分，LOW 的跳过。
-3. 写 `ieee_review.md`（每篇一段：title / DOI / kw / 一句 what-it-does / 相关度判定 + 一句 why / DOWNLOAD 或 SKIP）。
-4. 把 DOWNLOAD 的挑出来，生成 `ieee_download_queue.json`（schema 同 acm_download_queue.json：`paper_slug / doi / target_path`）。
-
-再跑批量下载：
+**IEEE 的相关度判断现在统一在 `4b. 相关度分档 review` 这一步做（覆盖三桶）**，下面只负责批下载。假设 `ieee_download_queue.json` 已在 4b 生成。
 
 ```bash
 python .claude/skills/literature-pdf-ocr-library/scripts/pdf_recv.py \
@@ -184,7 +179,41 @@ python .claude/skills/literature-pdf-ocr-library/scripts/download_ieee_batch.py 
 
 脚本为每篇开新 Chrome tab（避免 Xplore APM 对长 session 的 tab fingerprinting），轮询页面 `ready=="complete"` 再发 fetch（解决 in-flight 导航导致的 `Failed to fetch`），2.5 s 间隔。典型 IEEE 批次命中率 35/38~38/38。个别 CDP 超时是误报（文件已 PUT 成功但脚本没等到 JS 返回），重跑一次 skip-if-exists 会判出来。
 
-### 4b. OCR 转 Markdown
+注意调用顺序：venue 模式下，**先跑 4a / 4a-acm（arxiv + ACM 下载），再跑 4b（跨桶相关度 review 生成 `ieee_download_queue.json`），最后 4a-ieee 真正批下载 IEEE PDF**。IEEE 桶在 review 之前没有 queue，跑了也没用。
+
+### 4b. 相关度分档 review（所有桶统一）
+
+venue 模式的 topic filter 只是子串级召回，三桶下载完成后，Claude 必须对所有保留的论文做一次精判，为每篇打 HIGH / MED-H / MED / LOW 四档。这是 `literature_bank.md` 的 Relevance 列的唯一来源，arxiv / ACM / IEEE 三桶统一走这一步。
+
+流程（对每个 corpus 都跑一遍）：
+
+1. 生成骨架：
+
+   ```bash
+   python .claude/skills/literature-pdf-ocr-library/scripts/generate_review_template.py \
+     .pipeline/literature/<corpus-name>
+   # 输出：.pipeline/literature/<corpus-name>/review.md
+   # 已存在会报错；需要覆盖时加 --force
+   ```
+
+   骨架按 bucket (arxiv → acm → ieee → other) + 标题字母序列出每篇，包含 title / bucket / DOI 或 arxiv id / matched kw / 摘要前 400 字，并留 Summary / Tier / Why 三个占位符。
+
+2. Claude 读骨架，逐篇填：
+   - **Summary**：一句 what-it-does
+   - **Tier**：
+     - `HIGH` 直接命中研究方向的核心论文，需精读
+     - `MED-H` 强相关（同问题域或直接方法），选读
+     - `MED` 相关（同场景不同问题，或反向对比参考）
+     - `LOW` 弱相关或误匹配，不精读但保留在 literature_bank 供溯源
+   - **Why**：一句 why-this-tier
+
+   填完同时更新顶部 Tier Summary 表格的 Count 和 Papers 列。
+
+3. 保存回 `.pipeline/literature/<corpus-name>/review.md`。
+
+4. 如果该 corpus 在 IEEE 桶里有 Tier ∈ {HIGH, MED-H, MED} 的条目，从 review.md 挑出这些 IEEE 行生成 `.pipeline/literature/<corpus-name>/ieee_download_queue.json`（schema 同 `acm_download_queue.json`：`paper_slug / doi / target_path`），然后回到 4a-ieee 跑批下载。LOW 的 IEEE 条目不下载，只留元数据。
+
+### 4c. OCR 转 Markdown
 
 ```bash
 # PaddleOCR API（用户提供 Token）
@@ -201,18 +230,18 @@ python .claude/skills/literature-pdf-ocr-library/scripts/paddleocr_layout_to_mar
   --fallback-pdfminer
 ```
 
-### 4c. 生成索引
+### 4d. 生成索引
 
 ```bash
 python .claude/skills/literature-pdf-ocr-library/scripts/build_library_index.py \
   --library-root .pipeline/literature/<corpus-name>
 ```
 
-### 4d. 补充搜索（元数据层）
+### 4e. 补充搜索（元数据层）
 
 调用 `inno-deep-research` skill 搜索 OCR 没有覆盖的方向，每个方向至少找 5 篇。
 
-### 4e. 更新 literature_bank.md
+### 4f. 更新 literature_bank.md
 
 将所有论文逐条追加（含 OCR 路径字段）：
 
@@ -220,9 +249,8 @@ python .claude/skills/literature-pdf-ocr-library/scripts/build_library_index.py 
 | [URL] | Title | Year | Venue | Relevance | accepted | Date | OCR路径 |
 ```
 
-OCR 路径填实际路径，例如：
-`.pipeline/literature/humanoid-core/papers/2502-13817-asap/ocr/paper/doc_0.md`
-没有 OCR 的填 `none`。
+- **Relevance** 列值来自 4b 的 `review.md`（HIGH / MED-H / MED / LOW），三桶统一来源。没走 venue 模式（query / arxiv-ids 模式）时，Claude 可以不填或按自己的判断填。
+- **OCR路径** 填实际路径，例如 `.pipeline/literature/humanoid-core/papers/2502-13817-asap/ocr/paper/doc_0.md`；没有 OCR 的填 `none`。
 
 完成后生成 `.pipeline/docs/gap_matrix.md` 分析研究空白，更新 `.pipeline/memory/agent_handoff.md`。
 
