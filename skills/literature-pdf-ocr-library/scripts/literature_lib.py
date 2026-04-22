@@ -395,25 +395,6 @@ _ARXIV_ABS_OR_PDF_RE = re.compile(
     r"arxiv\.org/(?:abs|pdf)/([0-9]{4}\.[0-9]{4,5})(?:v\d+)?(?:\.pdf)?", re.IGNORECASE
 )
 
-# Agentic-CPU topic keywords. Substring match on title+abstract (case-insensitive).
-# Any single keyword hit is sufficient (the venue filter already narrows to
-# architecture/systems conferences, so precision is high).
-TOPIC_KEYWORDS: List[str] = [
-    # Agent semantics
-    "agent", "agentic", "multi-agent", "autonomous",
-    "codex", "copilot", "tool use", "tool-use", "function calling",
-    # LLM serving / inference
-    "llm", "language model",
-    "llm serving", "llm inference", "inference engine",
-    "kv cache", "kvcache", "kv-cache", "prefix cache",
-    "speculative decoding", "mixture-of-experts", "moe",
-    # Retrieval / reasoning
-    "rag", "retrieval-augmented", "retrieval augmented",
-    "reasoning", "chain-of-thought", "chain of thought",
-    # Architecture for LLM
-    "transformer accelerator", "attention accelerator",
-]
-
 _TITLE_STOPWORDS = {
     "for", "and", "the", "with", "via", "using", "from", "into", "over",
     "under", "of", "on", "in", "to", "a", "an", "by",
@@ -578,13 +559,24 @@ def fetch_openalex_abstract(doi: str, mailto: Optional[str] = None) -> Optional[
     return _reconstruct_inverted_index(body.get("abstract_inverted_index"))
 
 
-def topic_matches(title: Optional[str], abstract: Optional[str]) -> Tuple[bool, Optional[str]]:
-    """Return (matched, first-keyword-hit) for TOPIC_KEYWORDS substring search."""
+def topic_matches(
+    title: Optional[str],
+    abstract: Optional[str],
+    keywords: List[str],
+) -> Tuple[bool, Optional[str]]:
+    """Return (matched, first-keyword-hit) for case-insensitive substring search.
+
+    `keywords` is the caller-supplied list (typically from a project-level file);
+    keywords are lowercased before matching. Empty lists always return (False, None).
+    """
     text = ((title or "") + " " + (abstract or "")).lower()
-    if not text.strip():
+    if not text.strip() or not keywords:
         return False, None
-    for kw in TOPIC_KEYWORDS:
-        if kw in text:
+    for kw in keywords:
+        if not isinstance(kw, str):
+            continue
+        needle = kw.strip().lower()
+        if needle and needle in text:
             return True, kw
     return False, None
 
@@ -711,6 +703,7 @@ def bucket_record(record: Dict, *, try_arxiv_title_match: bool = True) -> str:
 def fetch_venue_papers(
     venue_slugs: List[str],
     *,
+    topic_keywords: Optional[List[str]] = None,
     topic_filter: bool = True,
     openalex_mailto: Optional[str] = None,
     openalex_delay: float = 0.15,
@@ -719,7 +712,26 @@ def fetch_venue_papers(
     """End-to-end venue pipeline. Returns (records, slug-level errors).
 
     Every returned record carries a `bucket` field: "arxiv" | "acm" | "ieee" | "other".
+
+    When ``topic_filter`` is True the caller MUST supply a non-empty
+    ``topic_keywords`` list -- there is no hardcoded default. When
+    ``topic_filter`` is False, ``topic_keywords`` is ignored and every DBLP
+    paper passes through.
     """
+    # Normalize + validate keywords up front so we fail before making any network
+    # calls if the caller asked for filtering without supplying words.
+    clean_keywords: List[str] = []
+    if topic_keywords:
+        clean_keywords = [
+            kw.strip() for kw in topic_keywords if isinstance(kw, str) and kw.strip()
+        ]
+    if topic_filter and not clean_keywords:
+        raise ValueError(
+            "venue mode with topic filter enabled requires a non-empty "
+            "topic_keywords list (typically loaded from --topic-keywords-file). "
+            "Pass topic_filter=False to download every paper in the venue."
+        )
+
     all_rows: List[Dict] = []
     errors: Dict[str, str] = {}
     for slug in venue_slugs:
@@ -752,7 +764,7 @@ def fetch_venue_papers(
         if topic_filter:
             kept: List[Dict] = []
             for r in rows:
-                ok, kw = topic_matches(r.get("title"), r.get("abstract"))
+                ok, kw = topic_matches(r.get("title"), r.get("abstract"), clean_keywords)
                 if ok:
                     r["topic_keyword"] = kw
                     kept.append(r)

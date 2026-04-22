@@ -72,12 +72,16 @@ python .claude/skills/literature-pdf-ocr-library/scripts/search_and_download_pap
 # Download by venue+year (DBLP enumeration -> topic filter -> arxiv/acm/ieee bucketing)
 python .claude/skills/literature-pdf-ocr-library/scripts/search_and_download_papers.py \
   --venues asplos-2024 isca-2024 hpca-2024 \
+  --topic-keywords-file .pipeline/docs/topic_keywords.json \
   --out-dir .pipeline/literature/my-corpus \
   --download-pdfs
 # Supported slugs: isca/micro/hpca/asplos/mlsys/dac/iccad x YYYY.
+# --topic-keywords-file is REQUIRED in venue mode unless you pass --no-topic-filter
+# to keep every paper (no keyword match). The file is a JSON list of strings or
+# {"keywords": [...]}; see references/venue-mode.md for format and the per-project
+# keyword workflow driven by /omp:survey.
 # Emits acm_download_queue.json + ieee_manifest.md for the non-arxiv buckets.
-# Use --no-topic-filter to keep every venue paper; --no-download for dry-run.
-# See references/venue-mode.md for the ACM / IEEE orchestration steps.
+# Use --no-download for a dry-run (queues only, no PDFs fetched).
 
 # OCR: PaddleOCR API (best quality)
 export PADDLEOCR_TOKEN="<token>"  # ask user, never hardcode

@@ -58,6 +58,40 @@ Venue 模式流水线：**DBLP 精确枚举 → OpenAlex 摘要回填 → topic 
 
 参考：skill 内 `references/venue-mode.md` 有完整细节，遇到异常时先读那份。
 
+### 第二步补 B：venue 模式关键词确认（必做，不能跳过）
+
+venue 模式的 topic filter 没有内置默认词——必须喂一份项目级关键词文件，否则脚本会直接报错退出。只有当用户明确选择"全量拉整会（--no-topic-filter）"时才可以跳过这一步。
+
+流程：
+
+1. **抽取候选关键词**：基于第一步读到的 `project_truth.md` 和 `research_brief.json`，Claude 自己从 research direction + preferredRoutes 里抽 6-10 个小写短语（每个 1-3 词，如 `agent`、`multi-agent`、`llm serving`、`kv cache`、`cpu bottleneck`、`tool use`、`scheduling`）。
+2. **用 `AskUserQuestion` 确认**：
+
+   > 我从 project_truth + research_brief 抽到以下 venue 过滤关键词（小写子串匹配 title+abstract，任一命中即保留）：
+   >
+   > `agent, multi-agent, llm serving, kv cache, cpu bottleneck, tool use, scheduling`
+   >
+   > 用这份关键词过滤 venue 论文吗？
+
+   选项：
+   - `确认使用这份关键词`
+   - `增删部分关键词`（继续追问"加哪些、删哪些"）
+   - `完全重写`（请用户直接给一份列表）
+   - `别过滤，拉整会`（走 --no-topic-filter 分支）
+
+3. **落盘关键词文件**（确认 / 增删 / 重写 分支）：把最终关键词写到 `.pipeline/docs/topic_keywords.json`：
+   ```json
+   {
+     "keywords": ["agent", "multi-agent", "llm serving", "kv cache", "cpu bottleneck", "tool use", "scheduling"],
+     "source": "derived from project_truth.md"
+   }
+   ```
+4. **第四步 venue 调用时**：
+   - 过滤分支 → `--topic-keywords-file .pipeline/docs/topic_keywords.json`
+   - 全拉分支 → `--no-topic-filter`（不传文件）
+
+说明：venue-mode 已经不再有"无参数默认行为"；不传 `--topic-keywords-file` 也不传 `--no-topic-filter` 时脚本会 exit 2 并提示。所以这一步**不能跳过**。
+
 ## 第三步：询问 OCR 方式（下载前必须确认）
 
 用 `AskUserQuestion` 询问：
@@ -102,12 +136,14 @@ python .claude/skills/literature-pdf-ocr-library/scripts/search_and_download_pap
   --download-pdfs
 
 # venue 模式（DBLP 枚举 + 三桶分发）
+# 必须带 --topic-keywords-file（第二步补 B 生成的文件）；或者明确 --no-topic-filter 拉整会。
 python .claude/skills/literature-pdf-ocr-library/scripts/search_and_download_papers.py \
   --venues <slug1> <slug2> ... \
+  --topic-keywords-file .pipeline/docs/topic_keywords.json \
   --out-dir .pipeline/literature/<corpus-name> \
   --download-pdfs
 # venue 模式脚本只自动下 arxiv 桶；ACM / IEEE 桶需跑下面的子流程。
-# --no-topic-filter 留全部；--no-download 只生成 queue 和 manifest 不下载。
+# 不想过滤时改成 --no-topic-filter（不传关键词文件）；--no-download 只生成 queue 和 manifest 不下载。
 ```
 
 #### 4a-acm. ACM 桶批下载（venue 模式产物：`acm_download_queue.json` 非空时）

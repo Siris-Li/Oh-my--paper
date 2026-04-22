@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+from typing import List, Optional
 
 from literature_lib import (
     SUPPORTED_VENUE_SLUGS,
@@ -30,6 +32,56 @@ from literature_lib import (
     slugify,
     write_json,
 )
+
+
+def _load_topic_keywords(path: Path) -> List[str]:
+    """Parse a JSON topic-keywords file.
+
+    Accepted shapes:
+      1. A list of strings -> used directly.
+      2. An object with a ``keywords`` field that is a list of strings.
+
+    Exits with a helpful stderr message (and non-zero status) on any other shape
+    so errors are immediate rather than silently degrading to no filter.
+    """
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"[error] cannot read --topic-keywords-file {path}: {exc}", file=sys.stderr)
+        sys.exit(2)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(
+            f"[error] --topic-keywords-file {path} is not valid JSON: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    candidates: Optional[list] = None
+    if isinstance(data, list):
+        candidates = data
+    elif isinstance(data, dict):
+        inner = data.get("keywords")
+        if isinstance(inner, list):
+            candidates = inner
+
+    if candidates is None:
+        print(
+            f"[error] --topic-keywords-file {path}: expected a JSON list of strings "
+            "or an object with a 'keywords' list field.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    keywords = [item.strip() for item in candidates if isinstance(item, str) and item.strip()]
+    if not keywords:
+        print(
+            f"[error] --topic-keywords-file {path} contained no usable keyword strings.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return keywords
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,7 +122,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-topic-filter",
         action="store_true",
-        help="Skip the Agentic-CPU keyword filter in venue mode (download the entire venue).",
+        help="Skip the topic-keyword filter in venue mode (keep every venue paper).",
+    )
+    parser.add_argument(
+        "--topic-keywords-file",
+        default=None,
+        help=(
+            "Path to a JSON file providing the topic keywords used by --venues mode. "
+            "Required in venue mode unless --no-topic-filter is set. "
+            "Accepts either a top-level list of strings or a dict with a 'keywords' list field."
+        ),
     )
     parser.add_argument("--openalex-mailto", default=None, help="Optional mailto value for OpenAlex.")
     parser.add_argument("--sort", choices=["relevance", "recent"], default="relevance", help="Sort strategy.")
@@ -104,6 +165,9 @@ def main() -> int:
     papers_dir = out_dir / "papers"
     ensure_dir(papers_dir)
 
+    topic_keywords: Optional[List[str]] = None
+    topic_keywords_file_path: Optional[str] = None
+
     mode_name: str
     if args.arxiv_ids:
         # --arxiv-ids mode: resolve via arXiv API, confirm metadata, then optionally download
@@ -112,9 +176,29 @@ def main() -> int:
         mode_name = "arxiv_ids"
     elif args.venues:
         # --venues mode: DBLP enumeration -> abstract -> topic filter -> bucketing
+        topic_filter_enabled = not args.no_topic_filter
+        if topic_filter_enabled:
+            if not args.topic_keywords_file:
+                print(
+                    "[error] venue mode requires --topic-keywords-file PATH (JSON list "
+                    "of strings or {\"keywords\": [...]}) unless you pass "
+                    "--no-topic-filter to keep every paper in the venue.",
+                    file=sys.stderr,
+                )
+                return 2
+            kw_path = Path(args.topic_keywords_file).expanduser().resolve()
+            topic_keywords = _load_topic_keywords(kw_path)
+            topic_keywords_file_path = str(kw_path)
+        else:
+            if args.topic_keywords_file:
+                print(
+                    "[warn] --topic-keywords-file ignored because --no-topic-filter is set.",
+                    file=sys.stderr,
+                )
         records, source_errors = fetch_venue_papers(
             args.venues,
-            topic_filter=not args.no_topic_filter,
+            topic_keywords=topic_keywords,
+            topic_filter=topic_filter_enabled,
             openalex_mailto=args.openalex_mailto,
         )
         if args.min_year is not None:
@@ -231,6 +315,8 @@ def main() -> int:
             "arxiv_ids": args.arxiv_ids,
             "venues": args.venues,
             "topic_filter": (not args.no_topic_filter) if args.venues else None,
+            "topic_keywords_file": topic_keywords_file_path,
+            "topic_keywords": topic_keywords,
             "no_download": args.no_download,
             "limit": args.limit,
             "sources": sources_repr,

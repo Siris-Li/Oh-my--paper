@@ -20,9 +20,11 @@ DBLP venue:+year:    →   OpenAlex by-DOI       →   topic keyword filter    �
 2. **OpenAlex by-DOI** fills in abstracts (DBLP does not carry them). Abstracts are
    reconstructed from OpenAlex's `abstract_inverted_index`. Typical coverage 95%+ for
    2024/2025 ACM/IEEE papers.
-3. **Topic filter**: a simple substring match over `title + abstract` against the keyword
-   set in `literature_lib.TOPIC_KEYWORDS`. Survivors are marked `topic_match=True`.
-   Pass `--no-topic-filter` to skip this stage and keep every paper in the venue.
+3. **Topic filter**: a simple substring match over `title + abstract` against the
+   project-specific keyword list loaded from `--topic-keywords-file PATH` (JSON;
+   see *Topic keywords file* below). Survivors are marked `topic_match=True`.
+   There is no built-in default keyword list — venue mode will refuse to run
+   without either `--topic-keywords-file` or `--no-topic-filter`.
 4. **arxiv title-match** (for the arxiv bucket): tries `ti:"{title}"` on the arxiv API.
    Guarded by `min_year = target_year - 1` plus a tightened token-overlap threshold —
    earlier versions matched 2010-era arxiv preprints to 2024 titles via 4 common words.
@@ -122,13 +124,45 @@ Key behaviors baked into `download_ieee_batch.py` (do not regress these):
   flow, then PUT to the local receiver.
 - 2.5 s between papers is polite and avoids rate-triggered challenges.
 
+## Topic keywords file
+
+The keyword list is **per-project**, not built-in. Venue mode is only meaningful
+when a caller (typically an `omp` project) provides a `--topic-keywords-file`.
+The skill no longer carries a default list.
+
+Accepted JSON shapes for `--topic-keywords-file`:
+
+```json
+{
+  "keywords": ["agent", "multi-agent", "llm serving", "kv cache", "cpu bottleneck", "tool use", "scheduling"],
+  "source": "derived from project_truth.md research direction + preferredRoutes"
+}
+```
+
+or a bare list:
+
+```json
+["agent", "multi-agent", "llm serving", "kv cache", "tool use"]
+```
+
+In `omp` projects the `/omp:survey` command writes this file to
+`.pipeline/docs/topic_keywords.json` after the user confirms keywords extracted
+from `project_truth.md` / `research_brief.json`.
+
+### Fallback: no filter at all
+
+Pass `--no-topic-filter` to keep every paper returned by DBLP for the venue+year
+(no keyword match required). This is the only way to run venue mode without a
+keywords file. There is no longer an implicit generic default — running venue
+mode without either option exits with a non-zero status.
+
 ## Relevance filter semantics
 
-`TOPIC_KEYWORDS` is intentionally coarse — it is a first-pass recall filter, not a
-precision filter. The downstream `ieee_review.md` / manual skim pass does the fine-
-grained call. If you need to adjust keywords for a new research direction, edit
-`literature_lib.TOPIC_KEYWORDS` and re-run; each kept record carries its
-`topic_match_kw` field showing which keyword hit, which helps debug false positives.
+The keyword list is intentionally coarse — it is a first-pass recall filter, not
+a precision filter. The downstream `ieee_review.md` / manual skim pass does the
+fine-grained call. Each kept record carries its `topic_keyword` field showing
+which keyword hit, which helps debug false positives. To adjust keywords for a
+new research direction, edit the project's `topic_keywords.json` and re-run.
 
 ## Known failure modes and the fixes in place
 
@@ -146,7 +180,8 @@ grained call. If you need to adjust keywords for a new research direction, edit
 
 Per corpus under `--out-dir`:
 
-- `search_results.json` — full run log including `mode=venues`, `bucket_counts`, errors.
+- `search_results.json` — full run log including `mode=venues`, `bucket_counts`,
+  the resolved `topic_keywords_file` path, the actual `topic_keywords` list, and errors.
 - `acm_download_queue.json` — queue for the ACM batch downloader.
 - `ieee_manifest.md` — human-readable IEEE list; Claude expands this into
   `ieee_review.md` + `ieee_download_queue.json` before downloading.
