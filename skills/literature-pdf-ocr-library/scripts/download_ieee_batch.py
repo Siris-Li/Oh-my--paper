@@ -18,6 +18,33 @@ PROXY = "http://localhost:3456"
 RECV = "http://localhost:9876"
 DELAY_BETWEEN = 2.5  # IEEE is slightly more WAF-paranoid than ACM
 
+# Post-hoc disk verify: a real PDF written by pdf_recv.py must start with "%PDF-"
+# and be at least 10 KB. Magic-bytes is the authoritative signal; the old
+# 100 KB / 200 KB numeric thresholds rejected valid small papers. 10 KB is the
+# sane floor for "this is a real PDF file at all".
+PDF_MAGIC = b"%PDF-"
+PDF_MIN_BYTES = 10_000
+
+
+def disk_verify(target_path: str) -> tuple[bool, int]:
+    """Check target_path is an on-disk PDF (magic bytes + size floor).
+
+    Returns (ok, size_bytes). ok=True iff file exists, starts with %PDF-,
+    and is >= PDF_MIN_BYTES. On any IO error returns (False, 0).
+    """
+    try:
+        p = Path(target_path)
+        if not p.exists():
+            return False, 0
+        size = p.stat().st_size
+        if size < PDF_MIN_BYTES:
+            return False, size
+        with open(p, "rb") as f:
+            head = f.read(5)
+        return head == PDF_MAGIC, size
+    except Exception:
+        return False, 0
+
 
 def proxy_eval(tid: str, js: str, timeout: int = 90) -> dict:
     return requests.post(f"{PROXY}/eval", params={"target": tid}, data=js, timeout=timeout).json()
@@ -71,6 +98,7 @@ def download_one(doi: str, slug: str, target_path: str) -> dict:
         b64ref = base64.b64encode(landing.encode()).decode()
         pdf_url = f"https://ieeexplore.ieee.org/stampPDF/getPDF.jsp?tp=&arnumber={arnumber}&ref={b64ref}"
 
+        # Magic-bytes first, then 10 KB floor — drop numeric size gates.
         js = f"""(async()=>{{try{{
   const r = await fetch({json.dumps(pdf_url)}, {{credentials:"include", redirect:"follow"}});
   const ct = r.headers.get("content-type") || "";
@@ -79,19 +107,65 @@ def download_one(doi: str, slug: str, target_path: str) -> dict:
     return JSON.stringify({{fetchStatus: r.status, ct, snippet: txt.slice(0, 300)}});
   }}
   const blob = await r.blob();
-  if (blob.size < 10000) return JSON.stringify({{fetchStatus: r.status, size: blob.size, tooSmall: true}});
+  const head = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+  const magic = String.fromCharCode(head[0], head[1], head[2], head[3], head[4]);
+  if (magic !== "%PDF-") return JSON.stringify({{fetchStatus: r.status, size: blob.size, magic, reason: "not_pdf"}});
+  if (blob.size < {PDF_MIN_BYTES}) return JSON.stringify({{fetchStatus: r.status, size: blob.size, magic, reason: "tooSmall"}});
   const up = await fetch({json.dumps(RECV)} + "/" + {json.dumps(slug)}, {{method:"PUT", body:blob}});
-  return JSON.stringify({{fetchStatus: r.status, size: blob.size, upStatus: up.status, upBody: await up.text()}});
+  return JSON.stringify({{fetchStatus: r.status, size: blob.size, magic, upStatus: up.status, upBody: await up.text()}});
 }}catch(e){{return "ERR " + e.message;}}}})()"""
 
-        result = proxy_eval(tid, js, timeout=120)
-        val = result.get("value") or result.get("error") or str(result)
-        if isinstance(val, str) and val.startswith("{"):
-            parsed = json.loads(val)
-            if parsed.get("upStatus") == 200 and parsed.get("size", 0) > 100_000:
-                return {"status": "ok", "size": parsed["size"], "arnumber": arnumber}
-            return {"status": "fail", "detail": parsed, "arnumber": arnumber}
-        return {"status": "error", "detail": val, "arnumber": arnumber}
+        in_mem_status = "unknown"
+        in_mem_detail = None
+        try:
+            result = proxy_eval(tid, js, timeout=120)
+            val = result.get("value") or result.get("error") or str(result)
+            if isinstance(val, str) and val.startswith("{"):
+                parsed = json.loads(val)
+                if parsed.get("upStatus") == 200 and parsed.get("size", 0) >= PDF_MIN_BYTES:
+                    in_mem_status = "ok"
+                    in_mem_detail = parsed
+                else:
+                    in_mem_status = "fail"
+                    in_mem_detail = parsed
+            else:
+                in_mem_status = "error"
+                in_mem_detail = val
+        except Exception as e:
+            in_mem_status = "exception"
+            in_mem_detail = str(e)
+
+        # Post-hoc disk verify: CDP eval can time out / throw (notably for
+        # larger 7–13 MB PDFs — the browser doesn't wake the JS context back up
+        # in time) while pdf_recv.py has already written a valid file. Trust
+        # the file on disk over the in-memory fail classification.
+        disk_ok, disk_size = disk_verify(target_path)
+        if in_mem_status == "ok":
+            size = in_mem_detail.get("size") if isinstance(in_mem_detail, dict) else disk_size
+            return {
+                "status": "ok",
+                "size": size,
+                "arnumber": arnumber,
+                "post_hoc_verified": True,
+            }
+        if disk_ok and in_mem_status in ("fail", "error", "exception"):
+            return {
+                "status": "ok",
+                "size": disk_size,
+                "arnumber": arnumber,
+                "recovered_from_cdp_timeout": True,
+                "in_mem_detail": in_mem_detail,
+                "post_hoc_verified": True,
+            }
+        row = {
+            "status": in_mem_status if in_mem_status != "unknown" else "fail",
+            "detail": in_mem_detail,
+            "arnumber": arnumber,
+            "post_hoc_verified": True,
+        }
+        if disk_size:
+            row["disk_size"] = disk_size
+        return row
     finally:
         close_tab(tid)
 
@@ -107,14 +181,27 @@ def main():
         doi = entry["doi"]
         tgt = entry["target_path"]
 
-        if Path(tgt).exists() and Path(tgt).stat().st_size > 100_000:
+        # Skip already-downloaded (disk-verify: magic + 10 KB floor).
+        pre_ok, pre_size = disk_verify(tgt)
+        if pre_ok:
             print(f"[ieee] {i}/{len(queue)} {slug[:50]} SKIP (already on disk)", file=sys.stderr)
-            results.append({"slug": slug, "status": "skipped"})
+            results.append({
+                "slug": slug,
+                "status": "skipped",
+                "size": pre_size,
+                "post_hoc_verified": True,
+            })
             continue
 
         try:
             r = download_one(doi, slug, tgt)
-            if r["status"] == "ok":
+            if r["status"] == "ok" and r.get("recovered_from_cdp_timeout"):
+                print(
+                    f"[ieee] {i}/{len(queue)} {slug[:50]} RECOVERED ({r['size']:,} B on disk, "
+                    f"in-mem was {r.get('in_mem_detail')})",
+                    file=sys.stderr,
+                )
+            elif r["status"] == "ok":
                 print(f"[ieee] {i}/{len(queue)} {slug[:50]} OK ({r['size']:,} B)", file=sys.stderr)
             else:
                 print(f"[ieee] {i}/{len(queue)} {slug[:50]} FAIL: {r}", file=sys.stderr)

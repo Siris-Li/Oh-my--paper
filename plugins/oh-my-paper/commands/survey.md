@@ -211,6 +211,22 @@ venue 模式的 topic filter 只是子串级召回，三桶下载完成后，Cla
 
 3. 保存回 `.pipeline/literature/<corpus-name>/review.md`。
 
+#### 子 Agent 分发策略（必做）
+
+跨多个 corpus review 时（venue 模式下常见 10+ 个 corpus），**必须**按下面这套规则来分发，否则会出"子 agent 报完成但其实只填了一半"的问题：
+
+- **每个 corpus 必须由独立一个 subagent 负责**。不要让一个 subagent 管多个 corpus（即使它们在同一个类别下），子 agent 管多篇时会遇到 context fatigue，基于"已开始"而非"已完成"写 done 总结。
+- **所有 subagent 并行 dispatch**：在一条消息里用多个 Agent tool 调用一次性发出去，不要串行等。
+- **每个 subagent 返回 "done" 前必须自检**：在给子 agent 的 prompt 里明确要求它跑下面这条 grep 命令，确认没有未填占位符后才能报完成：
+
+  ```bash
+  grep -nE 'Summary: _\(One-sentence|Tier: _\(|Why: _\(' review.md
+  ```
+
+  如果这条命令有**任何输出** → 未填完 → 继续填，不许报 done。只有输出为空才可以返回。
+
+- **主 Agent 收到 subagent 的 done 消息后，必须再跑一次同样的 grep 做 gate**。如果还有残留占位符 → 单独为这一个 corpus 重新 dispatch 一个 subagent 去补完。这是兜底，不是可选项。
+
 4. 如果该 corpus 在 IEEE 桶里有 Tier ∈ {HIGH, MED-H, MED} 的条目，从 review.md 挑出这些 IEEE 行生成 `.pipeline/literature/<corpus-name>/ieee_download_queue.json`（schema 同 `acm_download_queue.json`：`paper_slug / doi / target_path`），然后回到 4a-ieee 跑批下载。LOW 的 IEEE 条目不下载，只留元数据。
 
 ### 4c. OCR 转 Markdown

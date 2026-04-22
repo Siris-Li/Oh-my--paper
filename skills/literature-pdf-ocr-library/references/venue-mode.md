@@ -39,6 +39,39 @@ The script writes `acm_download_queue.json` and `ieee_manifest.md` even with
 `--download-pdfs` — those buckets are NOT downloaded by `search_and_download_papers.py`
 itself. See the sections below for how to process them.
 
+### Publisher 会按年份漂移（脚本自动处理）
+
+同一个会议不同年份可能换 publisher，这是真实发生过的：
+
+- MICRO 2024 IEEE（`10.1109/*`）→ MICRO 2025 ACM（`10.1145/*`）
+- ISCA 2024 IEEE → ISCA 2025 ACM
+- DAC 2024 ACM → DAC 2025 IEEE（反向漂移）
+- HPCA 一直 IEEE
+
+脚本的桶分发是**按每条 record 的 DOI 前缀**（`10.48550` → arxiv、`10.1145` → acm、
+`10.1109` → ieee、其余 → other）做的，不是按 venue 名字。所以 publisher 漂移
+完全自动处理，不需要人工维护任何 `venue → publisher` 的映射表。
+
+**不要**在代码里加 per-venue-per-year 的 publisher 映射表。DOI 前缀就是权威信号。
+
+### Monitor 输出不是权威状态
+
+跑 `run_sweep.sh` 时常用 Monitor 串流进度。但 Monitor 会对同一个 corpus 发
+**重复/幻影事件**——同一个 `saved_records` JSON 可能在一次 run 里被打两次（一次
+中间进度、一次真完成），计数对不上。所以**不要**拿 Monitor 的日志估算
+"X venue 最后落了多少篇"，会错。
+
+权威状态来源（都是磁盘文件）：
+
+- **单篇 metadata**：`<out_dir>/papers/<slug>/metadata.json`（每篇一个目录，
+  包含 bucket / pdf_status / topic_match_kw 等字段）
+- **bucket 分发汇总**：`<out_dir>/search_results.json` 顶层的
+  `saved_records` 和 `bucket_counts` 两个字段
+- **下载结果**：`<out_dir>/acm_download_result.json` /
+  `<out_dir>/ieee_download_result.json`
+
+跨 corpus 做汇总时，遍历这些文件，不要 grep Monitor 日志。
+
 ## ACM bucket (Cloudflare — Chrome CDP required)
 
 `curl` / `requests` with any UA is blocked by Cloudflare at `dl.acm.org`. A real Chrome
