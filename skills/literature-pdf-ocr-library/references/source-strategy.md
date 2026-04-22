@@ -16,6 +16,10 @@ Use these sources in order:
 4. `Hugging Face daily_papers`
    - Discovery source for fresh ML papers.
    - Treat it as a lead source and map back to arXiv or DOI when possible.
+5. `DBLP` (venue mode only)
+   - Authoritative list of main-program papers per conference+year.
+   - Used by `--venues` for exhaustive enumeration (do NOT use for free-text search).
+   - Match venue strings exactly (case-insensitive, strip `(N)` suffix) — the DBLP `q=venue:` filter does substring matching and would otherwise catch look-alike venues (ISCA vs ISCAS vs ISCAI).
 
 ## Legal Constraints
 

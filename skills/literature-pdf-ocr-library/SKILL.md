@@ -69,6 +69,16 @@ python .claude/skills/literature-pdf-ocr-library/scripts/search_and_download_pap
   --limit 20 --sources arxiv semanticscholar openalex hf_daily \
   --download-pdfs
 
+# Download by venue+year (DBLP enumeration -> topic filter -> arxiv/acm/ieee bucketing)
+python .claude/skills/literature-pdf-ocr-library/scripts/search_and_download_papers.py \
+  --venues asplos-2024 isca-2024 hpca-2024 \
+  --out-dir .pipeline/literature/my-corpus \
+  --download-pdfs
+# Supported slugs: isca/micro/hpca/asplos/mlsys/dac/iccad x YYYY.
+# Emits acm_download_queue.json + ieee_manifest.md for the non-arxiv buckets.
+# Use --no-topic-filter to keep every venue paper; --no-download for dry-run.
+# See references/venue-mode.md for the ACM / IEEE orchestration steps.
+
 # OCR: PaddleOCR API (best quality)
 export PADDLEOCR_TOKEN="<token>"  # ask user, never hardcode
 python .claude/skills/literature-pdf-ocr-library/scripts/paddleocr_layout_to_markdown.py \
@@ -89,8 +99,11 @@ python .claude/skills/literature-pdf-ocr-library/scripts/build_library_index.py 
 
 ## Resources
 
-- Read [source-strategy.md](./references/source-strategy.md) when you need source-specific behavior, file layout conventions, or legal constraints.
-- Use `scripts/search_and_download_papers.py` for traceable search and PDF download (supports `--query` and `--arxiv-ids`).
+- Read [source-strategy.md](./references/source-strategy.md) for source-specific behavior, file layout conventions, or legal constraints.
+- Read [venue-mode.md](./references/venue-mode.md) when running `--venues` — documents the ACM (web-access + local PUT receiver) and IEEE (institutional login + per-paper fresh tab) orchestration the script alone cannot do.
+- Use `scripts/search_and_download_papers.py` for traceable search and PDF download (supports `--query`, `--arxiv-ids`, `--venues`).
+- Use `scripts/pdf_recv.py` + `scripts/download_acm_batch.py` for the ACM bucket (paired with the `web-access` skill's Chrome CDP proxy).
+- Use `scripts/download_ieee_batch.py` for the IEEE bucket once the user has logged into their institutional Xplore access in Chrome.
 - Use `scripts/paddleocr_layout_to_markdown.py` for single-file or batch OCR conversion (supports `--fallback-pdfminer`).
 - Use `scripts/build_library_index.py` to generate `library_index.json` and `library_index.jsonl`.
 - Use `scripts/ingest_literature_library.py` when the user wants the full ingestion workflow in one go.

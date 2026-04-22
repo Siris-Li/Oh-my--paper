@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import html
 import json
 import re
 import sys
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import requests
 
@@ -372,3 +374,405 @@ def discover_input_files(paths: Iterable[Path], recursive: bool = False) -> List
             if candidate.suffix.lower() in PDF_EXTENSIONS | IMAGE_EXTENSIONS:
                 discovered.append(candidate)
     return discovered
+
+
+# ============================================================================
+# Venue-mode helpers (DBLP -> OpenAlex abstract -> topic filter -> bucketing)
+# ============================================================================
+
+VENUE_SLUG_TO_DBLP = {
+    "isca": "ISCA",
+    "micro": "MICRO",
+    "hpca": "HPCA",
+    "asplos": "ASPLOS",
+    "mlsys": "MLSys",
+    "dac": "DAC",
+    "iccad": "ICCAD",
+}
+SUPPORTED_VENUE_SLUGS = sorted(VENUE_SLUG_TO_DBLP.keys())
+
+_ARXIV_ABS_OR_PDF_RE = re.compile(
+    r"arxiv\.org/(?:abs|pdf)/([0-9]{4}\.[0-9]{4,5})(?:v\d+)?(?:\.pdf)?", re.IGNORECASE
+)
+
+# Agentic-CPU topic keywords. Substring match on title+abstract (case-insensitive).
+# Any single keyword hit is sufficient (the venue filter already narrows to
+# architecture/systems conferences, so precision is high).
+TOPIC_KEYWORDS: List[str] = [
+    # Agent semantics
+    "agent", "agentic", "multi-agent", "autonomous",
+    "codex", "copilot", "tool use", "tool-use", "function calling",
+    # LLM serving / inference
+    "llm", "language model",
+    "llm serving", "llm inference", "inference engine",
+    "kv cache", "kvcache", "kv-cache", "prefix cache",
+    "speculative decoding", "mixture-of-experts", "moe",
+    # Retrieval / reasoning
+    "rag", "retrieval-augmented", "retrieval augmented",
+    "reasoning", "chain-of-thought", "chain of thought",
+    # Architecture for LLM
+    "transformer accelerator", "attention accelerator",
+]
+
+_TITLE_STOPWORDS = {
+    "for", "and", "the", "with", "via", "using", "from", "into", "over",
+    "under", "of", "on", "in", "to", "a", "an", "by",
+}
+
+
+def parse_venue_slug(slug: str) -> Tuple[str, int]:
+    """'isca-2024' -> ('ISCA', 2024). Raises ValueError on unknown / malformed."""
+    match = re.fullmatch(r"([a-zA-Z]+)-(\d{4})", slug.strip())
+    if not match:
+        raise ValueError(f"Invalid venue slug: {slug!r} (expected e.g. isca-2024)")
+    name, year_str = match.group(1).lower(), match.group(2)
+    if name not in VENUE_SLUG_TO_DBLP:
+        raise ValueError(
+            f"Unsupported venue {name!r}. Supported: {', '.join(SUPPORTED_VENUE_SLUGS)}"
+        )
+    return VENUE_SLUG_TO_DBLP[name], int(year_str)
+
+
+def _dblp_extract_authors(raw: object) -> List[str]:
+    if not isinstance(raw, dict):
+        return []
+    author = raw.get("author")
+    if isinstance(author, dict):
+        author = [author]
+    if not isinstance(author, list):
+        return []
+    names: List[str] = []
+    for item in author:
+        text = item.get("text") if isinstance(item, dict) else item
+        if isinstance(text, str) and text.strip():
+            names.append(text.strip())
+    return names
+
+
+def _dblp_extract_ee(raw: object) -> List[str]:
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, dict):
+        t = raw.get("text") or raw.get("@href")
+        return [t] if isinstance(t, str) else []
+    if isinstance(raw, list):
+        out: List[str] = []
+        for item in raw:
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, dict):
+                t = item.get("text") or item.get("@href")
+                if isinstance(t, str):
+                    out.append(t)
+        return out
+    return []
+
+
+def search_dblp_venue(venue: str, year: int, limit: int = 1000) -> List[Dict]:
+    """Fetch all accepted papers for a venue+year from DBLP."""
+    response = safe_request(
+        "https://dblp.org/search/publ/api",
+        params={"q": f"venue:{venue} year:{year}", "format": "json", "h": limit},
+    )
+    body = response.json()
+    hits = body.get("result", {}).get("hits", {}).get("hit", [])
+    if isinstance(hits, dict):
+        hits = [hits]
+
+    rows: List[Dict] = []
+    for hit in hits:
+        info = hit.get("info") or {}
+        if info.get("type") not in ("Conference and Workshop Papers", "Journal Articles"):
+            continue
+        # DBLP's venue: query does prefix/substring matching, so venue:ISCA
+        # matches ISCAS (Circuits and Systems) and ISCAI too. Filter by exact
+        # venue match (after stripping "(N)" track-number suffix).
+        v_raw = info.get("venue")
+        if isinstance(v_raw, list) and v_raw:
+            v_raw = v_raw[0]
+        if not isinstance(v_raw, str):
+            continue
+        v_clean = re.sub(r"\s*\(\d+\)\s*$", "", v_raw).strip()
+        if v_clean.lower() != venue.lower():
+            continue
+        title = (info.get("title") or "").strip().rstrip(".").strip()
+        authors = _dblp_extract_authors(info.get("authors"))
+        ee_urls = _dblp_extract_ee(info.get("ee"))
+        doi = info.get("doi")
+        year_int: Optional[int] = None
+        yr = info.get("year")
+        if yr is not None:
+            try:
+                year_int = int(str(yr))
+            except (TypeError, ValueError):
+                pass
+        venue_raw = info.get("venue")
+        if isinstance(venue_raw, list) and venue_raw:
+            venue_raw = venue_raw[0]
+        if isinstance(venue_raw, str):
+            venue_clean = re.sub(r"\s*\(\d+\)\s*$", "", venue_raw).strip()
+        else:
+            venue_clean = venue
+        venue_display = f"{venue_clean} {year_int}" if year_int else venue_clean
+        landing = info.get("url") or (ee_urls[0] if ee_urls else None)
+        rows.append(
+            {
+                "source": "dblp",
+                "title": title,
+                "authors": authors,
+                "abstract": None,
+                "year": year_int,
+                "published": None,
+                "landing_page": landing,
+                "pdf_url": None,
+                "doi": doi,
+                "arxiv_id": None,
+                "venue": venue_display,
+                "dblp_ee": ee_urls,
+                "dblp_key": info.get("key"),
+            }
+        )
+    return rows
+
+
+def _reconstruct_inverted_index(inv: object) -> Optional[str]:
+    """OpenAlex abstract is {word: [positions]}; return reconstructed text."""
+    if not isinstance(inv, dict):
+        return None
+    positions: List[Tuple[int, str]] = []
+    for word, poses in inv.items():
+        if not isinstance(poses, list):
+            continue
+        for p in poses:
+            if isinstance(p, int):
+                positions.append((p, word))
+    if not positions:
+        return None
+    positions.sort(key=lambda x: x[0])
+    return " ".join(w for _, w in positions)
+
+
+def fetch_openalex_abstract(doi: str, mailto: Optional[str] = None) -> Optional[str]:
+    """Fetch a single work's abstract from OpenAlex by DOI."""
+    if not doi:
+        return None
+    params: Dict[str, str] = {}
+    headers: Dict[str, str] = {}
+    if mailto:
+        params["mailto"] = mailto
+        headers["User-Agent"] = f"{USER_AGENT} ({mailto})"
+    try:
+        response = safe_request(
+            f"https://api.openalex.org/works/https://doi.org/{doi}",
+            params=params or None,
+            headers=headers or None,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        body = response.json()
+    except Exception:  # noqa: BLE001
+        return None
+    return _reconstruct_inverted_index(body.get("abstract_inverted_index"))
+
+
+def topic_matches(title: Optional[str], abstract: Optional[str]) -> Tuple[bool, Optional[str]]:
+    """Return (matched, first-keyword-hit) for TOPIC_KEYWORDS substring search."""
+    text = ((title or "") + " " + (abstract or "")).lower()
+    if not text.strip():
+        return False, None
+    for kw in TOPIC_KEYWORDS:
+        if kw in text:
+            return True, kw
+    return False, None
+
+
+def _title_tokens(title: str) -> set:
+    text = html.unescape(title or "").lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return {t for t in text.split() if len(t) >= 3 and t not in _TITLE_STOPWORDS}
+
+
+def search_arxiv_by_title(
+    title: str,
+    max_results: int = 10,
+    max_retries: int = 3,
+    min_year: Optional[int] = None,
+) -> Optional[Dict]:
+    """Return arxiv record matching `title` by token-overlap + year, or None.
+
+    `min_year` rejects arxiv hits published before that year. Pass
+    `target_year - 1` to allow late preprints while filtering coincidental old
+    matches -- without it, 2012-2019 arxiv papers that share 4 common tokens
+    (e.g. {tree, efficient, high, performance}) get mis-matched to 2024 venue
+    papers and their PDFs get "successfully" downloaded -- silently wrong.
+
+    Retries with exponential backoff on 429 (arxiv rate limit).
+    """
+    target = _title_tokens(title)
+    if not target:
+        return None
+    toks = sorted(target, key=lambda t: (-len(t), t))[:6]
+    query = " OR ".join(f"ti:{t}" for t in toks)
+    response = None
+    for attempt in range(max_retries):
+        try:
+            response = safe_request(
+                "https://export.arxiv.org/api/query",
+                params={
+                    "search_query": query,
+                    "max_results": max_results,
+                    "sortBy": "relevance",
+                    "sortOrder": "descending",
+                },
+            )
+            break
+        except requests.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None)
+            if status == 429 and attempt + 1 < max_retries:
+                time.sleep(5 * (attempt + 1))
+                continue
+            return None
+        except Exception:  # noqa: BLE001
+            return None
+    if response is None:
+        return None
+    try:
+        root = ET.fromstring(response.text)
+    except ET.ParseError:
+        return None
+    # Tighter: require 60% of target tokens, minimum 4.  Weak threshold led
+    # to false-positive matches like ASPLOS 2024 paper -> 2012 arxiv via 4
+    # common tokens ({tree, efficient, high, performance}).
+    required = max(4, int(0.6 * len(target)))
+    for entry in root.findall("atom:entry", ARXIV_ATOM_NS):
+        entry_id = _text(entry.find("atom:id", ARXIV_ATOM_NS))
+        if not entry_id:
+            continue
+        published = _text(entry.find("atom:published", ARXIV_ATOM_NS))
+        hit_year = int(published[:4]) if (published or "")[:4].isdigit() else None
+        if min_year is not None and hit_year is not None and hit_year < min_year:
+            continue
+        hit_title = _text(entry.find("atom:title", ARXIV_ATOM_NS))
+        hit_tok = _title_tokens(hit_title)
+        if not hit_tok:
+            continue
+        overlap = target & hit_tok
+        if (
+            hit_tok == target
+            or len(overlap) >= required
+            or len(overlap) >= max(4, int(0.75 * len(hit_tok)))
+        ):
+            return {
+                "arxiv_id": _parse_arxiv_id(entry_id),
+                "pdf_url": _arxiv_pdf_url(entry_id),
+                "landing_page": entry_id.replace("http://", "https://"),
+                "abstract": _text(entry.find("atom:summary", ARXIV_ATOM_NS)),
+                "year": hit_year,
+            }
+    return None
+
+
+def bucket_record(record: Dict, *, try_arxiv_title_match: bool = True) -> str:
+    """Assign a record to arxiv | acm | ieee | other. Mutates `record` to fill
+    arxiv_id / pdf_url when a preprint is found. Pauses briefly when it hits arxiv."""
+    # 1. ee points to arxiv directly
+    for ee in record.get("dblp_ee") or []:
+        if not isinstance(ee, str):
+            continue
+        m = _ARXIV_ABS_OR_PDF_RE.search(ee)
+        if m:
+            record["arxiv_id"] = m.group(1)
+            record["pdf_url"] = f"https://arxiv.org/pdf/{m.group(1)}.pdf"
+            return "arxiv"
+    # 2. arxiv title-match fallback (with year filter to reject coincidental old matches)
+    if try_arxiv_title_match and record.get("title"):
+        target_year = record.get("year")
+        arxiv_min_year = (int(target_year) - 1) if target_year else None
+        hit = search_arxiv_by_title(record["title"], min_year=arxiv_min_year)
+        if hit:
+            record["arxiv_id"] = hit["arxiv_id"]
+            record["pdf_url"] = hit["pdf_url"]
+            if not record.get("abstract"):
+                record["abstract"] = hit.get("abstract")
+            return "arxiv"
+    # 3. publisher DOI prefix
+    doi = record.get("doi") or ""
+    if isinstance(doi, str):
+        if doi.startswith("10.1145/"):
+            return "acm"
+        if doi.startswith("10.1109/"):
+            return "ieee"
+    return "other"
+
+
+def fetch_venue_papers(
+    venue_slugs: List[str],
+    *,
+    topic_filter: bool = True,
+    openalex_mailto: Optional[str] = None,
+    openalex_delay: float = 0.15,
+    arxiv_delay: float = 3.0,
+) -> Tuple[List[Dict], Dict[str, str]]:
+    """End-to-end venue pipeline. Returns (records, slug-level errors).
+
+    Every returned record carries a `bucket` field: "arxiv" | "acm" | "ieee" | "other".
+    """
+    all_rows: List[Dict] = []
+    errors: Dict[str, str] = {}
+    for slug in venue_slugs:
+        try:
+            venue, year = parse_venue_slug(slug)
+        except ValueError as exc:
+            errors[slug] = str(exc)
+            print(f"[warn] {exc}", file=sys.stderr)
+            continue
+        try:
+            rows = search_dblp_venue(venue, year)
+        except Exception as exc:  # noqa: BLE001
+            errors[slug] = f"dblp: {exc}"
+            print(f"[warn] dblp failed for {slug}: {exc}", file=sys.stderr)
+            continue
+        print(f"[info] {slug}: {len(rows)} DBLP hits; enriching abstracts ...", file=sys.stderr)
+
+        # Stage 1: OpenAlex abstract enrichment
+        for i, row in enumerate(rows):
+            if row.get("doi"):
+                abs_text = fetch_openalex_abstract(row["doi"], mailto=openalex_mailto)
+                if abs_text:
+                    row["abstract"] = abs_text
+                if openalex_delay > 0:
+                    time.sleep(openalex_delay)
+            if (i + 1) % 25 == 0:
+                print(f"[info] {slug}: enriched {i + 1}/{len(rows)}", file=sys.stderr)
+
+        # Stage 2: topic filter
+        if topic_filter:
+            kept: List[Dict] = []
+            for r in rows:
+                ok, kw = topic_matches(r.get("title"), r.get("abstract"))
+                if ok:
+                    r["topic_keyword"] = kw
+                    kept.append(r)
+            print(
+                f"[info] {slug}: topic filter kept {len(kept)}/{len(rows)}",
+                file=sys.stderr,
+            )
+            rows = kept
+
+        # Stage 3: bucketing (may hit arxiv API)
+        print(f"[info] {slug}: bucketing {len(rows)} papers ...", file=sys.stderr)
+        for r in rows:
+            had_arxiv_ee = any(
+                isinstance(ee, str) and _ARXIV_ABS_OR_PDF_RE.search(ee)
+                for ee in (r.get("dblp_ee") or [])
+            )
+            r["bucket"] = bucket_record(r)
+            # sleep only when the bucketing made a title-search API call
+            if not had_arxiv_ee and arxiv_delay > 0:
+                time.sleep(arxiv_delay)
+
+        all_rows.extend(rows)
+    return all_rows, errors
