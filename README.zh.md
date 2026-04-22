@@ -32,7 +32,7 @@
 
 ```bash
 # 在 Claude Code 里：
-/plugin marketplace add LigphiDonk/Oh-my--paper
+/plugin marketplace add Siris-Li/Oh-my--paper
 /plugin install omp@oh-my-paper
 ```
 
@@ -81,7 +81,7 @@ Oh My Paper 让 Claude Code **理解科研**，提供：
 ### 第一步：添加 marketplace
 
 ```bash
-/plugin marketplace add LigphiDonk/Oh-my--paper
+/plugin marketplace add Siris-Li/Oh-my--paper
 ```
 
 ### 第二步：安装插件
@@ -124,7 +124,7 @@ cp -r /path/to/oh-my-paper/plugins/oh-my-paper/. \
 ### 从本地目录安装
 
 ```bash
-git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
+git clone https://github.com/Siris-Li/Oh-my--paper.git /tmp/oh-my-paper
 # 在 Claude Code 里：
 /plugin marketplace add /tmp/oh-my-paper
 /plugin install omp@oh-my-paper
@@ -345,7 +345,7 @@ Conductor 可以把代码和实验任务交给 Codex 执行：
 
 ```bash
 # 第一步：添加 marketplace
-/plugin marketplace add LigphiDonk/Oh-my--paper
+/plugin marketplace add Siris-Li/Oh-my--paper
 
 # 第二步：安装插件
 /plugin install omp@oh-my-paper
@@ -395,7 +395,7 @@ Oh My Paper 同时提供 **Codex 插件**（`oh-my-paper-codex`），共享同�
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
+git clone https://github.com/Siris-Li/Oh-my--paper.git /tmp/oh-my-paper
 cd /tmp/oh-my-paper
 
 # 2. 一键安装
@@ -406,7 +406,7 @@ cd /tmp/oh-my-paper
 
 ```powershell
 # 1. 克隆仓库
-git clone https://github.com/LigphiDonk/Oh-my--paper.git $env:TEMP\oh-my-paper
+git clone https://github.com/Siris-Li/Oh-my--paper.git $env:TEMP\oh-my-paper
 Set-Location $env:TEMP\oh-my-paper
 
 # 2. 一键安装

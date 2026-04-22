@@ -6,8 +6,8 @@
     "name": "LigphiDonk",
     "url": "https://github.com/LigphiDonk"
   },
-  "homepage": "https://github.com/LigphiDonk/Oh-my--paper",
-  "repository": "https://github.com/LigphiDonk/Oh-my--paper",
+  "homepage": "https://github.com/Siris-Li/Oh-my--paper",
+  "repository": "https://github.com/Siris-Li/Oh-my--paper",
   "license": "MIT",
   "keywords": [
     "research",
@@ -28,9 +28,9 @@
       "Read",
       "Write"
     ],
-    "websiteURL": "https://github.com/LigphiDonk/Oh-my--paper",
-    "privacyPolicyURL": "https://github.com/LigphiDonk/Oh-my--paper",
-    "termsOfServiceURL": "https://github.com/LigphiDonk/Oh-my--paper",
+    "websiteURL": "https://github.com/Siris-Li/Oh-my--paper",
+    "privacyPolicyURL": "https://github.com/Siris-Li/Oh-my--paper",
+    "termsOfServiceURL": "https://github.com/Siris-Li/Oh-my--paper",
     "defaultPrompt": [
       "Set up a research project with Oh My Paper",
       "Run a literature survey for my paper topic",

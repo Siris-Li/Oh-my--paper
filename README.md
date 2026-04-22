@@ -32,7 +32,7 @@
 
 ```bash
 # In Claude Code:
-/plugin marketplace add LigphiDonk/Oh-my--paper
+/plugin marketplace add Siris-Li/Oh-my--paper
 /plugin install omp@oh-my-paper
 ```
 
@@ -81,7 +81,7 @@ Install it and forget about it. Your sessions get smarter. Your research gets or
 ### Step 1: Add the marketplace
 
 ```bash
-/plugin marketplace add LigphiDonk/Oh-my--paper
+/plugin marketplace add Siris-Li/Oh-my--paper
 ```
 
 ### Step 2: Install the plugin
@@ -124,7 +124,7 @@ cp -r /path/to/oh-my-paper/plugins/oh-my-paper/. \
 ### Install from Local Directory
 
 ```bash
-git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
+git clone https://github.com/Siris-Li/Oh-my--paper.git /tmp/oh-my-paper
 # In Claude Code:
 /plugin marketplace add /tmp/oh-my-paper
 /plugin install omp@oh-my-paper
@@ -344,7 +344,7 @@ If you're an AI agent installing this plugin:
 
 ```bash
 # Step 1: Add marketplace
-/plugin marketplace add LigphiDonk/Oh-my--paper
+/plugin marketplace add Siris-Li/Oh-my--paper
 
 # Step 2: Install plugin
 /plugin install omp@oh-my-paper
@@ -394,7 +394,7 @@ Oh My Paper also ships a **Codex plugin** (`oh-my-paper-codex`) that shares the 
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/LigphiDonk/Oh-my--paper.git /tmp/oh-my-paper
+git clone https://github.com/Siris-Li/Oh-my--paper.git /tmp/oh-my-paper
 cd /tmp/oh-my-paper
 
 # 2. One-command install
@@ -405,7 +405,7 @@ cd /tmp/oh-my-paper
 
 ```powershell
 # 1. Clone the repo
-git clone https://github.com/LigphiDonk/Oh-my--paper.git $env:TEMP\oh-my-paper
+git clone https://github.com/Siris-Li/Oh-my--paper.git $env:TEMP\oh-my-paper
 Set-Location $env:TEMP\oh-my-paper
 
 # 2. One-command install
