@@ -229,10 +229,11 @@ currentStage=promotion   → /codex:rescue 写推广材料
 
 使用 `/delegate` 命令委派任务。流程：
 
-1. 读取 `project_truth.md`、`agent_handoff.md`、`decision_log.md`
-2. 将上下文拼入任务描述
-3. 调用 `/codex:rescue [带上下文的完整任务描述]`
-4. 收到结果后评审：accept / revise（`--resume`）/ reject（记录 decision_log）
+1. 运行 `git rev-parse --is-inside-work-tree`。如果当前目录不是 git 仓库，先停止委派并提示用户在具体项目目录执行 `git init && git add . && git commit -m "Initial research project"`；不要在 Desktop/Home 等大目录初始化 git。
+2. 读取 `project_truth.md`、`agent_handoff.md`、`decision_log.md`
+3. 将上下文拼入任务描述
+4. 调用 `/codex:rescue [带上下文的完整任务描述]`
+5. 收到结果后评审：accept / revise（`--resume`）/ reject（记录 decision_log）
 
 **耗时任务**（实验、大量文件）加 `--background`，用 `/codex:status` 查进度。
 

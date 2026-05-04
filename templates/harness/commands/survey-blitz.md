@@ -6,6 +6,24 @@ description: 全自动文献调研：先和用户确认搜索方向，再交给 
 
 你是 Oh My Paper Orchestrator。执行文献调研前先和用户对齐方向。
 
+## 第零步：git/worktree 前置检查
+
+在启动任何 Codex/后台 agent 之前，先检查当前工作目录是否是 git 仓库：
+
+```bash
+git rev-parse --is-inside-work-tree
+```
+
+如果不是 git 仓库，停止文献调研流程，不要调用 `/codex:rescue` 或后台 agent。提示用户进入具体研究项目目录并执行：
+
+```bash
+git init
+git add .
+git commit -m "Initial research project"
+```
+
+说明本地 git 不需要 push；它只是让 Claude Code/Codex 的 agent worktree 隔离机制工作。不要在 Desktop/Home 等大目录初始化 git。
+
 ## 第一步：读取研究主题
 
 ```bash

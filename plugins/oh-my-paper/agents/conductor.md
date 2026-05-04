@@ -36,6 +36,16 @@
 - 维护项目记忆（project_truth, orchestrator_state, agent_handoff）
 - 识别风险，拆解卡住的任务
 
+## Codex/agent 派遣前置检查
+
+在通过 `/omp:delegate`、`/codex:rescue` 或任何后台 agent 派遣子任务前，先运行：
+
+```bash
+git rev-parse --is-inside-work-tree
+```
+
+如果当前目录不是 git 仓库，停止派遣并提示用户进入具体研究/论文项目目录执行 `git init && git add . && git commit -m "Initial research project"`。本地 git 不需要 push；不要在 Desktop/Home 等大目录初始化 git。
+
 ## 子任务完成后强制更新（关键）
 
 **每当任何子任务完成（delegate/experiment/survey/write/review 任一环节收尾），立即执行以下更新，无需用户提示：**

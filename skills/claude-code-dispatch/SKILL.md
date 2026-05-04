@@ -21,6 +21,16 @@ primaryIntent: Invoke Claude Code as a sub-agent for complex coding tasks
 - 大规模代码修改（超过 50 行）
 - 需要深度代码理解的任务
 
+## 调用前检查
+
+在调用 Claude Code CLI 前，先确认 `{baseDir}` 是具体项目目录且位于 git 仓库内：
+
+```bash
+git -C {baseDir} rev-parse --is-inside-work-tree
+```
+
+如果不是 git 仓库，先让用户在具体项目目录执行 `git init && git add . && git commit -m "Initial research project"`。不要在 Desktop/Home 等大目录初始化 git，也不要在非 git 目录直接启动 Claude Code 子代理。
+
 ## 调用方式
 
 ```bash

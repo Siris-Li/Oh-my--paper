@@ -137,7 +137,7 @@ git clone https://github.com/Siris-Li/Oh-my--paper.git /tmp/oh-my-paper
 These slash commands are provided by the **Claude Code plugin**.
 The Codex plugin does **not** currently auto-register `/omp-*` commands in the Codex CLI.
 
-All commands are prefixed with `/omp:`.
+All commands are prefixed with `/omp:`. Workflows that launch subagents, Codex delegation, or reviewer agents must run inside a concrete research/paper project directory. Check with `git rev-parse --is-inside-work-tree`; if that directory is not a git repository yet, run `git init && git add . && git commit -m "Initial research project"` first. Local git is enough, no push required, and do not initialize git in Desktop/Home or another broad parent directory.
 
 | Command | What It Does |
 |---------|-------------|

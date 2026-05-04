@@ -36,7 +36,15 @@
 
 ## 自主 Dispatch 方式
 
-当任务明确时，直接调用：
+当任务明确时，先确认当前目录是 git 仓库：
+
+```bash
+git rev-parse --is-inside-work-tree
+```
+
+如果不是 git 仓库，停止 dispatch，并提示用户进入具体研究项目目录执行 `git init && git add . && git commit -m "Initial research project"`。本地 git 不需要 push；不要在 Desktop/Home 等大目录初始化 git。
+
+确认后再调用：
 
 ```bash
 node .claude/hooks/dispatch-agent.mjs --agent codex --task "具体任务描述" --timeout 300

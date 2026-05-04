@@ -137,7 +137,7 @@ git clone https://github.com/Siris-Li/Oh-my--paper.git /tmp/oh-my-paper
 这些命令由 **Claude Code 插件**提供。
 Codex 插件目前**不会**在 Codex CLI 里自动注册 `/omp-*` 命令。
 
-所有命令以 `/omp:` 开头。
+所有命令以 `/omp:` 开头。涉及 subagent、Codex 委派或 reviewer agent 的流程需要在具体研究/论文项目目录里运行，先用 `git rev-parse --is-inside-work-tree` 检查；如果目录还不是 git 仓库，执行 `git init && git add . && git commit -m "Initial research project"`（只需本地 git，不需要 push，且不要在 Desktop/Home 等大目录初始化）。
 
 | 命令 | 作用 |
 |------|------|

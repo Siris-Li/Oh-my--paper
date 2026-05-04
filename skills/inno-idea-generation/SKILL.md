@@ -41,6 +41,16 @@ Facilitates structured brainstorming sessions, conducts comprehensive research, 
 
 Use this skill when the user request matches its research workflow scope. Prefer the bundled resources instead of recreating templates or reference material. Keep outputs traceable to project files, citations, scripts, or upstream evidence.
 
+## git/worktree Precheck
+
+Before launching any parallel subagent or background agent from this skill, verify the current directory is the concrete research project and is inside a git repository:
+
+```bash
+git rev-parse --is-inside-work-tree
+```
+
+If it is not a git repository, stop the subagent workflow and ask the user to run `git init && git add . && git commit -m "Initial research project"` in the concrete project directory. Local git is enough; do not initialize git in Desktop/Home or another broad parent directory.
+
 ## Resource Use Rules
 
 - Treat `scripts/` as optional helpers. Run them only when their dependencies are available, keep outputs in the project workspace, and explain a manual fallback if execution is blocked.

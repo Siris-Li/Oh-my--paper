@@ -47,6 +47,8 @@ const TMUX_SESSION = "viwerleaf";
 // ─── 主流程 ───────────────────────────────────────────────────────────────────
 
 async function main() {
+  assertGitWorkTree(PROJECT);
+
   const dispatchDir = path.join(PROJECT, ".pipeline", ".dispatch", TASK_ID);
   await fs.mkdir(dispatchDir, { recursive: true });
 
@@ -264,6 +266,25 @@ function ensureTmuxSession(projectRoot) {
 }
 
 // ─── 工具函数 ─────────────────────────────────────────────────────────────────
+
+function assertGitWorkTree(projectRoot) {
+  try {
+    const inside = execFileSync("git", ["-C", projectRoot, "rev-parse", "--is-inside-work-tree"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (inside === "true") return;
+  } catch {
+    // fall through to the actionable error below
+  }
+
+  throw new Error([
+    `project root is not a git repository: ${projectRoot}`,
+    "Initialize local git in the concrete research project directory before dispatching agents:",
+    "  git init && git add . && git commit -m \"Initial research project\"",
+    "Do not initialize git in Desktop/Home or another broad parent directory.",
+  ].join("\n"));
+}
 
 function shellQuote(str) {
   return `'${str.replace(/'/g, "'\\''")}'`;
