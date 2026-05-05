@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const RESEARCH_SKILL_IDS = [
   "academic-researcher",
@@ -70,7 +71,7 @@ const STAGE_FALLBACKS = {
 
 const DEFAULT_TOOLS = ["read_file", "search_project", "write_file"];
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputSkillsRoot = path.join(repoRoot, "skills");
 const outputCatalogPath = path.join(outputSkillsRoot, "research-catalog.json");
 const outputStageMapPath = path.join(outputSkillsRoot, "research-stage-map.json");
