@@ -65,11 +65,6 @@ which codex 2>/dev/null && codex --version 2>/dev/null || echo "Codex not found"
 
 ```bash
 mkdir -p .pipeline/memory .pipeline/tasks .pipeline/docs .pipeline/.hook-events .claude/skills
-if [ ! -d "${CLAUDE_PLUGIN_ROOT}/skills" ]; then
-  echo "OMP plugin skill resources are missing: ${CLAUDE_PLUGIN_ROOT}/skills" >&2
-  echo "Reinstall the omp plugin from the updated marketplace, then rerun /omp:setup." >&2
-  exit 1
-fi
 cp -rn "${CLAUDE_PLUGIN_ROOT}/skills/." .claude/skills/
 ```
 
