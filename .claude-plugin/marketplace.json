@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "AI-powered academic research harness for Claude Code. Orchestrate literature surveys, idea generation, experiments, and paper writing with Codex delegation.",
-    "version": "1.0.1"
+    "version": "1.0.0"
   },
   "plugins": [
     {
       "name": "omp",
       "description": "Research harness: delegate to Codex, track memory across sessions, drive the full survey→ideation→experiment→publication pipeline.",
-      "version": "1.0.1",
+      "version": "1.0.0",
       "author": {
         "name": "LigphiDonk"
       },
